@@ -225,6 +225,7 @@ mod sysvar_cache;
 #[cfg(test)]
 pub(crate) mod tests;
 mod transaction_account_state_info;
+mod upgrade_core_bpf_program;
 
 pub const SECONDS_PER_YEAR: f64 = 365.25 * 24.0 * 60.0 * 60.0;
 

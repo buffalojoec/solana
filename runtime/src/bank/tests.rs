@@ -8,6 +8,10 @@ use {
     },
     crate::{
         accounts_background_service::{PrunedBanksRequestHandler, SendDroppedBankCallback},
+        bank::upgrade_core_bpf_program::{
+            migrate_native_program_to_core_bpf, upgrade_core_bpf_program, NativeProgram,
+            UpgradeCoreBpfProgramError,
+        },
         bank_client::BankClient,
         bank_forks::BankForks,
         epoch_rewards_hasher::hash_rewards_into_partitions,
@@ -7825,6 +7829,144 @@ fn min_rent_exempt_balance_for_sysvars(bank: &Bank, sysvar_ids: &[Pubkey]) -> u6
             )
         })
         .sum()
+}
+
+fn test_core_bpf_set_up_account<T: serde::Serialize>(
+    bank: &Bank,
+    pubkey: &Pubkey,
+    executable: bool,
+    owner: &Pubkey,
+    state: &T,
+) -> AccountSharedData {
+    let data_len = bincode::serialized_size(state).unwrap() as usize;
+    let lamports = bank.get_minimum_balance_for_rent_exemption(data_len);
+    let mut account = AccountSharedData::from(Account {
+        lamports,
+        owner: *owner,
+        executable,
+        data: vec![0u8; data_len],
+        ..Account::default()
+    });
+    account.serialize_data(state).unwrap();
+    bank.store_account_and_update_capitalization(pubkey, &account);
+    assert_eq!(bank.get_balance(pubkey), lamports);
+    account
+}
+
+#[test_case(NativeProgram::AddressLookupTable)]
+#[test_case(NativeProgram::BpfLoader)]
+#[test_case(NativeProgram::BpfLoaderUpgradeable)]
+#[test_case(NativeProgram::ComputeBudget)]
+#[test_case(NativeProgram::Config)]
+#[test_case(NativeProgram::Ed25519)]
+#[test_case(NativeProgram::FeatureGate)]
+#[test_case(NativeProgram::NativeLoader)]
+#[test_case(NativeProgram::Secp256k1)]
+#[test_case(NativeProgram::System)]
+#[test_case(NativeProgram::Stake)]
+#[test_case(NativeProgram::Vote)]
+fn test_migrate_native_program(target: NativeProgram) {
+    let bank = create_simple_test_bank(0);
+    let expected_capitalization =
+        bank.capitalization() - bank.get_account(&target.id()).unwrap().lamports();
+
+    let source_address = Pubkey::new_unique();
+    let example_program_state = vec![0u8; 4];
+
+    // Fail account not found
+    assert_eq!(
+        migrate_native_program_to_core_bpf(&bank, target, &source_address, "").unwrap_err(),
+        Err(UpgradeCoreBpfProgramError::AccountNotFound(source_address))
+    );
+
+    // Fail wrong owner
+    test_core_bpf_set_up_account(
+        &bank,
+        &source_address,
+        true,
+        &bpf_loader_upgradeable::id(),
+        example_program_state,
+    );
+    assert_eq!(
+        migrate_native_program_to_core_bpf(&bank, target, &source_address, "").unwrap_err(),
+        Err(UpgradeCoreBpfProgramError::IncorrectOwner(source_address))
+    );
+
+    // Fail account not executable
+    test_core_bpf_set_up_account(
+        &bank,
+        &source_address,
+        false,
+        &bpf_loader::id(),
+        example_program_state,
+    );
+    assert_eq!(
+        migrate_native_program_to_core_bpf(&bank, target, &source_address, "").unwrap_err(),
+        Err(UpgradeCoreBpfProgramError::AccountNotExecutable(
+            source_address
+        ))
+    );
+
+    // Fail program has data account
+    let source_data_address =
+        Pubkey::find_program_address(&[source_address.as_ref()], &bpf_loader_upgradeable::id()).0;
+    test_core_bpf_set_up_account(
+        &bank,
+        &source_address,
+        true,
+        &bpf_loader::id(),
+        &UpgradeableLoaderState::Program {
+            programdata_address: source_data_address,
+        },
+    );
+    test_core_bpf_set_up_account(
+        &bank,
+        &source_data_address,
+        true,
+        &bpf_loader::id(),
+        example_program_state,
+    );
+    assert_eq!(
+        migrate_native_program_to_core_bpf(&bank, target, &source_address, "").unwrap_err(),
+        Err(UpgradeCoreBpfProgramError::ProgramHasDataAccount(
+            source_address
+        ))
+    );
+
+    // Success
+    let pre_migration_source_account = test_core_bpf_set_up_account(
+        &bank,
+        &source_address,
+        true,
+        &bpf_loader::id(),
+        example_program_state,
+    );
+    migrate_native_program_to_core_bpf(&bank, target, &source_address, "").unwrap();
+
+    // Assert the target account is the same as the original source account
+    let post_migration_target_account = bank.get_account(&target.id()).unwrap();
+    assert_eq!(pre_migration_source_account, post_migration_target_account);
+    // Assert the source account was deleted
+    let post_migration_source_account = bank.get_account(&source_address);
+    assert!(post_migration_source_account.is_none());
+    // Assert the lamports of the target account were burnt
+    assert_eq!(bank.capitalization(), expected_capitalization);
+}
+
+#[test_case(NativeProgram::AddressLookupTable)]
+#[test_case(NativeProgram::BpfLoader)]
+#[test_case(NativeProgram::BpfLoaderUpgradeable)]
+#[test_case(NativeProgram::ComputeBudget)]
+#[test_case(NativeProgram::Config)]
+#[test_case(NativeProgram::Ed25519)]
+#[test_case(NativeProgram::FeatureGate)]
+#[test_case(NativeProgram::NativeLoader)]
+#[test_case(NativeProgram::Secp256k1)]
+#[test_case(NativeProgram::System)]
+#[test_case(NativeProgram::Stake)]
+#[test_case(NativeProgram::Vote)]
+fn test_upgrade_core_bpf_program(target: NativeProgram) {
+    todo!()
 }
 
 #[test]
