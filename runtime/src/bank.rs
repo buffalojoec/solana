@@ -7881,7 +7881,7 @@ impl Bank {
         }
 
         if new_feature_activations.contains(&feature_set::programify_feature_gate::id()) {
-            if let Err(_) = migrate_native_program::migrate_native_program_to_bpf_upgradeable(
+            if let Err(e) = migrate_native_program::migrate_native_program_to_bpf_upgradeable(
                 &self,
                 migrate_native_program::NativeProgram::FeatureGate,
                 &Pubkey::from_str("53dbcSybKZdhinAx2zvgjfgesYRiat6EQF3oj1bGgCJE").unwrap(),
@@ -7889,6 +7889,7 @@ impl Bank {
             ) {
                 // Fallibility ignored for testing (!!)
                 warn!("Failed to migrate native program to BPF upgradeable");
+                warn!("Error: {:?}", e);
             }
         }
     }
