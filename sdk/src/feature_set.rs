@@ -760,7 +760,7 @@ pub mod deprecate_executable_meta_update_in_bpf_loader {
     solana_sdk::declare_id!("k6uR1J9VtKJnTukBV2Eo15BEy434MBg8bT6hHQgmU8v");
 }
 
-pub mod programify_feature_gate {
+pub mod migrate_address_lookup_table_to_bpf {
     solana_sdk::declare_id!("E4aWLLtPTir1mp2TBTEP8uGB3kJcZA453KbCD23Q7DnL");
 }
 
@@ -949,7 +949,7 @@ lazy_static! {
         (merkle_conflict_duplicate_proofs::id(), "generate duplicate proofs for merkle root conflicts #34270"),
         (disable_bpf_loader_instructions::id(), "disable bpf loader management instructions #34194"),
         (deprecate_executable_meta_update_in_bpf_loader::id(), "deprecate executable meta flag update in bpf loader #34194"),
-        (programify_feature_gate::id(), "[TEST]: Programify feature gate"),
+        (migrate_address_lookup_table_to_bpf::id(), "[TEST]: Migrate Address Lookup Table to BPF"),
         /*************** ADD NEW FEATURES HERE ***************/
     ]
     .iter()

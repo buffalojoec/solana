@@ -7880,12 +7880,12 @@ impl Bank {
             self.apply_updated_hashes_per_tick(UPDATED_HASHES_PER_TICK6);
         }
 
-        if new_feature_activations.contains(&feature_set::programify_feature_gate::id()) {
+        if new_feature_activations.contains(&feature_set::migrate_address_lookup_table_to_bpf::id()) {
             if let Err(e) = migrate_native_program::migrate_native_program_to_bpf_upgradeable(
                 &self,
-                migrate_native_program::NativeProgram::FeatureGate,
+                migrate_native_program::NativeProgram::AddressLookupTable,
                 &Pubkey::from_str("53dbcSybKZdhinAx2zvgjfgesYRiat6EQF3oj1bGgCJE").unwrap(),
-                "programify_feature_gate",
+                "migrate_address_lookup_table_to_bpf",
             ) {
                 // Fallibility ignored for testing (!!)
                 warn!("Failed to migrate native program to BPF upgradeable");
