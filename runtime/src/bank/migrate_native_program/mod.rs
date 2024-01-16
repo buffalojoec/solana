@@ -179,7 +179,7 @@ pub(crate) fn migrate_native_program_to_bpf_upgradeable(
     bank.loaded_programs_cache
         .write()
         .unwrap()
-        .remove_programs([source.program_address, target.program_address].into_iter());
+        .remove_programs([target.program_address].into_iter());
 
     Ok(())
 }
