@@ -447,23 +447,32 @@ impl<'a> InvokeContext<'a> {
         let mut process_executable_chain_time = Measure::start("process_executable_chain_time");
 
         let builtin_id = {
+            log::info!("Attempting to find program account from transaction context at index 0");
             let borrowed_root_account = instruction_context
                 .try_borrow_program_account(self.transaction_context, 0)
                 .map_err(|_| InstructionError::UnsupportedProgramId)?;
             let owner_id = borrowed_root_account.get_owner();
+            log::info!("Found it.");
+            log::info!("Program ID: {:?}", borrowed_root_account.get_key());
+            log::info!("Owner:      {:?}", owner_id);
             if native_loader::check_id(owner_id) {
+                log::info!("Is owned by native loader.");
                 *borrowed_root_account.get_key()
             } else {
+                log::info!("Is _not_ owned by native loader.");
                 *owner_id
             }
         };
 
         // The Murmur3 hash value (used by RBPF) of the string "entrypoint"
         const ENTRYPOINT_KEY: u32 = 0x71E3CF81;
+        log::info!("Attempting to find entry for builtin ID: {:?}", builtin_id);
         let entry = self
             .programs_loaded_for_tx_batch
             .find(&builtin_id)
             .ok_or(InstructionError::UnsupportedProgramId)?;
+        log::info!("Found it.");
+        log::info!("Attempting to load program function for program: {:?}", &entry.program);
         let function = match &entry.program {
             LoadedProgramType::Builtin(program) => program
                 .get_function_registry()
@@ -472,6 +481,8 @@ impl<'a> InvokeContext<'a> {
             _ => None,
         }
         .ok_or(InstructionError::UnsupportedProgramId)?;
+        log::info!("Found it.");
+        log::info!("Proceeding with invoke context...");
         entry.ix_usage_counter.fetch_add(1, Ordering::Relaxed);
 
         let program_id = *instruction_context.get_last_program_key(self.transaction_context)?;
