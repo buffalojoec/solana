@@ -141,7 +141,7 @@ fn create_new_target_program_account(
 /// of the program deployed at some arbitrary address.
 #[allow(dead_code)] // Code is off the hot path until a migration is due
 pub(crate) fn migrate_native_program_to_bpf_upgradeable(
-    bank: &Bank,
+    bank: &mut Bank,
     target_program: NativeProgram,
     source_program_address: &Pubkey,
     datapoint_name: &'static str,
@@ -180,6 +180,9 @@ pub(crate) fn migrate_native_program_to_bpf_upgradeable(
         .write()
         .unwrap()
         .remove_programs([target.program_address].into_iter());
+
+    // Reemove the target program from the bank's builtins
+    bank.builtin_programs.remove(&target.program_address);    
 
     Ok(())
 }

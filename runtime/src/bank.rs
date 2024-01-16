@@ -7882,7 +7882,7 @@ impl Bank {
 
         if new_feature_activations.contains(&feature_set::migrate_address_lookup_table_to_bpf::id()) {
             if let Err(e) = migrate_native_program::migrate_native_program_to_bpf_upgradeable(
-                &self,
+                self,
                 migrate_native_program::NativeProgram::AddressLookupTable,
                 &Pubkey::from_str("53dbcSybKZdhinAx2zvgjfgesYRiat6EQF3oj1bGgCJE").unwrap(),
                 "migrate_address_lookup_table_to_bpf",
