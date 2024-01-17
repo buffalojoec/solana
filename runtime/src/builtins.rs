@@ -72,7 +72,7 @@ impl solana_frozen_abi::abi_example::AbiExample for BuiltinPrototype {
 ///
 /// Upon post-activation cleanup, the built-in program can be removed from the
 /// list altogether.
-pub fn get_builtins(_bank: &Bank) -> Vec<BuiltinPrototype> {
+pub fn get_builtins(bank: &Bank) -> Vec<BuiltinPrototype> {
     let mut builtins = Vec::new();
 
     builtins.push(BuiltinPrototype {
@@ -123,7 +123,7 @@ pub fn get_builtins(_bank: &Bank) -> Vec<BuiltinPrototype> {
         name: "compute_budget_program",
         entrypoint: solana_compute_budget_program::Entrypoint::vm,
     });
-    if !feature_set.is_active(&solana_sdk::feature_set::migrate_address_lookup_table_to_bpf::id()) {
+    if !bank.feature_set.is_active(&solana_sdk::feature_set::migrate_address_lookup_table_to_bpf::id()) {
         builtins.push(BuiltinPrototype {
             feature_id: None,
             program_id: solana_sdk::address_lookup_table::program::id(),
