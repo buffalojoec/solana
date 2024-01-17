@@ -5962,7 +5962,7 @@ impl Bank {
                 .iter()
                 .chain(additional_builtins.unwrap_or(&[]).iter())
             {
-                if builtin.feature_id.is_none() {
+                if builtin.enable_feature_id.is_none() && builtin.disable_feature_id.is_none() {
                     self.add_builtin(
                         builtin.program_id,
                         builtin.name.to_string(),
@@ -7294,29 +7294,53 @@ impl Bank {
         (FeatureSet { active, inactive }, pending)
     }
 
+    fn should_apply_builtin_feature_action(
+        &self,
+        feature_id: &Pubkey,
+        only_apply_transitions_for_new_features: bool,
+        new_feature_activations: &HashSet<Pubkey>,
+    ) -> bool {
+        if only_apply_transitions_for_new_features {
+            new_feature_activations.contains(feature_id)
+        } else {
+            self.feature_set.is_active(feature_id)
+        }
+    }
+
     fn apply_builtin_program_feature_transitions(
         &mut self,
         only_apply_transitions_for_new_features: bool,
         new_feature_activations: &HashSet<Pubkey>,
     ) {
         for builtin in BUILTINS.iter() {
-            if let Some(feature_id) = builtin.feature_id {
-                let should_apply_action_for_feature_transition =
-                    if only_apply_transitions_for_new_features {
-                        new_feature_activations.contains(&feature_id)
-                    } else {
-                        self.feature_set.is_active(&feature_id)
-                    };
-                if should_apply_action_for_feature_transition {
+            // Activate builtins via feature activation
+            if let Some(enable_feature_id) = builtin.enable_feature_id {
+                if self.should_apply_builtin_feature_action(
+                    &enable_feature_id,
+                    only_apply_transitions_for_new_features,
+                    new_feature_activations,
+                ) {
                     self.add_builtin(
                         builtin.program_id,
                         builtin.name.to_string(),
                         LoadedProgram::new_builtin(
-                            self.feature_set.activated_slot(&feature_id).unwrap_or(0),
+                            self.feature_set
+                                .activated_slot(&enable_feature_id)
+                                .unwrap_or(0),
                             builtin.name.len(),
                             builtin.entrypoint,
                         ),
                     );
+                }
+            }
+            // _Deactivate_ builtins via feature activation
+            if let Some(disable_feature_id) = builtin.disable_feature_id {
+                if self.should_apply_builtin_feature_action(
+                    &disable_feature_id,
+                    only_apply_transitions_for_new_features,
+                    new_feature_activations,
+                ) {
+                    self.remove_builtin(builtin.program_id, builtin.name.to_string())
                 }
             }
         }
