@@ -113,7 +113,7 @@ impl<'a> SnapshotMinimizer<'a> {
 
     /// Used to get builtin accounts in `minimize`
     fn get_builtins(&self) {
-        BUILTINS.iter().for_each(|e| {
+        self.bank.get_builtins().iter().for_each(|e| {
             self.minimized_account_set.insert(e.program_id);
         });
     }

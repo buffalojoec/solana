@@ -44,7 +44,7 @@ use {
     crate::{
         bank::metrics::*,
         bank_forks::BankForks,
-        builtins::{BuiltinPrototype, BUILTINS},
+        builtins::{BuiltinPrototype, get_builtins},
         epoch_rewards_hasher::hash_rewards_into_partitions,
         epoch_stakes::{EpochStakes, NodeVoteAccounts},
         installed_scheduler_pool::{BankWithScheduler, InstalledSchedulerRwLock},
@@ -1940,6 +1940,10 @@ impl Bank {
 
     pub fn bank_id(&self) -> BankId {
         self.bank_id
+    }
+
+    pub fn get_builtins(&self) -> Vec<BuiltinPrototype> {
+        get_builtins(&self)
     }
 
     pub fn epoch(&self) -> Epoch {
@@ -6586,7 +6590,7 @@ impl Bank {
         );
 
         if !debug_do_not_add_builtins {
-            for builtin in BUILTINS
+            for builtin in self.get_builtins()
                 .iter()
                 .chain(additional_builtins.unwrap_or(&[]).iter())
             {
@@ -7931,7 +7935,7 @@ impl Bank {
         only_apply_transitions_for_new_features: bool,
         new_feature_activations: &HashSet<Pubkey>,
     ) {
-        for builtin in BUILTINS.iter() {
+        for builtin in self.get_builtins().iter() {
             if let Some(feature_id) = builtin.feature_id {
                 let should_apply_action_for_feature_transition =
                     if only_apply_transitions_for_new_features {
