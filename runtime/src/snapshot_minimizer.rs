@@ -114,6 +114,13 @@ impl<'a> SnapshotMinimizer<'a> {
     /// Used to get builtin accounts in `minimize`
     fn get_builtins(&self) {
         BUILTINS.iter().for_each(|e| {
+            if let Some(disable_feature_id) = e.disable_feature_id {
+                // If the built-in program has been deactivated, don't add it
+                // to the set
+                if self.bank.feature_set.is_active(&disable_feature_id) {
+                    return;
+                }
+            };
             self.minimized_account_set.insert(e.program_id);
         });
     }
