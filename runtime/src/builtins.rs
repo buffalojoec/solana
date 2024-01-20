@@ -1,4 +1,6 @@
+#![allow(dead_code)] // TODO: Removed in future commit
 use {
+    crate::bank::Bank,
     solana_program_runtime::invoke_context::BuiltinFunctionWithContext,
     solana_sdk::{
         bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, feature_set, pubkey::Pubkey,
@@ -124,3 +126,60 @@ pub static BUILTINS: &[BuiltinPrototype] = &[
         entrypoint: solana_loader_v4_program::Entrypoint::vm,
     },
 ];
+
+/// Enum used to identify built-ins for the purpose of setting up a migration
+/// to BPF.
+pub(crate) enum Builtin {
+    AddressLookupTable,
+    BpfLoader,
+    BpfLoaderDeprecated,
+    BpfLoaderUpgradeable,
+    ComputeBudget,
+    Config,
+    FeatureGate,
+    LoaderV4,
+    NativeLoader,
+    Stake,
+    System,
+    Vote,
+    ZkTokenProof,
+}
+impl Builtin {
+    pub(crate) fn program_id(&self) -> Pubkey {
+        match self {
+            Builtin::AddressLookupTable => solana_sdk::address_lookup_table::program::id(),
+            Builtin::BpfLoader => bpf_loader::id(),
+            Builtin::BpfLoaderDeprecated => bpf_loader_deprecated::id(),
+            Builtin::BpfLoaderUpgradeable => bpf_loader_upgradeable::id(),
+            Builtin::ComputeBudget => solana_sdk::compute_budget::id(),
+            Builtin::Config => solana_config_program::id(),
+            Builtin::FeatureGate => solana_sdk::feature::id(),
+            Builtin::LoaderV4 => solana_sdk::loader_v4::id(),
+            Builtin::NativeLoader => solana_sdk::native_loader::id(),
+            Builtin::Stake => solana_stake_program::id(),
+            Builtin::System => solana_system_program::id(),
+            Builtin::Vote => solana_vote_program::id(),
+            Builtin::ZkTokenProof => solana_zk_token_sdk::zk_token_proof_program::id(),
+        }
+    }
+
+    pub(crate) fn program_should_exist(&self, bank: &Bank) -> bool {
+        let program_id = self.program_id();
+        if let Some(prototype) = BUILTINS.iter().find(|p| p.program_id == program_id) {
+            // If the activation feature is active, the program account should
+            // exist
+            if let Some(enable_feature_id) = prototype.enable_feature_id {
+                return bank.feature_set.is_active(&enable_feature_id);
+            }
+            // If the _deactivation_ feature is active, the program account
+            // should not exist
+            if let Some(disable_feature_id) = prototype.disable_feature_id {
+                return !bank.feature_set.is_active(&disable_feature_id);
+            }
+            return true;
+        }
+        // If the program is not listed as a built-in, then the program account
+        // should not exist
+        false
+    }
+}
