@@ -18,4 +18,7 @@ pub enum MigrateBuiltinError {
     /// Program has a data account
     #[error("Data account exists for program {0:?}")]
     ProgramHasDataAccount(Pubkey),
+    /// Invalid program account
+    #[error("Invalid program account: {0:?}")]
+    InvalidProgramAccount(Pubkey),
 }
