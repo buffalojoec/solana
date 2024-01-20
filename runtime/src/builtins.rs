@@ -1,4 +1,3 @@
-#![allow(dead_code)] // TODO: Removed in future commit
 use {
     crate::bank::Bank,
     solana_program_runtime::invoke_context::BuiltinFunctionWithContext,
@@ -129,6 +128,7 @@ pub static BUILTINS: &[BuiltinPrototype] = &[
 
 /// Enum used to identify built-ins for the purpose of setting up a migration
 /// to BPF.
+#[allow(dead_code)] // Code is off the hot path until a migration is due
 pub(crate) enum Builtin {
     AddressLookupTable,
     BpfLoader,
