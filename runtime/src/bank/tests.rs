@@ -8,7 +8,7 @@ use {
     },
     crate::{
         accounts_background_service::{PrunedBanksRequestHandler, SendDroppedBankCallback},
-        bank::migrate_builtin::migrate_builtin_to_bpf,
+        bank::migrate_builtin::{migrate_builtin_to_bpf, migrate_builtin_to_bpf_upgradeable},
         bank_client::BankClient,
         bank_forks::BankForks,
         builtins::Builtin,
@@ -61,7 +61,7 @@ use {
         },
         account_utils::StateMut,
         bpf_loader,
-        bpf_loader_upgradeable::{self, UpgradeableLoaderState},
+        bpf_loader_upgradeable::{self, get_program_data_address, UpgradeableLoaderState},
         client::SyncClient,
         clock::{
             BankId, Epoch, Slot, UnixTimestamp, DEFAULT_HASHES_PER_TICK, DEFAULT_SLOTS_PER_EPOCH,
@@ -8123,6 +8123,114 @@ fn test_migrate_builtin_to_bpf(target: Builtin) {
     // Assert the source account was cleared
     let post_migration_source_account = bank.get_account(&source_program_address);
     assert!(post_migration_source_account.is_none());
+
+    // Assert the lamports of the target account were burnt
+    assert_eq!(bank.capitalization(), expected_capitalization);
+}
+
+#[test_case(Builtin::AddressLookupTable)]
+#[test_case(Builtin::BpfLoader)]
+#[test_case(Builtin::BpfLoaderDeprecated)]
+#[test_case(Builtin::BpfLoaderUpgradeable)]
+#[test_case(Builtin::ComputeBudget)]
+#[test_case(Builtin::Config)]
+#[test_case(Builtin::FeatureGate)]
+#[test_case(Builtin::LoaderV4)]
+#[test_case(Builtin::NativeLoader)]
+#[test_case(Builtin::Stake)]
+#[test_case(Builtin::System)]
+#[test_case(Builtin::Vote)]
+#[test_case(Builtin::ZkTokenProof)]
+fn test_migrate_builtin_to_bpf_upgradeable(target: Builtin) {
+    let bank = create_simple_test_bank(0);
+
+    let target_program_address = target.program_id();
+    let (target_program_data_address, _) = get_program_data_address(&target_program_address);
+
+    let source_program_address = Pubkey::new_unique();
+    let (source_program_data_address, _) = get_program_data_address(&source_program_address);
+
+    let source_upgrade_authority = Pubkey::new_unique();
+
+    setup_program_account_for_tests(
+        &bank,
+        &source_program_address,
+        (
+            &UpgradeableLoaderState::Program {
+                programdata_address: source_program_data_address,
+            },
+            None,
+        ),
+        &bpf_loader_upgradeable::id(),
+        true,
+    );
+    setup_program_account_for_tests(
+        &bank,
+        &source_program_data_address,
+        (
+            &UpgradeableLoaderState::ProgramData {
+                slot: 0,
+                upgrade_authority_address: Some(source_upgrade_authority),
+            },
+            Some(&[4u8; 200]),
+        ),
+        &bpf_loader_upgradeable::id(),
+        false,
+    );
+
+    let original_source_program_data_account =
+        bank.get_account(&source_program_data_address).unwrap();
+    let expected_capitalization = bank.capitalization()
+        - bank
+            .get_account(&target_program_address)
+            .map(|account| account.lamports())
+            .unwrap_or_default();
+
+    // Perform the migration
+    migrate_builtin_to_bpf_upgradeable(
+        &bank,
+        &target,
+        &source_program_address,
+        "migrate_native_program",
+    )
+    .unwrap();
+
+    // Assert the new target account holds a pointer to its data account
+    let expected_data = bincode::serialize(&UpgradeableLoaderState::Program {
+        programdata_address: target_program_data_address,
+    })
+    .unwrap();
+    let post_migration_target_account = bank.get_account(&target_program_address).unwrap();
+    assert_eq!(post_migration_target_account.data(), &expected_data);
+
+    // Assert the target data account is the same as the original source data account
+    let post_migration_target_data_account =
+        bank.get_account(&target_program_data_address).unwrap();
+    assert_eq!(
+        original_source_program_data_account,
+        post_migration_target_data_account
+    );
+
+    // Assert the upgrade authority was preserved
+    let programdata_data_offset = UpgradeableLoaderState::size_of_programdata_metadata();
+    assert_eq!(
+        bincode::deserialize::<UpgradeableLoaderState>(
+            &post_migration_target_data_account.data()[..programdata_data_offset]
+        )
+        .unwrap(),
+        UpgradeableLoaderState::ProgramData {
+            slot: 0,
+            upgrade_authority_address: Some(source_upgrade_authority),
+        }
+    );
+
+    // Assert the source account was cleared
+    let post_migration_source_account = bank.get_account(&source_program_address);
+    assert!(post_migration_source_account.is_none());
+
+    // Assert the source data account was cleared
+    let post_migration_source_data_account = bank.get_account(&source_program_data_address);
+    assert!(post_migration_source_data_account.is_none());
 
     // Assert the lamports of the target account were burnt
     assert_eq!(bank.capitalization(), expected_capitalization);

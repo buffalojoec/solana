@@ -33,4 +33,7 @@ pub enum MigrateBuiltinError {
     /// Arithmetic overflow
     #[error("Arithmetic overflow")]
     ArithmeticOverflow,
+    /// Failed to serialize new program account
+    #[error("Failed to serialize new program account")]
+    FailedToSerialize,
 }
