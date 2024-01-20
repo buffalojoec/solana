@@ -1,4 +1,3 @@
-#![allow(dead_code)] // TODO: Removed in future commit
 use {
     super::error::MigrateBuiltinError,
     crate::{bank::Bank, builtins::Builtin},
