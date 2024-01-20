@@ -206,6 +206,7 @@ mod builtin_programs;
 pub mod epoch_accounts_hash_utils;
 mod fee_distribution;
 mod metrics;
+mod migrate_builtin;
 mod serde_snapshot;
 mod sysvar_cache;
 #[cfg(test)]
