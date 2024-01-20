@@ -8,8 +8,10 @@ use {
     },
     crate::{
         accounts_background_service::{PrunedBanksRequestHandler, SendDroppedBankCallback},
+        bank::migrate_builtin::migrate_builtin_to_bpf,
         bank_client::BankClient,
         bank_forks::BankForks,
+        builtins::Builtin,
         epoch_rewards_hasher::hash_rewards_into_partitions,
         genesis_utils::{
             self, activate_all_features, activate_feature, bootstrap_validator_stake_lamports,
@@ -7964,6 +7966,90 @@ fn min_rent_exempt_balance_for_sysvars(bank: &Bank, sysvar_ids: &[Pubkey]) -> u6
             )
         })
         .sum()
+}
+
+fn setup_program_account_for_tests<T: serde::Serialize>(
+    bank: &Bank,
+    address: &Pubkey,
+    state: (&T, Option<&[u8]>),
+    owner: &Pubkey,
+    executable: bool,
+) -> AccountSharedData {
+    let data = bincode::serialize(&state).unwrap();
+    let data_len = data.len();
+    let lamports = bank.get_minimum_balance_for_rent_exemption(data_len);
+    let account = AccountSharedData::from(Account {
+        lamports,
+        owner: *owner,
+        executable,
+        data,
+        ..Account::default()
+    });
+    bank.store_account_and_update_capitalization(address, &account);
+    account
+}
+
+#[test_case(Builtin::AddressLookupTable)]
+#[test_case(Builtin::BpfLoader)]
+#[test_case(Builtin::BpfLoaderDeprecated)]
+#[test_case(Builtin::BpfLoaderUpgradeable)]
+#[test_case(Builtin::ComputeBudget)]
+#[test_case(Builtin::Config)]
+#[test_case(Builtin::FeatureGate)]
+#[test_case(Builtin::LoaderV4)]
+#[test_case(Builtin::NativeLoader)]
+#[test_case(Builtin::Stake)]
+#[test_case(Builtin::System)]
+#[test_case(Builtin::Vote)]
+#[test_case(Builtin::ZkTokenProof)]
+fn test_migrate_builtin_to_bpf(target: Builtin) {
+    let bank = create_simple_test_bank(0);
+
+    let target_program_address = target.program_id();
+    let source_program_address = Pubkey::new_unique();
+    setup_program_account_for_tests(
+        &bank,
+        &source_program_address,
+        (
+            &UpgradeableLoaderState::ProgramData {
+                slot: 0,
+                upgrade_authority_address: Some(Pubkey::new_unique()),
+            },
+            Some(&[4u8; 200]),
+        ),
+        &bpf_loader::id(),
+        true,
+    );
+
+    let original_source_program_account = bank.get_account(&source_program_address).unwrap();
+    let expected_capitalization = bank.capitalization()
+        - bank
+            .get_account(&target_program_address)
+            .map(|account| account.lamports())
+            .unwrap_or_default();
+
+    // Perform the migration
+    migrate_builtin_to_bpf(
+        &bank,
+        &target,
+        &source_program_address,
+        "migrate_native_program",
+    )
+    .unwrap();
+
+    // Assert the new target account is the same as the original source account
+    let post_migration_target_account = bank.get_account(&target_program_address).unwrap();
+    assert_eq!(
+        original_source_program_account,
+        post_migration_target_account
+    );
+
+    // Assert the source account was cleared
+    let post_migration_source_account = bank.get_account(&source_program_address);
+    assert!(post_migration_source_account.is_none());
+
+    // Assert the lamports of the target account were burnt
+    assert_eq!(bank.capitalization(), expected_capitalization);
 }
 
 #[test]
