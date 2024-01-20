@@ -1,2 +1,2 @@
-#[allow(dead_code)] // TODO: Removed in future commit
+mod builtin;
 pub(crate) mod error;
