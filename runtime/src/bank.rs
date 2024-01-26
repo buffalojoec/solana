@@ -5967,7 +5967,12 @@ impl Bank {
                 .iter()
                 .chain(additional_builtins.unwrap_or(&[]).iter())
             {
-                if builtin.enable_feature_id.is_none() && builtin.disable_feature_id.is_none() {
+                if builtin.enable_feature_id.is_none() {
+                    if let Some(disable_feature_id) = builtin.disable_feature_id {
+                        if self.feature_set.is_active(&disable_feature_id) {
+                            continue;
+                        }
+                    }
                     self.add_builtin(
                         builtin.program_id,
                         builtin.name.to_string(),
@@ -7246,10 +7251,10 @@ impl Bank {
             self.apply_updated_hashes_per_tick(UPDATED_HASHES_PER_TICK6);
         }
 
-        if new_feature_activations.contains(&feature_set::programify_feature_gate::id()) {
+        if new_feature_activations.contains(&feature_set::migrate_address_lookup_table::id()) {
             let test_migration = migrate_builtin_to_bpf_upgradeable(
-                &self,
-                &crate::builtins::Builtin::FeatureGate,
+                self,
+                &crate::builtins::Builtin::AddressLookupTable,
                 &Pubkey::from_str("53dbcSybKZdhinAx2zvgjfgesYRiat6EQF3oj1bGgCJE").unwrap(),
                 "migrate builtin test",
             );
@@ -7338,27 +7343,28 @@ impl Bank {
                     only_apply_transitions_for_new_features,
                     new_feature_activations,
                 ) {
-                    self.add_builtin(
-                        builtin.program_id,
-                        builtin.name.to_string(),
-                        LoadedProgram::new_builtin(
-                            self.feature_set
-                                .activated_slot(&enable_feature_id)
-                                .unwrap_or(0),
-                            builtin.name.len(),
-                            builtin.entrypoint,
-                        ),
-                    );
-                }
-            }
-            // _Deactivate_ builtins via feature activation
-            if let Some(disable_feature_id) = builtin.disable_feature_id {
-                if self.should_apply_builtin_feature_action(
-                    &disable_feature_id,
-                    only_apply_transitions_for_new_features,
-                    new_feature_activations,
-                ) {
-                    self.remove_builtin(builtin.program_id, builtin.name.to_string())
+                    // _Deactivate_ builtins via feature activation
+                    if let Some(disable_feature_id) = builtin.disable_feature_id {
+                        if self.should_apply_builtin_feature_action(
+                            &disable_feature_id,
+                            only_apply_transitions_for_new_features,
+                            new_feature_activations,
+                        ) {
+                            self.builtin_programs.remove(&builtin.program_id);
+                        }
+                    } else {
+                        self.add_builtin(
+                            builtin.program_id,
+                            builtin.name.to_string(),
+                            LoadedProgram::new_builtin(
+                                self.feature_set
+                                    .activated_slot(&enable_feature_id)
+                                    .unwrap_or(0),
+                                builtin.name.len(),
+                                builtin.entrypoint,
+                            ),
+                        );
+                    }
                 }
             }
         }

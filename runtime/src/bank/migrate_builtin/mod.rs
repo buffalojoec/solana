@@ -91,7 +91,7 @@ fn create_new_target_program_account(
 /// See `runtime/src/builtin.rs`.
 #[allow(dead_code)] // Code is off the hot path until a migration is due
 pub(crate) fn migrate_builtin_to_bpf_upgradeable(
-    bank: &Bank,
+    bank: &mut Bank,
     target_program: &Builtin,
     source_program_address: &Pubkey,
     datapoint_name: &'static str,
@@ -130,6 +130,8 @@ pub(crate) fn migrate_builtin_to_bpf_upgradeable(
         .write()
         .unwrap()
         .remove_programs([source.program_address, target.program_address].into_iter());
+
+    bank.builtin_programs.remove(&target.program_address);
 
     Ok(())
 }

@@ -105,7 +105,7 @@ pub static BUILTINS: &[BuiltinPrototype] = &[
     },
     BuiltinPrototype {
         enable_feature_id: None,
-        disable_feature_id: None,
+        disable_feature_id: Some(feature_set::migrate_address_lookup_table::id()),
         program_id: solana_sdk::address_lookup_table::program::id(),
         name: "address_lookup_table_program",
         entrypoint: solana_address_lookup_table_program::processor::Entrypoint::vm,
@@ -173,9 +173,9 @@ impl Builtin {
             }
             // If the _deactivation_ feature is active, the program account
             // should not exist
-            if let Some(disable_feature_id) = prototype.disable_feature_id {
-                return !bank.feature_set.is_active(&disable_feature_id);
-            }
+            // if let Some(disable_feature_id) = prototype.disable_feature_id {
+            //     return !bank.feature_set.is_active(&disable_feature_id);
+            // }
             return true;
         }
         // If the program is not listed as a built-in, then the program account

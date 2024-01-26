@@ -780,7 +780,7 @@ pub mod enable_chained_merkle_shreds {
     solana_sdk::declare_id!("7uZBkJXJ1HkuP6R3MJfZs7mLwymBcDbKdqbF51ZWLier");
 }
 
-pub mod programify_feature_gate {
+pub mod migrate_address_lookup_table {
     solana_sdk::declare_id!("E4aWLLtPTir1mp2TBTEP8uGB3kJcZA453KbCD23Q7DnL");
 }
 
@@ -974,7 +974,7 @@ lazy_static! {
         (cost_model_requested_write_lock_cost::id(), "cost model uses number of requested write locks #34819"),
         (enable_gossip_duplicate_proof_ingestion::id(), "enable gossip duplicate proof ingestion #32963"),
         (enable_chained_merkle_shreds::id(), "Enable chained Merkle shreds #34916"),
-        (programify_feature_gate::id(), "[TEST]: Programify feature gate 01-26-2024"),
+        (migrate_address_lookup_table::id(), "[TEST]: Migrate Address Lookup Table 01-26-2024"),
         /*************** ADD NEW FEATURES HERE ***************/
     ]
     .iter()
