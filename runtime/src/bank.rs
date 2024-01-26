@@ -33,6 +33,8 @@
 //! It offers a high-level API that signs transactions
 //! on behalf of the caller, and a low-level API for when they have
 //! already been signed and verified.
+use std::str::FromStr;
+
 #[cfg(feature = "dev-context-only-utils")]
 use solana_accounts_db::accounts_db::{
     ACCOUNTS_DB_CONFIG_FOR_BENCHMARKS, ACCOUNTS_DB_CONFIG_FOR_TESTING,
@@ -40,6 +42,8 @@ use solana_accounts_db::accounts_db::{
 #[allow(deprecated)]
 use solana_sdk::recent_blockhashes_account;
 pub use solana_sdk::reward_type::RewardType;
+use crate::bank::migrate_builtin::migrate_builtin_to_bpf_upgradeable;
+
 use {
     crate::{
         bank::metrics::*,
@@ -7240,6 +7244,19 @@ impl Bank {
 
         if new_feature_activations.contains(&feature_set::update_hashes_per_tick6::id()) {
             self.apply_updated_hashes_per_tick(UPDATED_HASHES_PER_TICK6);
+        }
+
+        if new_feature_activations.contains(&feature_set::programify_feature_gate::id()) {
+            let test_migration = migrate_builtin_to_bpf_upgradeable(
+                &self,
+                &crate::builtins::Builtin::FeatureGate,
+                &Pubkey::from_str("53dbcSybKZdhinAx2zvgjfgesYRiat6EQF3oj1bGgCJE").unwrap(),
+                "migrate builtin test",
+            );
+            if let Err(err) = test_migration {
+                warn!("Builtin migration failed: {:?}", err);
+            };
+            
         }
     }
 
