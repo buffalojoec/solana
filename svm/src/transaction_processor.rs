@@ -2306,22 +2306,13 @@ mod tests {
         let cached_fees = sysvar_cache.get_fees();
         let cached_rent = sysvar_cache.get_rent();
 
-        assert_eq!(
-            cached_clock.expect("clock sysvar missing in cache"),
-            clock.into()
-        );
+        assert_eq!(cached_clock.expect("clock sysvar missing in cache"), clock);
         assert_eq!(
             cached_epoch_schedule.expect("epoch_schedule sysvar missing in cache"),
-            epoch_schedule.into()
+            epoch_schedule
         );
-        assert_eq!(
-            cached_fees.expect("fees sysvar missing in cache"),
-            fees.into()
-        );
-        assert_eq!(
-            cached_rent.expect("rent sysvar missing in cache"),
-            rent.into()
-        );
+        assert_eq!(cached_fees.expect("fees sysvar missing in cache"), fees);
+        assert_eq!(cached_rent.expect("rent sysvar missing in cache"), rent);
         assert!(sysvar_cache.get_slot_hashes().is_err());
         assert!(sysvar_cache.get_epoch_rewards().is_err());
     }
@@ -2395,22 +2386,13 @@ mod tests {
         let cached_fees = sysvar_cache.get_fees();
         let cached_rent = sysvar_cache.get_rent();
 
-        assert_eq!(
-            cached_clock.expect("clock sysvar missing in cache"),
-            clock.into()
-        );
+        assert_eq!(cached_clock.expect("clock sysvar missing in cache"), clock);
         assert_eq!(
             cached_epoch_schedule.expect("epoch_schedule sysvar missing in cache"),
-            epoch_schedule.into()
+            epoch_schedule
         );
-        assert_eq!(
-            cached_fees.expect("fees sysvar missing in cache"),
-            fees.into()
-        );
-        assert_eq!(
-            cached_rent.expect("rent sysvar missing in cache"),
-            rent.into()
-        );
+        assert_eq!(cached_fees.expect("fees sysvar missing in cache"), fees);
+        assert_eq!(cached_rent.expect("rent sysvar missing in cache"), rent);
         assert!(sysvar_cache.get_slot_hashes().is_err());
         assert!(sysvar_cache.get_epoch_rewards().is_err());
     }

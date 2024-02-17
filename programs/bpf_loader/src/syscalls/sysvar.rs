@@ -1,7 +1,7 @@
 use super::*;
 
 fn get_sysvar<T: std::fmt::Debug + Sysvar + SysvarId + Clone>(
-    sysvar: Result<Arc<T>, InstructionError>,
+    sysvar: Result<T, InstructionError>,
     var_addr: u64,
     check_aligned: bool,
     memory_mapping: &mut MemoryMapping,
@@ -16,8 +16,11 @@ fn get_sysvar<T: std::fmt::Debug + Sysvar + SysvarId + Clone>(
     )?;
     let var = translate_type_mut::<T>(memory_mapping, var_addr, check_aligned)?;
 
-    let sysvar: Arc<T> = sysvar?;
-    *var = T::clone(sysvar.as_ref());
+    // this clone looks unecessary, but it exists to zero out trailing alignment bytes
+    // it is unclear whether this should ever matter
+    // but there are tests using MemoryMapping that expect to see this
+    // we preserve the previous behavior out of an abundance of caution
+    *var = sysvar?.clone();
 
     Ok(SUCCESS)
 }
@@ -154,5 +157,37 @@ declare_builtin_function!(
             memory_mapping,
             invoke_context,
         )
+    }
+);
+
+declare_builtin_function!(
+    /// Get a slice of a Sysvar in-memory representation
+    SyscallGetSysvar,
+    fn rust(
+        invoke_context: &mut InvokeContext,
+        sysvar_id_addr: u64,
+        length: u64,
+        offset: u64,
+        var_addr: u64,
+        _arg5: u64,
+        memory_mapping: &mut MemoryMapping,
+    ) -> Result<u64, Error> {
+        let check_aligned = invoke_context.get_check_aligned();
+        consume_compute_meter(
+            invoke_context,
+            invoke_context
+                .get_compute_budget()
+                .sysvar_base_cost
+                .saturating_add(length),
+        )?;
+
+        let sysvar_id = translate_type::<Pubkey>(memory_mapping, sysvar_id_addr, check_aligned)?;
+
+        let var = translate_slice_mut::<u8>(memory_mapping, var_addr, length, check_aligned)?;
+
+        let cache = invoke_context.get_sysvar_cache();
+        cache.read_sysvar_into(sysvar_id, length as usize, offset as usize, var)?;
+
+        Ok(SUCCESS)
     }
 );
