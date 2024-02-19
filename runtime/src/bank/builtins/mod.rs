@@ -66,7 +66,11 @@ pub static BUILTINS: &[BuiltinPrototype] = &[
     },
     BuiltinPrototype {
         enable_feature_id: None,
-        core_bpf_migration: None,
+        core_bpf_migration: Some(CoreBpfMigrationConfig {
+            source_program_id: source_program_id::id(),
+            feature_id: feature_set::migrate_builtin_to_core_bpf_test::id(),
+            datapoint_name: "core_bpf_migration_test",
+        }),
         program_id: solana_sdk::address_lookup_table::program::id(),
         name: "address_lookup_table_program",
         entrypoint: solana_address_lookup_table_program::processor::Entrypoint::vm,
@@ -93,11 +97,7 @@ mod source_program_id {
 
 pub static EPHEMERAL_BUILTINS: &[EphemeralBuiltinPrototype] = &[
     EphemeralBuiltinPrototype {
-        core_bpf_migration: Some(CoreBpfMigrationConfig {
-            source_program_id: source_program_id::id(),
-            feature_id: feature_set::migrate_builtin_to_core_bpf_test::id(),
-            datapoint_name: "core_bpf_migration_test",
-        }),
+        core_bpf_migration: None,
         program_id: solana_sdk::feature::id(),
         name: "feature_gate_program",
     },
