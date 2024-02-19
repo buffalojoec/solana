@@ -2,7 +2,10 @@ pub(crate) mod core_bpf_migration;
 pub mod prototypes;
 
 pub use prototypes::{BuiltinPrototype, EphemeralBuiltinPrototype};
-use solana_sdk::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, feature_set};
+use {
+    core_bpf_migration::CoreBpfMigrationConfig,
+    solana_sdk::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, feature_set},
+};
 
 pub static BUILTINS: &[BuiltinPrototype] = &[
     BuiltinPrototype {
@@ -84,9 +87,17 @@ pub static BUILTINS: &[BuiltinPrototype] = &[
     },
 ];
 
+mod source_program_id {
+    solana_sdk::declare_id!("53dbcSybKZdhinAx2zvgjfgesYRiat6EQF3oj1bGgCJE");
+}
+
 pub static EPHEMERAL_BUILTINS: &[EphemeralBuiltinPrototype] = &[
     EphemeralBuiltinPrototype {
-        core_bpf_migration: None,
+        core_bpf_migration: Some(CoreBpfMigrationConfig {
+            source_program_id: source_program_id::id(),
+            feature_id: feature_set::migrate_builtin_to_core_bpf_test::id(),
+            datapoint_name: "core_bpf_migration_test",
+        }),
         program_id: solana_sdk::feature::id(),
         name: "feature_gate_program",
     },
