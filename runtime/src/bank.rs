@@ -1477,7 +1477,11 @@ impl Bank {
         );
 
         let (_, apply_feature_activations_time) = measure!(
-            self.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false),
+            self.apply_feature_activations(
+                ApplyFeatureActivationsCaller::NewFromParent,
+                false,
+                None
+            ),
             "apply_feature_activation",
         );
 
@@ -1705,7 +1709,7 @@ impl Bank {
 
         let parent_timestamp = parent.clock().unix_timestamp;
         let mut new = Bank::new_from_parent(parent, collector_id, slot);
-        new.apply_feature_activations(ApplyFeatureActivationsCaller::WarpFromParent, false);
+        new.apply_feature_activations(ApplyFeatureActivationsCaller::WarpFromParent, false, None);
         new.update_epoch_stakes(new.epoch_schedule().get_epoch(slot));
         new.tick_height.store(new.max_tick_height(), Relaxed);
 
@@ -5943,6 +5947,7 @@ impl Bank {
         self.apply_feature_activations(
             ApplyFeatureActivationsCaller::FinishInit,
             debug_do_not_add_builtins,
+            None,
         );
 
         if !debug_do_not_add_builtins {
@@ -7169,6 +7174,7 @@ impl Bank {
         &mut self,
         caller: ApplyFeatureActivationsCaller,
         debug_do_not_add_builtins: bool,
+        test_add_new_builtins: Option<&[BuiltinPrototype]>,
     ) {
         use ApplyFeatureActivationsCaller as Caller;
         let allow_new_activations = match caller {
@@ -7210,6 +7216,7 @@ impl Bank {
             self.apply_builtin_program_feature_transitions(
                 allow_new_activations,
                 &new_feature_activations,
+                test_add_new_builtins,
             );
         }
 
@@ -7294,8 +7301,9 @@ impl Bank {
         &mut self,
         only_apply_transitions_for_new_features: bool,
         new_feature_activations: &HashSet<Pubkey>,
+        test_add_new_builtins: Option<&[BuiltinPrototype]>,
     ) {
-        for builtin in BUILTINS.iter() {
+        for builtin in BUILTINS.iter().chain(test_add_new_builtins.unwrap_or(&[])) {
             if let Some(feature_id) = builtin.feature_id {
                 let should_apply_action_for_feature_transition =
                     if only_apply_transitions_for_new_features {
