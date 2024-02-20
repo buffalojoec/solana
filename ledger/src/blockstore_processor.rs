@@ -3885,6 +3885,7 @@ pub mod tests {
             account_paths,
             AccountSecondaryIndexes::default(),
             AccountShrinkThreshold::default(),
+            None,
         );
         bank.epoch_schedule().clone()
     }

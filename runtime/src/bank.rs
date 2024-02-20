@@ -888,8 +888,9 @@ pub struct NewBankOptions<'a> {
 }
 
 #[derive(Debug, Default)]
-pub struct BankTestConfig {
+pub struct BankTestConfig<'a> {
     pub secondary_indexes: AccountSecondaryIndexes,
+    pub override_builtins: Option<&'a [BuiltinPrototype]>,
 }
 
 #[derive(Debug)]
@@ -7583,6 +7584,7 @@ impl Bank {
             genesis_config,
             test_config.secondary_indexes,
             AccountShrinkThreshold::default(),
+            test_config.override_builtins,
         )
     }
 
@@ -7599,6 +7601,7 @@ impl Bank {
         genesis_config: &GenesisConfig,
         account_indexes: AccountSecondaryIndexes,
         shrink_ratio: AccountShrinkThreshold,
+        override_builtins: Option<&[BuiltinPrototype]>,
     ) -> Self {
         Self::new_with_paths_for_tests(
             genesis_config,
@@ -7606,6 +7609,7 @@ impl Bank {
             Vec::new(),
             account_indexes,
             shrink_ratio,
+            override_builtins,
         )
     }
 
@@ -7615,13 +7619,14 @@ impl Bank {
         paths: Vec<PathBuf>,
         account_indexes: AccountSecondaryIndexes,
         shrink_ratio: AccountShrinkThreshold,
+        override_builtins: Option<&[BuiltinPrototype]>,
     ) -> Self {
         Self::new_with_paths(
             genesis_config,
             runtime_config,
             paths,
             None,
-            None,
+            override_builtins,
             account_indexes,
             shrink_ratio,
             false,
