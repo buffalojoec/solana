@@ -911,6 +911,7 @@ mod tests {
             let validator_exit = create_validator_exit(exit);
             let (bank_forks, vote_keypair) = new_bank_forks_with_config(BankTestConfig {
                 secondary_indexes: config.account_indexes,
+                override_builtins: None,
             });
             let vote_account = vote_keypair.pubkey();
             let start_progress = Arc::new(RwLock::new(ValidatorStartProgress::default()));

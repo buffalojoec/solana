@@ -4466,6 +4466,7 @@ fn test_get_filtered_indexed_accounts_limit_exceeded() {
         &genesis_config,
         account_indexes,
         AccountShrinkThreshold::default(),
+        None,
     ));
 
     let address = Pubkey::new_unique();
@@ -4493,6 +4494,7 @@ fn test_get_filtered_indexed_accounts() {
         &genesis_config,
         account_indexes,
         AccountShrinkThreshold::default(),
+        None,
     ));
 
     let address = Pubkey::new_unique();
@@ -6568,6 +6570,7 @@ fn get_shrink_account_size() -> usize {
         &genesis_config,
         AccountSecondaryIndexes::default(),
         AccountShrinkThreshold::default(),
+        None,
     ));
     bank0.restore_old_behavior_for_fragile_tests();
     goto_end_of_slot(bank0.clone());
@@ -6607,6 +6610,7 @@ fn test_clean_nonrooted() {
         &genesis_config,
         AccountSecondaryIndexes::default(),
         AccountShrinkThreshold::default(),
+        None,
     ));
 
     let account_zero = AccountSharedData::new(0, 0, &Pubkey::new_unique());
@@ -6682,6 +6686,7 @@ fn test_shrink_candidate_slots_cached() {
         &genesis_config,
         AccountSecondaryIndexes::default(),
         AccountShrinkThreshold::default(),
+        None,
     ));
     bank0.restore_old_behavior_for_fragile_tests();
 
@@ -8274,6 +8279,7 @@ fn test_store_scan_consistency<F: 'static>(
         &genesis_config,
         AccountSecondaryIndexes::default(),
         AccountShrinkThreshold::default(),
+        None,
     ));
     bank0.set_callback(drop_callback);
 
