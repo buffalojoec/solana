@@ -7945,7 +7945,7 @@ fn test_compute_active_feature_set() {
     assert!(new_activations.contains(&test_feature));
 
     // Actually activate the pending activation
-    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, true);
+    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, true, None);
     let feature = feature::from_account(&bank.get_account(&test_feature).expect("get_account"))
         .expect("from_account");
     assert_eq!(feature.activated_at, Some(1));
@@ -11762,7 +11762,7 @@ fn test_feature_activation_idempotent() {
     assert_eq!(bank.hashes_per_tick, Some(HASHES_PER_TICK_START));
 
     // Don't activate feature
-    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false);
+    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false, None);
     assert_eq!(bank.hashes_per_tick, Some(HASHES_PER_TICK_START));
 
     // Activate feature
@@ -11772,11 +11772,11 @@ fn test_feature_activation_idempotent() {
         &feature_set::update_hashes_per_tick::id(),
         &feature::create_account(&Feature { activated_at: None }, feature_account_balance),
     );
-    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false);
+    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false, None);
     assert_eq!(bank.hashes_per_tick, Some(DEFAULT_HASHES_PER_TICK));
 
     // Activate feature "again"
-    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false);
+    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false, None);
     assert_eq!(bank.hashes_per_tick, Some(DEFAULT_HASHES_PER_TICK));
 }
 
@@ -11790,7 +11790,7 @@ fn test_feature_hashes_per_tick() {
     assert_eq!(bank.hashes_per_tick, Some(HASHES_PER_TICK_START));
 
     // Don't activate feature
-    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false);
+    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false, None);
     assert_eq!(bank.hashes_per_tick, Some(HASHES_PER_TICK_START));
 
     // Activate feature
@@ -11800,7 +11800,7 @@ fn test_feature_hashes_per_tick() {
         &feature_set::update_hashes_per_tick::id(),
         &feature::create_account(&Feature { activated_at: None }, feature_account_balance),
     );
-    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false);
+    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false, None);
     assert_eq!(bank.hashes_per_tick, Some(DEFAULT_HASHES_PER_TICK));
 
     // Activate feature
@@ -11810,7 +11810,7 @@ fn test_feature_hashes_per_tick() {
         &feature_set::update_hashes_per_tick2::id(),
         &feature::create_account(&Feature { activated_at: None }, feature_account_balance),
     );
-    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false);
+    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false, None);
     assert_eq!(bank.hashes_per_tick, Some(UPDATED_HASHES_PER_TICK2));
 
     // Activate feature
@@ -11820,7 +11820,7 @@ fn test_feature_hashes_per_tick() {
         &feature_set::update_hashes_per_tick3::id(),
         &feature::create_account(&Feature { activated_at: None }, feature_account_balance),
     );
-    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false);
+    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false, None);
     assert_eq!(bank.hashes_per_tick, Some(UPDATED_HASHES_PER_TICK3));
 
     // Activate feature
@@ -11830,7 +11830,7 @@ fn test_feature_hashes_per_tick() {
         &feature_set::update_hashes_per_tick4::id(),
         &feature::create_account(&Feature { activated_at: None }, feature_account_balance),
     );
-    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false);
+    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false, None);
     assert_eq!(bank.hashes_per_tick, Some(UPDATED_HASHES_PER_TICK4));
 
     // Activate feature
@@ -11840,7 +11840,7 @@ fn test_feature_hashes_per_tick() {
         &feature_set::update_hashes_per_tick5::id(),
         &feature::create_account(&Feature { activated_at: None }, feature_account_balance),
     );
-    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false);
+    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false, None);
     assert_eq!(bank.hashes_per_tick, Some(UPDATED_HASHES_PER_TICK5));
 
     // Activate feature
@@ -11850,7 +11850,7 @@ fn test_feature_hashes_per_tick() {
         &feature_set::update_hashes_per_tick6::id(),
         &feature::create_account(&Feature { activated_at: None }, feature_account_balance),
     );
-    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false);
+    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false, None);
     assert_eq!(bank.hashes_per_tick, Some(UPDATED_HASHES_PER_TICK6));
 }
 

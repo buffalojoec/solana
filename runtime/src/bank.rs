@@ -882,8 +882,9 @@ struct CalculateRewardsAndDistributeVoteRewardsResult {
 pub(crate) type StakeRewards = Vec<StakeReward>;
 
 #[derive(Debug, Default)]
-pub struct NewBankOptions {
+pub struct NewBankOptions<'a> {
     pub vote_only_bank: bool,
+    pub override_builtins: Option<&'a [BuiltinPrototype]>,
 }
 
 #[derive(Debug, Default)]
@@ -1181,7 +1182,10 @@ impl Bank {
         new_bank_options: NewBankOptions,
     ) -> Self {
         let mut time = Measure::start("bank::new_from_parent");
-        let NewBankOptions { vote_only_bank } = new_bank_options;
+        let NewBankOptions {
+            vote_only_bank,
+            override_builtins,
+        } = new_bank_options;
 
         parent.freeze();
         assert_ne!(slot, parent.slot());
@@ -1331,6 +1335,7 @@ impl Bank {
                     parent.slot(),
                     parent.block_height(),
                     reward_calc_tracer,
+                    override_builtins,
                 );
             } else {
                 // Save a snapshot of stakes for use in consensus and stake weighted networking
@@ -1464,6 +1469,7 @@ impl Bank {
         parent_slot: Slot,
         parent_height: u64,
         reward_calc_tracer: Option<impl RewardCalcTracer>,
+        override_builtins: Option<&[BuiltinPrototype]>,
     ) {
         let epoch = self.epoch();
         let slot = self.slot();
@@ -1473,7 +1479,11 @@ impl Bank {
         );
 
         let (_, apply_feature_activations_time) = measure!(
-            self.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false),
+            self.apply_feature_activations(
+                ApplyFeatureActivationsCaller::NewFromParent,
+                false,
+                override_builtins
+            ),
             "apply_feature_activation",
         );
 
@@ -1701,7 +1711,7 @@ impl Bank {
 
         let parent_timestamp = parent.clock().unix_timestamp;
         let mut new = Bank::new_from_parent(parent, collector_id, slot);
-        new.apply_feature_activations(ApplyFeatureActivationsCaller::WarpFromParent, false);
+        new.apply_feature_activations(ApplyFeatureActivationsCaller::WarpFromParent, false, None);
         new.update_epoch_stakes(new.epoch_schedule().get_epoch(slot));
         new.tick_height.store(new.max_tick_height(), Relaxed);
 
@@ -5935,6 +5945,7 @@ impl Bank {
         self.apply_feature_activations(
             ApplyFeatureActivationsCaller::FinishInit,
             debug_do_not_add_builtins,
+            override_builtins,
         );
 
         if !debug_do_not_add_builtins {
@@ -7158,6 +7169,7 @@ impl Bank {
         &mut self,
         caller: ApplyFeatureActivationsCaller,
         debug_do_not_add_builtins: bool,
+        override_builtins: Option<&[BuiltinPrototype]>,
     ) {
         use ApplyFeatureActivationsCaller as Caller;
         let allow_new_activations = match caller {
@@ -7199,6 +7211,7 @@ impl Bank {
             self.apply_builtin_program_feature_transitions(
                 allow_new_activations,
                 &new_feature_activations,
+                override_builtins,
             );
         }
 
@@ -7283,8 +7296,9 @@ impl Bank {
         &mut self,
         only_apply_transitions_for_new_features: bool,
         new_feature_activations: &HashSet<Pubkey>,
+        override_builtins: Option<&[BuiltinPrototype]>,
     ) {
-        for builtin in BUILTINS.iter() {
+        for builtin in override_builtins.unwrap_or(BUILTINS).iter() {
             if let Some(feature_id) = builtin.feature_id {
                 let should_apply_action_for_feature_transition =
                     if only_apply_transitions_for_new_features {
