@@ -7648,6 +7648,7 @@ impl Bank {
             Vec::new(),
             account_indexes,
             shrink_ratio,
+            None,
         )
     }
 
@@ -7657,13 +7658,14 @@ impl Bank {
         paths: Vec<PathBuf>,
         account_indexes: AccountSecondaryIndexes,
         shrink_ratio: AccountShrinkThreshold,
+        additional_builtins: Option<&[BuiltinPrototype]>,
     ) -> Self {
         Self::new_with_paths(
             genesis_config,
             runtime_config,
             paths,
             None,
-            None,
+            additional_builtins,
             account_indexes,
             shrink_ratio,
             false,
