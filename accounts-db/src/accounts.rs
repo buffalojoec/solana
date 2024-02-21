@@ -10,10 +10,10 @@ use {
     },
     dashmap::DashMap,
     log::*,
+    solana_address_lookup_table_program::{error::AddressLookupError, state::AddressLookupTable},
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount},
         account_utils::StateMut,
-        address_lookup_table::{self, error::AddressLookupError, state::AddressLookupTable},
         clock::{BankId, Slot},
         message::v0::{LoadedAddresses, MessageAddressTableLookup},
         nonce::{
@@ -124,7 +124,7 @@ impl Accounts {
             .map(|(account, _rent)| account)
             .ok_or(AddressLookupError::LookupTableAccountNotFound)?;
 
-        if table_account.owner() == &address_lookup_table::program::id() {
+        if table_account.owner() == &solana_address_lookup_table_program::id() {
             let current_slot = ancestors.max_slot();
             let lookup_table = AddressLookupTable::deserialize(table_account.data())
                 .map_err(|_ix_err| AddressLookupError::InvalidAccountData)?;
@@ -793,10 +793,10 @@ mod tests {
     use {
         super::*,
         assert_matches::assert_matches,
+        solana_address_lookup_table_program::state::LookupTableMeta,
         solana_program_runtime::loaded_programs::LoadedProgramsForTxBatch,
         solana_sdk::{
             account::{AccountSharedData, WritableAccount},
-            address_lookup_table::state::LookupTableMeta,
             hash::Hash,
             instruction::{CompiledInstruction, InstructionError},
             message::{Message, MessageHeader},
@@ -961,7 +961,7 @@ mod tests {
 
         let invalid_table_key = Pubkey::new_unique();
         let invalid_table_account =
-            AccountSharedData::new(1, 0, &address_lookup_table::program::id());
+            AccountSharedData::new(1, 0, &solana_address_lookup_table_program::id());
         accounts.store_slow_uncached(0, &invalid_table_key, &invalid_table_account);
 
         let address_table_lookup = MessageAddressTableLookup {
@@ -996,7 +996,7 @@ mod tests {
             AccountSharedData::create(
                 1,
                 table_state.serialize_for_tests().unwrap(),
-                address_lookup_table::program::id(),
+                solana_address_lookup_table_program::id(),
                 false,
                 0,
             )

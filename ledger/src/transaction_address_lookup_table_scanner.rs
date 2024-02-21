@@ -1,12 +1,8 @@
 use {
     bincode::deserialize,
     lazy_static::lazy_static,
-    solana_sdk::{
-        address_lookup_table::{self, instruction::ProgramInstruction},
-        pubkey::Pubkey,
-        sdk_ids::SDK_IDS,
-        transaction::SanitizedVersionedTransaction,
-    },
+    solana_address_lookup_table_program::instruction::ProgramInstruction,
+    solana_sdk::{pubkey::Pubkey, sdk_ids::SDK_IDS, transaction::SanitizedVersionedTransaction},
     std::collections::HashSet,
 };
 
@@ -26,7 +22,7 @@ pub fn scan_transaction(
     let mut accounts = Vec::new();
     let mut native_only = true;
     for (program_id, instruction) in transaction.get_message().program_instructions_iter() {
-        if address_lookup_table::program::check_id(program_id) {
+        if solana_address_lookup_table_program::check_id(program_id) {
             if let Ok(ProgramInstruction::ExtendLookupTable { new_addresses }) =
                 deserialize::<ProgramInstruction>(&instruction.data)
             {

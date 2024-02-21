@@ -38,6 +38,7 @@ use {
     solana_accounts_db::hardened_unpack::{
         unpack_genesis_archive, MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
     },
+    solana_address_lookup_table_program::state::AddressLookupTable,
     solana_entry::entry::{create_ticks, Entry},
     solana_measure::measure::Measure,
     solana_metrics::{
@@ -48,7 +49,6 @@ use {
     solana_runtime::bank::Bank,
     solana_sdk::{
         account::ReadableAccount,
-        address_lookup_table::state::AddressLookupTable,
         clock::{Slot, UnixTimestamp, DEFAULT_TICKS_PER_SECOND},
         genesis_config::{GenesisConfig, DEFAULT_GENESIS_ARCHIVE, DEFAULT_GENESIS_FILE},
         hash::Hash,

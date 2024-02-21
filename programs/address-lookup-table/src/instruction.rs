@@ -1,12 +1,12 @@
 use {
-    crate::{
-        address_lookup_table::program::id,
+    crate::id,
+    serde::{Deserialize, Serialize},
+    solana_program::{
         clock::Slot,
         instruction::{AccountMeta, Instruction},
         pubkey::Pubkey,
         system_program,
     },
-    serde::{Deserialize, Serialize},
 };
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]

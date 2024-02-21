@@ -1,14 +1,14 @@
 use {
+    crate::{
+        check_id, id,
+        instruction::ProgramInstruction,
+        state::{
+            AddressLookupTable, LookupTableMeta, LookupTableStatus, ProgramState,
+            LOOKUP_TABLE_MAX_ADDRESSES, LOOKUP_TABLE_META_SIZE,
+        },
+    },
     solana_program_runtime::{declare_process_instruction, ic_msg, invoke_context::InvokeContext},
     solana_sdk::{
-        address_lookup_table::{
-            instruction::ProgramInstruction,
-            program::{check_id, id},
-            state::{
-                AddressLookupTable, LookupTableMeta, LookupTableStatus, ProgramState,
-                LOOKUP_TABLE_MAX_ADDRESSES, LOOKUP_TABLE_META_SIZE,
-            },
-        },
         clock::Slot,
         feature_set,
         instruction::InstructionError,

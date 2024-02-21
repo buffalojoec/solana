@@ -831,6 +831,7 @@ mod tests {
             unprocessed_transaction_storage::ThreadType,
         },
         crossbeam_channel::{unbounded, Receiver},
+        solana_address_lookup_table_program::state::{AddressLookupTable, LookupTableMeta},
         solana_cost_model::{cost_model::CostModel, transaction_cost::TransactionCost},
         solana_entry::entry::{next_entry, next_versioned_entry},
         solana_ledger::{
@@ -848,10 +849,6 @@ mod tests {
         solana_sdk::{
             account::AccountSharedData,
             account_utils::StateMut,
-            address_lookup_table::{
-                self,
-                state::{AddressLookupTable, LookupTableMeta},
-            },
             compute_budget,
             fee_calculator::FeeCalculator,
             hash::Hash,
@@ -968,7 +965,7 @@ mod tests {
     ) -> AccountSharedData {
         let data = address_lookup_table.serialize_for_tests().unwrap();
         let mut account =
-            AccountSharedData::new(1, data.len(), &address_lookup_table::program::id());
+            AccountSharedData::new(1, data.len(), &solana_address_lookup_table_program::id());
         account.set_data(data);
         bank.store_account(&account_address, &account);
 

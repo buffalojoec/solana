@@ -31,6 +31,7 @@ serde_json = { workspace = true }
 soketto = { workspace = true }
 solana-account-decoder = { workspace = true }
 solana-accounts-db = { workspace = true }
+solana-address-lookup-table-program = { workspace = true }
 solana-client = { workspace = true }
 solana-entry = { workspace = true }
 solana-faucet = { workspace = true }

@@ -4665,6 +4665,7 @@ pub mod tests {
         jsonrpc_core_client::transports::local,
         serde::de::DeserializeOwned,
         solana_accounts_db::{inline_spl_token, inline_spl_token_2022},
+        solana_address_lookup_table_program::state::{AddressLookupTable, LookupTableMeta},
         solana_entry::entry::next_versioned_entry,
         solana_gossip::socketaddr,
         solana_ledger::{
@@ -4686,10 +4687,6 @@ pub mod tests {
         },
         solana_sdk::{
             account::{Account, WritableAccount},
-            address_lookup_table::{
-                self,
-                state::{AddressLookupTable, LookupTableMeta},
-            },
             clock::MAX_RECENT_BLOCKHASHES,
             compute_budget::ComputeBudgetInstruction,
             fee_calculator::{FeeRateGovernor, DEFAULT_BURN_PERCENT},
@@ -4973,7 +4970,7 @@ pub mod tests {
                 AccountSharedData::create(
                     min_balance_lamports,
                     address_table_data,
-                    address_lookup_table::program::id(),
+                    solana_address_lookup_table_program::id(),
                     false,
                     0,
                 )
@@ -6315,11 +6312,11 @@ pub mod tests {
         bank.set_sysvar_for_tests(&slot_hashes);
 
         let lookup_table_authority = Keypair::new();
-        let lookup_table_space = solana_sdk::address_lookup_table::state::LOOKUP_TABLE_META_SIZE;
+        let lookup_table_space = solana_address_lookup_table_program::state::LOOKUP_TABLE_META_SIZE;
         let lookup_table_lamports = bank.get_minimum_balance_for_rent_exemption(lookup_table_space);
 
         let (instruction, lookup_table_address) =
-            solana_sdk::address_lookup_table::instruction::create_lookup_table(
+            solana_address_lookup_table_program::instruction::create_lookup_table(
                 lookup_table_authority.pubkey(),
                 rpc.mint_keypair.pubkey(),
                 recent_slot,
