@@ -1102,6 +1102,9 @@ impl From<TransactionError> for tx_by_addr::TransactionError {
                             InstructionError::BuiltinProgramsMustConsumeComputeUnits => {
                                 tx_by_addr::InstructionErrorType::BuiltinProgramsMustConsumeComputeUnits
                             }
+                            InstructionError::BincodeIoError(_) => {
+                                tx_by_addr::InstructionErrorType::BincodeIoError
+                            }
                         } as i32,
                         custom: match instruction_error {
                             InstructionError::Custom(custom) => {

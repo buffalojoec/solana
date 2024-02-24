@@ -223,7 +223,7 @@ pub enum InstructionError {
     /// Borsh versions. Only programs can use this error because they are
     /// consistent across Solana software versions.
     ///
-    #[error("Failed to serialize or deserialize account data: {0}")]
+    #[error("Borsh: Failed to serialize or deserialize account data: {0}")]
     BorshIoError(String),
 
     /// An account does not have enough lamports to be rent-exempt
@@ -261,6 +261,18 @@ pub enum InstructionError {
     /// Builtin programs must consume compute units
     #[error("Builtin programs must consume compute units")]
     BuiltinProgramsMustConsumeComputeUnits,
+
+    /// Failed to serialize or deserialize account data
+    ///
+    /// Warning: This error should never be emitted by the runtime.
+    ///
+    /// This error includes strings from the underlying 3rd party Bincode crate
+    /// which can be dangerous because the error strings could change across
+    /// Bincode versions. Only programs can use this error because they are
+    /// consistent across Solana software versions.
+    ///
+    #[error("Bincode: Failed to serialize or deserialize account data: {0}")]
+    BincodeIoError(String),
     // Note: For any new error added here an equivalent ProgramError and its
     // conversions must also be added
 }

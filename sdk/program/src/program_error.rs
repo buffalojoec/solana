@@ -3,6 +3,7 @@
 #![allow(clippy::arithmetic_side_effects)]
 use {
     crate::{decode_error::DecodeError, instruction::InstructionError, msg, pubkey::PubkeyError},
+    bincode::Error as BincodeError,
     borsh::io::Error as BorshIoError,
     num_traits::{FromPrimitive, ToPrimitive},
     std::convert::TryFrom,
@@ -43,7 +44,7 @@ pub enum ProgramError {
     MaxSeedLengthExceeded,
     #[error("Provided seeds do not result in a valid address")]
     InvalidSeeds,
-    #[error("IO Error: {0}")]
+    #[error("Borsh IO Error: {0}")]
     BorshIoError(String),
     #[error("An account does not have enough lamports to be rent-exempt")]
     AccountNotRentExempt,
@@ -67,6 +68,8 @@ pub enum ProgramError {
     Immutable,
     #[error("Incorrect authority provided")]
     IncorrectAuthority,
+    #[error("Bincode IO Error: {0}")]
+    BincodeIoError(String),
 }
 
 pub trait PrintProgramError {
@@ -119,6 +122,7 @@ impl PrintProgramError for ProgramError {
             Self::ArithmeticOverflow => msg!("Error: ArithmeticOverflow"),
             Self::Immutable => msg!("Error: Immutable"),
             Self::IncorrectAuthority => msg!("Error: IncorrectAuthority"),
+            Self::BincodeIoError(_) => msg!("Error: BincodeIoError"),
         }
     }
 }
@@ -157,6 +161,7 @@ pub const INVALID_ACCOUNT_OWNER: u64 = to_builtin!(23);
 pub const ARITHMETIC_OVERFLOW: u64 = to_builtin!(24);
 pub const IMMUTABLE: u64 = to_builtin!(25);
 pub const INCORRECT_AUTHORITY: u64 = to_builtin!(26);
+pub const BINCODE_IO_ERROR: u64 = to_builtin!(27);
 // Warning: Any new program errors added here must also be:
 // - Added to the below conversions
 // - Added as an equivalent to InstructionError
@@ -197,6 +202,7 @@ impl From<ProgramError> for u64 {
             ProgramError::ArithmeticOverflow => ARITHMETIC_OVERFLOW,
             ProgramError::Immutable => IMMUTABLE,
             ProgramError::IncorrectAuthority => INCORRECT_AUTHORITY,
+            ProgramError::BincodeIoError(_) => BINCODE_IO_ERROR,
             ProgramError::Custom(error) => {
                 if error == 0 {
                     CUSTOM_ZERO
@@ -239,6 +245,7 @@ impl From<u64> for ProgramError {
             ARITHMETIC_OVERFLOW => Self::ArithmeticOverflow,
             IMMUTABLE => Self::Immutable,
             INCORRECT_AUTHORITY => Self::IncorrectAuthority,
+            BINCODE_IO_ERROR => Self::BincodeIoError("Unknown".to_string()),
             _ => Self::Custom(error as u32),
         }
     }
@@ -281,6 +288,7 @@ impl TryFrom<InstructionError> for ProgramError {
             Self::Error::ArithmeticOverflow => Ok(Self::ArithmeticOverflow),
             Self::Error::Immutable => Ok(Self::Immutable),
             Self::Error::IncorrectAuthority => Ok(Self::IncorrectAuthority),
+            Self::Error::BincodeIoError(err) => Ok(Self::BincodeIoError(err)),
             _ => Err(error),
         }
     }
@@ -321,6 +329,7 @@ where
             ARITHMETIC_OVERFLOW => Self::ArithmeticOverflow,
             IMMUTABLE => Self::Immutable,
             INCORRECT_AUTHORITY => Self::IncorrectAuthority,
+            BINCODE_IO_ERROR => Self::BincodeIoError("Unknown".to_string()),
             _ => {
                 // A valid custom error has no bits set in the upper 32
                 if error >> BUILTIN_BIT_SHIFT == 0 {
@@ -346,5 +355,11 @@ impl From<PubkeyError> for ProgramError {
 impl From<BorshIoError> for ProgramError {
     fn from(error: BorshIoError) -> Self {
         Self::BorshIoError(format!("{error}"))
+    }
+}
+
+impl From<BincodeError> for ProgramError {
+    fn from(error: BincodeError) -> Self {
+        Self::BincodeIoError(format!("{error}"))
     }
 }
