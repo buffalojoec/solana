@@ -62,6 +62,29 @@ impl Sysvar for SlotHashes {
     }
 }
 
+pub trait SyscallLookupSlotHashPosition {
+    fn lookup_slot_hash_position(slot: &u64) -> Result<Option<usize>, ProgramError>;
+}
+
+impl SyscallLookupSlotHashPosition for SlotHashes {
+    fn lookup_slot_hash_position(slot: &u64) -> Result<Option<usize>, ProgramError> {
+        let mut var = Option::<usize>::Some(usize::default());
+        let var_addr = &mut var as *mut _ as *mut u8;
+
+        #[cfg(target_os = "solana")]
+        let result =
+            unsafe { crate::syscalls::sol_syscall_lookup_slot_hash_position(var_addr, *slot) };
+
+        #[cfg(not(target_os = "solana"))]
+        let result = crate::program_stubs::sol_syscall_lookup_slot_hash_position(var_addr, *slot);
+
+        match result {
+            crate::entrypoint::SUCCESS => Ok(var),
+            e => Err(e.into()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use {

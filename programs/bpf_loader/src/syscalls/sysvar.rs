@@ -1,4 +1,4 @@
-use super::*;
+use {super::*, solana_sdk::sysvar::slot_hashes::SlotHashes};
 
 fn get_sysvar<T: std::fmt::Debug + Sysvar + SysvarId + Clone>(
     sysvar: Result<Arc<T>, InstructionError>,
@@ -18,6 +18,30 @@ fn get_sysvar<T: std::fmt::Debug + Sysvar + SysvarId + Clone>(
 
     let sysvar: Arc<T> = sysvar?;
     *var = T::clone(sysvar.as_ref());
+
+    Ok(SUCCESS)
+}
+
+fn syscall_lookup_slot_hash_position(
+    slot_hashes_sysvar: Result<Arc<SlotHashes>, InstructionError>,
+    var_addr: u64,
+    slot: u64,
+    check_aligned: bool,
+    memory_mapping: &mut MemoryMapping,
+    invoke_context: &mut InvokeContext,
+) -> Result<u64, Error> {
+    consume_compute_meter(
+        invoke_context,
+        invoke_context
+            .get_compute_budget()
+            .sysvar_base_cost
+            .saturating_add(size_of::<usize>() as u64),
+    )?;
+
+    let slot_hashes_sysvar: Arc<SlotHashes> = slot_hashes_sysvar?;
+
+    let var = translate_type_mut::<Option<usize>>(memory_mapping, var_addr, check_aligned)?;
+    *var = slot_hashes_sysvar.position(&slot);
 
     Ok(SUCCESS)
 }
@@ -150,6 +174,29 @@ declare_builtin_function!(
         get_sysvar(
             invoke_context.get_sysvar_cache().get_last_restart_slot(),
             var_addr,
+            invoke_context.get_check_aligned(),
+            memory_mapping,
+            invoke_context,
+        )
+    }
+);
+
+declare_builtin_function!(
+    /// Lookup a slot's position in the Slot Hashes sysvar
+    SyscallLookupSlotHashPosition,
+    fn rust(
+        invoke_context: &mut InvokeContext,
+        var_addr: u64,
+        slot: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        memory_mapping: &mut MemoryMapping,
+    ) -> Result<u64, Error> {
+        syscall_lookup_slot_hash_position(
+            invoke_context.get_sysvar_cache().get_slot_hashes(),
+            var_addr,
+            slot,
             invoke_context.get_check_aligned(),
             memory_mapping,
             invoke_context,
