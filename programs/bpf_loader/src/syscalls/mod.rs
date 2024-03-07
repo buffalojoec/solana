@@ -7,6 +7,7 @@ pub use self::{
     sysvar::{
         SyscallGetClockSysvar, SyscallGetEpochRewardsSysvar, SyscallGetEpochScheduleSysvar,
         SyscallGetFeesSysvar, SyscallGetLastRestartSlotSysvar, SyscallGetRentSysvar,
+        SyscallLookupSlotHash,
     },
 };
 #[allow(deprecated)]
@@ -360,6 +361,7 @@ pub fn create_program_runtime_environment_v1<'a>(
         SyscallGetFeesSysvar::vm,
     )?;
     result.register_function_hashed(*b"sol_get_rent_sysvar", SyscallGetRentSysvar::vm)?;
+    result.register_function_hashed(*b"sol_syscall_lookup_slot_hash", SyscallLookupSlotHash::vm)?;
 
     register_feature_gated_function!(
         result,
