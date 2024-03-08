@@ -2,7 +2,9 @@
 
 use {
     byteorder::{ByteOrder, LittleEndian},
-    solana_program_runtime::invoke_context::SerializedAccountMetadata,
+    solana_program_runtime::{
+        invoke_context::SerializedAccountMetadata, sysvar_cache::SysvarCache,
+    },
     solana_rbpf::{
         aligned_memory::{AlignedMemory, Pod},
         ebpf::{HOST_ALIGN, MM_INPUT_START},
@@ -10,7 +12,9 @@ use {
     },
     solana_sdk::{
         bpf_loader_deprecated,
+        clock::Clock,
         entrypoint::{BPF_ALIGN_OF_U128, MAX_PERMITTED_DATA_INCREASE, NON_DUP_MARKER},
+        epoch_rewards::EpochRewards,
         feature_set::FeatureSet,
         instruction::InstructionError,
         pubkey::Pubkey,
@@ -170,8 +174,8 @@ impl Serializer {
         self.vaddr += range.len() as u64;
     }
 
-    fn finish(mut self) -> (AlignedMemory<HOST_ALIGN>, Vec<MemoryRegion>) {
-        self.push_region(true);
+    fn finish(mut self, writable: bool) -> (AlignedMemory<HOST_ALIGN>, Vec<MemoryRegion>) {
+        self.push_region(writable);
         debug_assert_eq!(self.region_start, self.buffer.len());
         (self.buffer, self.regions)
     }
@@ -188,6 +192,64 @@ impl Serializer {
                     == 0
         );
     }
+}
+
+// This should be exported from `solana_rbpf`.
+const MM_SYSVAR_START: u64 = 0x500000000;
+
+pub fn serialize_sysvar_cache(sysvar_cache: &SysvarCache) -> AlignedMemory<HOST_ALIGN> {
+    let clock_size = std::mem::size_of::<Clock>();
+    let epoch_schedule_size = std::mem::size_of::<u64>()
+        + std::mem::size_of::<u64>()
+        + std::mem::size_of::<u8>() // bool as u8
+        + std::mem::size_of::<u64>()
+        + std::mem::size_of::<u64>();
+    let epoch_rewards_size = std::mem::size_of::<EpochRewards>();
+    // `Rent`
+    // `SlotHashes`
+    // `StakeHistory`
+
+    let data_size = clock_size + epoch_schedule_size + epoch_rewards_size;
+
+    let mut s = Serializer::new(data_size, MM_SYSVAR_START, false, false);
+
+    // `Clock`
+    if let Ok(clock) = sysvar_cache.get_clock() {
+        s.write::<u64>(clock.slot.to_le());
+        s.write::<i64>(clock.epoch_start_timestamp.to_le());
+        s.write::<u64>(clock.epoch.to_le());
+        s.write::<u64>(clock.leader_schedule_epoch.to_le());
+        s.write::<i64>(clock.unix_timestamp.to_le());
+    } else {
+        s.fill_write(clock_size, 0).unwrap(); // Yikes
+    }
+
+    // `EpochSchedule`
+    if let Ok(epoch_schedule) = sysvar_cache.get_epoch_schedule() {
+        s.write::<u64>(epoch_schedule.slots_per_epoch.to_le());
+        s.write::<u64>(epoch_schedule.leader_schedule_slot_offset.to_le());
+        s.write::<u8>(epoch_schedule.warmup as u8);
+        s.write::<u64>(epoch_schedule.first_normal_epoch.to_le());
+        s.write::<u64>(epoch_schedule.first_normal_slot.to_le());
+    } else {
+        s.fill_write(epoch_schedule_size, 0).unwrap(); // Yikes
+    }
+
+    // `EpochRewards`
+    if let Ok(epoch_rewards) = sysvar_cache.get_epoch_rewards() {
+        s.write::<u64>(epoch_rewards.total_rewards.to_le());
+        s.write::<u64>(epoch_rewards.distributed_rewards.to_le());
+        s.write::<u64>(epoch_rewards.distribution_complete_block_height.to_le());
+    } else {
+        s.fill_write(epoch_rewards_size, 0).unwrap(); // Yikes
+    }
+
+    // `Rent` we'll need to handle the `f64` case.
+    // `SlotHashes` we'll need to handle vector sizing.
+    // `StakeHistory` we'll need to handle vector sizing.
+
+    let (mem, _) = s.finish(false);
+    mem
 }
 
 pub fn serialize_parameters(
@@ -364,7 +426,7 @@ fn serialize_parameters_unaligned(
     s.write_all(instruction_data);
     s.write_all(program_id.as_ref());
 
-    let (mem, regions) = s.finish();
+    let (mem, regions) = s.finish(true);
     Ok((mem, regions, accounts_metadata))
 }
 
@@ -505,7 +567,7 @@ fn serialize_parameters_aligned(
     s.write_all(instruction_data);
     s.write_all(program_id.as_ref());
 
-    let (mem, regions) = s.finish();
+    let (mem, regions) = s.finish(true);
     Ok((mem, regions, accounts_metadata))
 }
 

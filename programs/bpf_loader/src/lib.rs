@@ -217,6 +217,7 @@ pub fn create_vm<'a, 'b>(
     invoke_context: &'a mut InvokeContext<'b>,
     stack: &mut AlignedMemory<HOST_ALIGN>,
     heap: &mut AlignedMemory<HOST_ALIGN>,
+    sysvar_ro: &AlignedMemory<HOST_ALIGN>,
 ) -> Result<EbpfVm<'a, InvokeContext<'b>>, Box<dyn std::error::Error>> {
     let stack_size = stack.len();
     let heap_size = heap.len();
@@ -225,6 +226,7 @@ pub fn create_vm<'a, 'b>(
         program,
         stack,
         heap,
+        sysvar_ro,
         regions,
         Some(Box::new(move |index_in_transaction| {
             // The two calls below can't really fail. If they fail because of a bug,
@@ -270,6 +272,8 @@ macro_rules! create_vm {
             heap_size,
             invoke_context.get_compute_budget().heap_cost,
         ));
+        let sysvar_ro =
+            crate::serialization::serialize_sysvar_cache(invoke_context.get_sysvar_cache());
         let mut allocations = None;
         let $vm = heap_cost_result.and_then(|_| {
             let mut stack = solana_rbpf::aligned_memory::AlignedMemory::<
@@ -285,6 +289,7 @@ macro_rules! create_vm {
                 $invoke_context,
                 &mut stack,
                 &mut heap,
+                &sysvar_ro,
             );
             allocations = Some((stack, heap));
             vm
@@ -317,10 +322,14 @@ macro_rules! mock_create_vm {
     };
 }
 
+// This should be exported from `solana_rbpf`.
+const MM_SYSVAR_START: u64 = 0x500000000;
+
 fn create_memory_mapping<'a, 'b, C: ContextObject>(
     executable: &'a Executable<C>,
     stack: &'b mut AlignedMemory<{ HOST_ALIGN }>,
     heap: &'b mut AlignedMemory<{ HOST_ALIGN }>,
+    sysvar_ro: &'b AlignedMemory<{ HOST_ALIGN }>,
     additional_regions: Vec<MemoryRegion>,
     cow_cb: Option<MemoryCowCallback>,
 ) -> Result<MemoryMapping<'a>, Box<dyn std::error::Error>> {
@@ -338,6 +347,7 @@ fn create_memory_mapping<'a, 'b, C: ContextObject>(
             },
         ),
         MemoryRegion::new_writable(heap.as_slice_mut(), MM_HEAP_START),
+        MemoryRegion::new_readonly(sysvar_ro.as_slice(), MM_SYSVAR_START),
     ]
     .into_iter()
     .chain(additional_regions)

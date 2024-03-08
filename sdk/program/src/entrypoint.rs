@@ -6,7 +6,10 @@
 
 extern crate alloc;
 use {
-    crate::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey},
+    crate::{
+        account_info::AccountInfo, clock::Clock, epoch_rewards::EpochRewards,
+        epoch_schedule::EpochSchedule, program_error::ProgramError, pubkey::Pubkey,
+    },
     alloc::vec::Vec,
     std::{
         alloc::Layout,
@@ -224,6 +227,102 @@ macro_rules! custom_panic_default {
             $crate::msg!("{}", info);
         }
     };
+}
+
+const SYSVAR_START_ADDR: u64 = 0x500000000;
+
+const CLOCK_SIZE: usize = std::mem::size_of::<Clock>();
+const CLOCK_START_ADDR: u64 = SYSVAR_START_ADDR;
+
+const EPOCH_SCHEDULE_SIZE: usize = std::mem::size_of::<u64>()
+    + std::mem::size_of::<u64>()
+    + std::mem::size_of::<u8>() // bool as u8
+    + std::mem::size_of::<u64>()
+    + std::mem::size_of::<u64>();
+const EPOCH_SCHEDULE_START_ADDR: u64 = CLOCK_START_ADDR + CLOCK_SIZE as u64;
+
+const EPOCH_REWARDS_START_ADDR: u64 = EPOCH_SCHEDULE_START_ADDR + EPOCH_SCHEDULE_SIZE as u64;
+
+pub fn get_clock_from_vm_memory() -> Clock {
+    unsafe {
+        let pos_ptr = CLOCK_START_ADDR as *const u8;
+
+        let mut offset: usize = 0;
+
+        let slot: u64 = *(pos_ptr.add(offset) as *const u64);
+        offset += size_of::<u64>();
+
+        let epoch_start_timestamp: i64 = *(pos_ptr.add(offset) as *const i64);
+        offset += size_of::<i64>();
+
+        let epoch: u64 = *(pos_ptr.add(offset) as *const u64);
+        offset += size_of::<u64>();
+
+        let leader_schedule_epoch: u64 = *(pos_ptr.add(offset) as *const u64);
+        offset += size_of::<u64>();
+
+        let unix_timestamp: i64 = *(pos_ptr.add(offset) as *const i64);
+
+        Clock {
+            slot,
+            epoch_start_timestamp,
+            epoch,
+            leader_schedule_epoch,
+            unix_timestamp,
+        }
+    }
+}
+
+pub fn get_epoch_schedule_from_vm_memory() -> EpochSchedule {
+    unsafe {
+        let pos_ptr = EPOCH_SCHEDULE_START_ADDR as *const u8;
+
+        let mut offset: usize = 0;
+
+        let slots_per_epoch: u64 = *(pos_ptr.add(offset) as *const u64);
+        offset += size_of::<u64>();
+
+        let leader_schedule_slot_offset: u64 = *(pos_ptr.add(offset) as *const u64);
+        offset += size_of::<u64>();
+
+        let warmup: bool = *(pos_ptr.add(offset) as *const u8) != 0;
+        offset += size_of::<u8>();
+
+        let first_normal_epoch: u64 = *(pos_ptr.add(offset) as *const u64);
+        offset += size_of::<u64>();
+
+        let first_normal_slot: u64 = *(pos_ptr.add(offset) as *const u64);
+
+        EpochSchedule {
+            slots_per_epoch,
+            leader_schedule_slot_offset,
+            warmup,
+            first_normal_epoch,
+            first_normal_slot,
+        }
+    }
+}
+
+pub fn get_epoch_rewards_from_vm_memory() -> EpochRewards {
+    unsafe {
+        let pos_ptr = EPOCH_REWARDS_START_ADDR as *const u8;
+
+        let mut offset: usize = 0;
+
+        let total_rewards: u64 = *(pos_ptr.add(offset) as *const u64);
+        offset += size_of::<u64>();
+
+        let distributed_rewards: u64 = *(pos_ptr.add(offset) as *const u64);
+        offset += size_of::<u64>();
+
+        let distribution_complete_block_height: u64 = *(pos_ptr.add(offset) as *const u64);
+
+        EpochRewards {
+            total_rewards,
+            distributed_rewards,
+            distribution_complete_block_height,
+        }
+    }
 }
 
 /// The bump allocator used as the default rust heap when running programs.
