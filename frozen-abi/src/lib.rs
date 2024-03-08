@@ -19,3 +19,5 @@ extern crate solana_frozen_abi_macro;
 #[cfg(test)]
 #[macro_use]
 extern crate serde_derive;
+
+pub use log;
