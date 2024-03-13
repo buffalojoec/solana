@@ -2,7 +2,7 @@ use {
     super::error::CoreBpfMigrationError,
     crate::bank::Bank,
     solana_sdk::{
-        account::Account,
+        account::{AccountSharedData, ReadableAccount},
         bpf_loader_upgradeable::{
             get_program_data_address, UpgradeableLoaderState, ID as BPF_LOADER_UPGRADEABLE_ID,
         },
@@ -15,28 +15,30 @@ use {
 #[derive(Debug)]
 pub(crate) struct SourceProgramBpfUpgradeable {
     pub program_address: Pubkey,
-    pub program_account: Account,
+    pub program_account: AccountSharedData,
     pub program_data_address: Pubkey,
-    pub program_data_account: Account,
+    pub program_data_account: AccountSharedData,
     pub total_data_size: usize,
 }
 
 impl SourceProgramBpfUpgradeable {
     fn check_program_account(&self) -> Result<(), CoreBpfMigrationError> {
         // The program account should be owned by the upgradeable loader.
-        if self.program_account.owner != BPF_LOADER_UPGRADEABLE_ID {
+        if self.program_account.owner() != &BPF_LOADER_UPGRADEABLE_ID {
             return Err(CoreBpfMigrationError::IncorrectOwner(self.program_address));
         }
 
         // The program account should have a pointer to its data account.
         if let UpgradeableLoaderState::Program {
             programdata_address,
-        } = bincode::deserialize(&self.program_account.data)
+        } = &self
+            .program_account
+            .deserialize_data()
             .map_err::<CoreBpfMigrationError, _>(|_| {
                 CoreBpfMigrationError::InvalidProgramAccount(self.program_address)
             })?
         {
-            if programdata_address != self.program_data_address {
+            if programdata_address != &self.program_data_address {
                 return Err(CoreBpfMigrationError::InvalidProgramAccount(
                     self.program_address,
                 ));
@@ -48,7 +50,7 @@ impl SourceProgramBpfUpgradeable {
 
     fn check_program_data_account(&self) -> Result<(), CoreBpfMigrationError> {
         // The program data account should be owned by the upgradeable loader.
-        if self.program_data_account.owner != BPF_LOADER_UPGRADEABLE_ID {
+        if self.program_data_account.owner() != &BPF_LOADER_UPGRADEABLE_ID {
             return Err(CoreBpfMigrationError::IncorrectOwner(
                 self.program_data_address,
             ));
@@ -56,14 +58,14 @@ impl SourceProgramBpfUpgradeable {
 
         // The program data account should have the correct state.
         let programdata_data_offset = UpgradeableLoaderState::size_of_programdata_metadata();
-        if self.program_data_account.data.len() < programdata_data_offset {
+        if self.program_data_account.data().len() < programdata_data_offset {
             return Err(CoreBpfMigrationError::InvalidProgramDataAccount(
                 self.program_data_address,
             ));
         }
         // Length checked in previous block.
         match bincode::deserialize::<UpgradeableLoaderState>(
-            &self.program_data_account.data[..programdata_data_offset],
+            &self.program_data_account.data()[..programdata_data_offset],
         ) {
             Ok(UpgradeableLoaderState::ProgramData { .. }) => Ok(()),
             _ => Err(CoreBpfMigrationError::InvalidProgramDataAccount(
@@ -80,26 +82,24 @@ impl SourceProgramBpfUpgradeable {
     ) -> Result<Self, CoreBpfMigrationError> {
         let program_address = *program_id;
         // The program account should exist.
-        let program_account: Account = bank
+        let program_account = bank
             .get_account_with_fixed_root(&program_address)
-            .ok_or(CoreBpfMigrationError::AccountNotFound(program_address))?
-            .into();
+            .ok_or(CoreBpfMigrationError::AccountNotFound(program_address))?;
 
         // The program data account should exist.
         let program_data_address = get_program_data_address(&program_address);
-        let program_data_account: Account = bank
+        let program_data_account = bank
             .get_account_with_fixed_root(&program_data_address)
             .ok_or(CoreBpfMigrationError::ProgramHasNoDataAccount(
                 program_address,
-            ))?
-            .into();
+            ))?;
 
         // The total data size is the size of the program account's data plus
         // the size of the program data account's data.
         let total_data_size = program_account
-            .data
+            .data()
             .len()
-            .checked_add(program_data_account.data.len())
+            .checked_add(program_data_account.data().len())
             .ok_or(CoreBpfMigrationError::ArithmeticOverflow)?;
 
         let config = Self {
@@ -122,19 +122,17 @@ mod tests {
     use {
         super::*,
         crate::bank::tests::create_simple_test_bank,
-        solana_sdk::{
-            account::AccountSharedData, bpf_loader_upgradeable::ID as BPF_LOADER_UPGRADEABLE_ID,
-        },
+        solana_sdk::{account::Account, bpf_loader_upgradeable::ID as BPF_LOADER_UPGRADEABLE_ID},
     };
 
     fn store_account<T: serde::Serialize>(
         bank: &Bank,
         address: &Pubkey,
-        data: (&T, Option<&[u8]>),
+        data: &T,
+        additional_data: Option<&[u8]>,
         executable: bool,
         owner: &Pubkey,
     ) {
-        let (data, additional_data) = data;
         let mut data = bincode::serialize(data).unwrap();
         if let Some(additional_data) = additional_data {
             data.extend_from_slice(additional_data);
@@ -171,7 +169,8 @@ mod tests {
         store_account(
             &bank,
             &program_id,
-            (&proper_program_account_state, None),
+            &proper_program_account_state,
+            None,
             true,
             &BPF_LOADER_UPGRADEABLE_ID,
         );
@@ -190,7 +189,8 @@ mod tests {
         store_account(
             &bank,
             &program_data_address,
-            (&proper_program_data_account_state, Some(&[4u8; 200])),
+            &proper_program_data_account_state,
+            Some(&[4u8; 200]),
             false,
             &BPF_LOADER_UPGRADEABLE_ID,
         );
@@ -203,13 +203,13 @@ mod tests {
         let check_program_account_data_len = check_program_account_data.len();
         let check_program_lamports =
             bank.get_minimum_balance_for_rent_exemption(check_program_account_data_len);
-        let check_program_account = Account {
+        let check_program_account = AccountSharedData::from(Account {
             data: check_program_account_data,
             executable: true,
             lamports: check_program_lamports,
             owner: BPF_LOADER_UPGRADEABLE_ID,
             ..Account::default()
-        };
+        });
 
         let mut check_program_data_account_data =
             bincode::serialize(&proper_program_data_account_state).unwrap();
@@ -217,13 +217,13 @@ mod tests {
         let check_program_data_account_data_len = check_program_data_account_data.len();
         let check_program_data_lamports =
             bank.get_minimum_balance_for_rent_exemption(check_program_data_account_data_len);
-        let check_program_data_account = Account {
+        let check_program_data_account = AccountSharedData::from(Account {
             data: check_program_data_account_data,
             executable: false,
             lamports: check_program_data_lamports,
             owner: BPF_LOADER_UPGRADEABLE_ID,
             ..Account::default()
-        };
+        });
 
         assert_eq!(bpf_upgradeable_program_config.program_address, program_id);
         assert_eq!(
@@ -255,13 +255,11 @@ mod tests {
         store_account(
             &bank,
             &program_data_address,
-            (
-                &UpgradeableLoaderState::ProgramData {
-                    slot: 0,
-                    upgrade_authority_address: Some(Pubkey::new_unique()),
-                },
-                Some(&[4u8; 200]),
-            ),
+            &UpgradeableLoaderState::ProgramData {
+                slot: 0,
+                upgrade_authority_address: Some(Pubkey::new_unique()),
+            },
+            Some(&[4u8; 200]),
             false,
             &BPF_LOADER_UPGRADEABLE_ID,
         );
@@ -270,12 +268,10 @@ mod tests {
         store_account(
             &bank,
             &program_id,
-            (
-                &UpgradeableLoaderState::Program {
-                    programdata_address: program_data_address,
-                },
-                None,
-            ),
+            &UpgradeableLoaderState::Program {
+                programdata_address: program_data_address,
+            },
+            None,
             true,
             &Pubkey::new_unique(), // Not the upgradeable loader
         );
@@ -288,7 +284,8 @@ mod tests {
         store_account(
             &bank,
             &program_id,
-            (&vec![0u8; 200], None),
+            &vec![0u8; 200],
+            None,
             true,
             &BPF_LOADER_UPGRADEABLE_ID,
         );
@@ -302,12 +299,10 @@ mod tests {
         store_account(
             &bank,
             &program_id,
-            (
-                &UpgradeableLoaderState::Program {
-                    programdata_address: Pubkey::new_unique(), // Not the correct data account
-                },
-                None,
-            ),
+            &UpgradeableLoaderState::Program {
+                programdata_address: Pubkey::new_unique(), // Not the correct data account
+            },
+            None,
             true,
             &BPF_LOADER_UPGRADEABLE_ID,
         );
@@ -328,12 +323,10 @@ mod tests {
         store_account(
             &bank,
             &program_id,
-            (
-                &UpgradeableLoaderState::Program {
-                    programdata_address: program_data_address,
-                },
-                None,
-            ),
+            &UpgradeableLoaderState::Program {
+                programdata_address: program_data_address,
+            },
+            None,
             true,
             &BPF_LOADER_UPGRADEABLE_ID,
         );
@@ -342,13 +335,11 @@ mod tests {
         store_account(
             &bank,
             &program_data_address,
-            (
-                &UpgradeableLoaderState::ProgramData {
-                    slot: 0,
-                    upgrade_authority_address: Some(Pubkey::new_unique()),
-                },
-                Some(&[4u8; 200]),
-            ),
+            &UpgradeableLoaderState::ProgramData {
+                slot: 0,
+                upgrade_authority_address: Some(Pubkey::new_unique()),
+            },
+            Some(&[4u8; 200]),
             false,
             &Pubkey::new_unique(), // Not the upgradeable loader
         );
@@ -361,7 +352,8 @@ mod tests {
         store_account(
             &bank,
             &program_data_address,
-            (&vec![4u8; 200], None), // Not the correct state
+            &vec![4u8; 200], // Not the correct state
+            None,
             false,
             &BPF_LOADER_UPGRADEABLE_ID,
         );

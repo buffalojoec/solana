@@ -2,7 +2,7 @@ use {
     super::{error::CoreBpfMigrationError, CoreBpfMigration},
     crate::bank::Bank,
     solana_sdk::{
-        account::{Account, AccountSharedData},
+        account::{AccountSharedData, ReadableAccount},
         bpf_loader_upgradeable::get_program_data_address,
         native_loader::ID as NATIVE_LOADER_ID,
         pubkey::Pubkey,
@@ -13,7 +13,7 @@ use {
 #[derive(Debug)]
 pub(crate) struct TargetProgramBuiltin {
     pub program_address: Pubkey,
-    pub program_account: Account,
+    pub program_account: AccountSharedData,
     pub program_data_address: Pubkey,
     pub total_data_size: usize,
 }
@@ -29,13 +29,12 @@ impl TargetProgramBuiltin {
         let program_account = match migration {
             CoreBpfMigration::Builtin => {
                 // The program account should exist.
-                let program_account: Account = bank
+                let program_account = bank
                     .get_account_with_fixed_root(&program_address)
-                    .ok_or(CoreBpfMigrationError::AccountNotFound(program_address))?
-                    .into();
+                    .ok_or(CoreBpfMigrationError::AccountNotFound(program_address))?;
 
                 // The program account should be owned by the native loader.
-                if program_account.owner != NATIVE_LOADER_ID {
+                if program_account.owner() != &NATIVE_LOADER_ID {
                     return Err(CoreBpfMigrationError::IncorrectOwner(program_address));
                 }
 
@@ -47,7 +46,7 @@ impl TargetProgramBuiltin {
                     return Err(CoreBpfMigrationError::AccountExists(program_address));
                 }
 
-                AccountSharedData::default().into()
+                AccountSharedData::default()
             }
         };
 
@@ -64,7 +63,7 @@ impl TargetProgramBuiltin {
         }
 
         // The total data size is the size of the program account's data.
-        let total_data_size = program_account.data.len();
+        let total_data_size = program_account.data().len();
 
         Ok(Self {
             program_address,
@@ -81,6 +80,7 @@ mod tests {
         super::*,
         crate::bank::{tests::create_simple_test_bank, ApplyFeatureActivationsCaller},
         solana_sdk::{
+            account::Account,
             bpf_loader_upgradeable::{UpgradeableLoaderState, ID as BPF_LOADER_UPGRADEABLE_ID},
             feature, feature_set,
         },
@@ -150,10 +150,7 @@ mod tests {
             bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false);
         }
 
-        let program_account: Account = bank
-            .get_account_with_fixed_root(&program_address)
-            .unwrap()
-            .into();
+        let program_account = bank.get_account_with_fixed_root(&program_address).unwrap();
         let program_data_address = get_program_data_address(&program_address);
 
         // Success
@@ -162,7 +159,7 @@ mod tests {
         assert_eq!(builtin_config.program_address, program_address);
         assert_eq!(builtin_config.program_account, program_account);
         assert_eq!(builtin_config.program_data_address, program_data_address);
-        assert_eq!(builtin_config.total_data_size, program_account.data.len());
+        assert_eq!(builtin_config.total_data_size, program_account.data().len());
 
         // Fail if the program account is not owned by the native loader
         store_account(
@@ -182,9 +179,9 @@ mod tests {
         store_account(
             &bank,
             &program_address,
-            &program_account.data,
-            program_account.executable,
-            &program_account.owner,
+            &program_account.data(),
+            program_account.executable(),
+            program_account.owner(),
         );
         store_account(
             &bank,
@@ -219,7 +216,7 @@ mod tests {
         let migration = CoreBpfMigration::Stateless;
         let bank = create_simple_test_bank(0);
 
-        let program_account: Account = AccountSharedData::default().into();
+        let program_account = AccountSharedData::default();
         let program_data_address = get_program_data_address(&program_address);
 
         // Success
@@ -228,7 +225,7 @@ mod tests {
         assert_eq!(builtin_config.program_address, program_address);
         assert_eq!(builtin_config.program_account, program_account);
         assert_eq!(builtin_config.program_data_address, program_data_address);
-        assert_eq!(builtin_config.total_data_size, program_account.data.len());
+        assert_eq!(builtin_config.total_data_size, program_account.data().len());
 
         // Fail if the program data account exists
         store_account(

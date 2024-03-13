@@ -8,8 +8,8 @@ use {
     builtin::TargetProgramBuiltin,
     error::CoreBpfMigrationError,
     solana_sdk::{
-        account::{Account, AccountSharedData},
-        bpf_loader_upgradeable::{UpgradeableLoaderState, ID as BPF_LOADER_UPGRADEABLE_ID},
+        account::{AccountSharedData, ReadableAccount},
+        bpf_loader_upgradeable::UpgradeableLoaderState,
         pubkey::Pubkey,
     },
     std::sync::atomic::Ordering::Relaxed,
@@ -55,15 +55,11 @@ fn create_new_target_program_account(
         programdata_address: target.program_data_address,
     };
     let data = bincode::serialize(&state).map_err(|_| CoreBpfMigrationError::FailedToSerialize)?;
-    let account = Account {
-        data,
-        owner: BPF_LOADER_UPGRADEABLE_ID,
-        executable: true,
-        // The source program account has the same state, so it must have a
-        // sufficient lamports balance to cover rent for this state.
-        ..source.program_account
-    };
-    Ok(AccountSharedData::from(account))
+    let mut account = source.program_account.clone();
+    // The source program account has the same state, so it should already have
+    // a sufficient lamports balance to cover rent for this state.
+    account.set_data_from_slice(&data);
+    Ok(account)
 }
 
 impl CoreBpfMigrationConfig {
@@ -84,7 +80,7 @@ impl CoreBpfMigrationConfig {
         // Burn lamports from the target program account, since it will be
         // replaced.
         bank.capitalization
-            .fetch_sub(target.program_account.lamports, Relaxed);
+            .fetch_sub(target.program_account.lamports(), Relaxed);
 
         // Replace the native program account with the created to point to the new data
         // account and clear the source program account.
