@@ -7327,13 +7327,17 @@ impl Bank {
             // The `builtin_disabled` flag is used to handle the case where a
             // built-in is scheduled to be enabled by one feature gate and
             // later migrated to Core BPF by another.
+            //
             // There should never be a case where a built-in is set to be
             // migrated to Core BPF and is also set to be enabled on feature
             // activation on the same feature gate. However, the
             // `builtin_disabled` flag will handle this case as well, electing
             // to first attempt the migration to Core BPF.
-            // This will fail gracefully, and the built-in will subsequently be
-            // enabled, but it will never be migrated to Core BPF.
+            //
+            // The migration to Core BPF will fail gracefully because the
+            // program account will not exist. The built-in will subsequently
+            // be enabled, but it will never be migrated to Core BPF.
+            //
             // Using the same feature gate for both enabling and migrating a
             // built-in to Core BPF should be strictly avoided.
             let mut builtin_disabled = false;
@@ -7343,7 +7347,9 @@ impl Bank {
                 // to the bank's builtins. The migration will remove it from
                 // the builtins list and the cache.
                 if new_feature_activations.contains(&core_bpf_migration_config.feature_id) {
-                    if let Err(e) = builtin.migrate_to_core_bpf(self) {
+                    if let Err(e) = core_bpf_migration_config
+                        .migrate_builtin_to_core_bpf(self, &builtin.program_id)
+                    {
                         warn!(
                             "Failed to migrate built-in {} to Core BPF: {}",
                             builtin.name, e
@@ -7388,7 +7394,9 @@ impl Bank {
         for stateless_builtin in STATELESS_BUILTINS.iter() {
             if let Some(core_bpf_migration_config) = &stateless_builtin.core_bpf_migration_config {
                 if new_feature_activations.contains(&core_bpf_migration_config.feature_id) {
-                    if let Err(e) = stateless_builtin.migrate_to_core_bpf(self) {
+                    if let Err(e) = core_bpf_migration_config
+                        .migrate_builtin_to_core_bpf(self, &stateless_builtin.program_id)
+                    {
                         warn!(
                             "Failed to migrate stateless built-in {} to Core BPF: {}",
                             stateless_builtin.name, e

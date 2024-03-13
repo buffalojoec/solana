@@ -16,14 +16,16 @@ use {
 };
 
 /// Sets up a Core BPF migration for a built-in program.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum CoreBpfMigration {
+    /// Builtin programs should have a program account.
     Builtin,
+    /// Stateless builtins should not have a program account.
     Stateless,
 }
 
 /// Configurations for migrating a built-in program to Core BPF.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct CoreBpfMigrationConfig {
     /// The source program ID to replace the builtin with.
     pub source_program_id: Pubkey,
@@ -32,6 +34,8 @@ pub struct CoreBpfMigrationConfig {
     /// `enable_feature_id`. It should always be a feature gate that will be
     /// activated after the builtin is already enabled.
     pub feature_id: Pubkey,
+    /// The type of migration to perform.
+    pub migration_type: CoreBpfMigration,
     pub datapoint_name: &'static str,
 }
 
@@ -68,11 +72,10 @@ impl CoreBpfMigrationConfig {
         &self,
         bank: &mut Bank,
         program_id: &Pubkey,
-        migration: CoreBpfMigration,
     ) -> Result<(), CoreBpfMigrationError> {
         datapoint_info!(self.datapoint_name, ("slot", bank.slot, i64));
 
-        let target = TargetProgramBuiltin::new_checked(bank, program_id, migration)?;
+        let target = TargetProgramBuiltin::new_checked(bank, program_id, &self.migration_type)?;
         let source = SourceProgramBpfUpgradeable::new_checked(bank, &self.source_program_id)?;
 
         // Attempt serialization first before touching the bank.
@@ -282,6 +285,7 @@ mod tests {
         let core_bpf_migration_config = CoreBpfMigrationConfig {
             source_program_id,
             feature_id: Pubkey::new_unique(),
+            migration_type: CoreBpfMigration::Builtin,
             datapoint_name: "test_migrate_builtin",
         };
 
@@ -292,7 +296,7 @@ mod tests {
 
         // Perform the migration.
         core_bpf_migration_config
-            .migrate_builtin_to_core_bpf(&mut bank, &builtin_id, CoreBpfMigration::Builtin)
+            .migrate_builtin_to_core_bpf(&mut bank, &builtin_id)
             .unwrap();
 
         // Run the post-migration program checks.
@@ -333,6 +337,7 @@ mod tests {
         let core_bpf_migration_config = CoreBpfMigrationConfig {
             source_program_id,
             feature_id: Pubkey::new_unique(),
+            migration_type: CoreBpfMigration::Stateless,
             datapoint_name: "test_migrate_stateless_builtin",
         };
 
@@ -343,7 +348,7 @@ mod tests {
 
         // Perform the migration.
         core_bpf_migration_config
-            .migrate_builtin_to_core_bpf(&mut bank, &builtin_id, CoreBpfMigration::Stateless)
+            .migrate_builtin_to_core_bpf(&mut bank, &builtin_id)
             .unwrap();
 
         // Run the post-migration program checks.
