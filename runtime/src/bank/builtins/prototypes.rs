@@ -62,20 +62,11 @@ impl solana_frozen_abi::abi_example::AbiExample for BuiltinPrototype {
 /// features are activated.
 /// These are built-in programs that don't actually exist, but their address
 /// is reserved.
+#[derive(Debug)]
 pub struct StatelessBuiltinPrototype {
     pub core_bpf_migration_config: Option<CoreBpfMigrationConfig>,
     pub program_id: Pubkey,
     pub name: &'static str,
-}
-
-impl std::fmt::Debug for StatelessBuiltinPrototype {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let mut builder = f.debug_struct("StatelessBuiltinPrototype");
-        builder.field("program_id", &self.program_id);
-        builder.field("name", &self.name);
-        builder.field("core_bpf_migration_config", &self.core_bpf_migration_config);
-        builder.finish()
-    }
 }
 
 impl StatelessBuiltinPrototype {

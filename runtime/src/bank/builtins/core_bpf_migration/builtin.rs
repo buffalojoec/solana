@@ -87,16 +87,6 @@ mod tests {
         test_case::test_case,
     };
 
-    // Just for tests
-    impl Clone for CoreBpfMigration {
-        fn clone(&self) -> Self {
-            match self {
-                CoreBpfMigration::Builtin => CoreBpfMigration::Builtin,
-                CoreBpfMigration::Stateless => CoreBpfMigration::Stateless,
-            }
-        }
-    }
-
     fn store_account<T: serde::Serialize>(
         bank: &Bank,
         address: &Pubkey,

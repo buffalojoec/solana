@@ -16,12 +16,14 @@ use {
 };
 
 /// Sets up a Core BPF migration for a built-in program.
+#[derive(Clone, Debug)]
 pub enum CoreBpfMigration {
     Builtin,
     Stateless,
 }
 
 /// Configurations for migrating a built-in program to Core BPF.
+#[derive(Clone, Debug)]
 pub struct CoreBpfMigrationConfig {
     /// The source program ID to replace the builtin with.
     pub source_program_id: Pubkey,
@@ -31,15 +33,6 @@ pub struct CoreBpfMigrationConfig {
     /// activated after the builtin is already enabled.
     pub feature_id: Pubkey,
     pub datapoint_name: &'static str,
-}
-
-impl std::fmt::Debug for CoreBpfMigrationConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let mut builder = f.debug_struct("CoreBpfMigrationConfig");
-        builder.field("source_program_id", &self.source_program_id);
-        builder.field("feature_id", &self.feature_id);
-        builder.finish()
-    }
 }
 
 /// Create a new `Account` with a pointer to the target's new data account.
