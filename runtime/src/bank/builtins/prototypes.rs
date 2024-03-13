@@ -10,7 +10,7 @@ use {
 /// Transitions of built-in programs at epoch boundaries when features are activated.
 pub struct BuiltinPrototype {
     pub enable_feature_id: Option<Pubkey>,
-    pub core_bpf_migration: Option<CoreBpfMigrationConfig>,
+    pub core_bpf_migration_config: Option<CoreBpfMigrationConfig>,
     pub program_id: Pubkey,
     pub name: &'static str,
     pub entrypoint: BuiltinFunctionWithContext,
@@ -22,14 +22,14 @@ impl std::fmt::Debug for BuiltinPrototype {
         builder.field("program_id", &self.program_id);
         builder.field("name", &self.name);
         builder.field("enable_feature_id", &self.enable_feature_id);
-        builder.field("core_bpf_migration", &self.core_bpf_migration);
+        builder.field("core_bpf_migration_config", &self.core_bpf_migration_config);
         builder.finish()
     }
 }
 
 impl BuiltinPrototype {
     pub(crate) fn migrate_to_core_bpf(&self, bank: &mut Bank) -> Result<(), CoreBpfMigrationError> {
-        if let Some(config) = &self.core_bpf_migration {
+        if let Some(config) = &self.core_bpf_migration_config {
             config.migrate_builtin_to_core_bpf(
                 bank,
                 &self.program_id,
@@ -50,7 +50,7 @@ impl solana_frozen_abi::abi_example::AbiExample for BuiltinPrototype {
         });
         Self {
             enable_feature_id: None,
-            core_bpf_migration: None,
+            core_bpf_migration_config: None,
             program_id: Pubkey::default(),
             name: "",
             entrypoint: MockBuiltin::vm,
@@ -58,33 +58,33 @@ impl solana_frozen_abi::abi_example::AbiExample for BuiltinPrototype {
     }
 }
 
-/// Transitions of ephemeral built-in programs at epoch boundaries when
+/// Transitions of stateless built-in programs at epoch boundaries when
 /// features are activated.
 /// These are built-in programs that don't actually exist, but their address
 /// is reserved.
-pub struct EphemeralBuiltinPrototype {
-    pub core_bpf_migration: Option<CoreBpfMigrationConfig>,
+pub struct StatelessBuiltinPrototype {
+    pub core_bpf_migration_config: Option<CoreBpfMigrationConfig>,
     pub program_id: Pubkey,
     pub name: &'static str,
 }
 
-impl std::fmt::Debug for EphemeralBuiltinPrototype {
+impl std::fmt::Debug for StatelessBuiltinPrototype {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let mut builder = f.debug_struct("EphemeralBuiltinPrototype");
+        let mut builder = f.debug_struct("StatelessBuiltinPrototype");
         builder.field("program_id", &self.program_id);
         builder.field("name", &self.name);
-        builder.field("core_bpf_migration", &self.core_bpf_migration);
+        builder.field("core_bpf_migration_config", &self.core_bpf_migration_config);
         builder.finish()
     }
 }
 
-impl EphemeralBuiltinPrototype {
+impl StatelessBuiltinPrototype {
     pub(crate) fn migrate_to_core_bpf(&self, bank: &mut Bank) -> Result<(), CoreBpfMigrationError> {
-        if let Some(config) = &self.core_bpf_migration {
+        if let Some(config) = &self.core_bpf_migration_config {
             config.migrate_builtin_to_core_bpf(
                 bank,
                 &self.program_id,
-                CoreBpfMigration::Ephemeral,
+                CoreBpfMigration::Stateless,
             )?;
         }
         Ok(())

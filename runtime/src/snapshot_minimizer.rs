@@ -115,9 +115,12 @@ impl<'a> SnapshotMinimizer<'a> {
     fn get_builtins(&self) {
         // Use the bank's builtins, since some builtins from the static
         // `BUILTINS` list may have been migrated to Core BPF.
-        self.bank.get_builtins().iter().for_each(|program_id| {
-            self.minimized_account_set.insert(*program_id);
-        });
+        self.bank
+            .get_builtin_program_ids()
+            .iter()
+            .for_each(|program_id| {
+                self.minimized_account_set.insert(*program_id);
+            });
     }
 
     /// Used to get static runtime accounts in `minimize`

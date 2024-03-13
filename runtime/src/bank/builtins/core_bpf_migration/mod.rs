@@ -4,8 +4,8 @@ pub(crate) mod error;
 
 use {
     crate::bank::Bank,
-    bpf_upgradeable::BpfUpgradeableConfig,
-    builtin::BuiltinConfig,
+    bpf_upgradeable::SourceProgramBpfUpgradeable,
+    builtin::TargetProgramBuiltin,
     error::CoreBpfMigrationError,
     solana_sdk::{
         account::{Account, AccountSharedData},
@@ -18,7 +18,7 @@ use {
 /// Sets up a Core BPF migration for a built-in program.
 pub enum CoreBpfMigration {
     Builtin,
-    Ephemeral,
+    Stateless,
 }
 
 /// Configurations for migrating a built-in program to Core BPF.
@@ -48,8 +48,8 @@ impl std::fmt::Debug for CoreBpfMigrationConfig {
 /// executable values. The rest is inherited from the source program
 /// account, including the lamports.
 fn create_new_target_program_account(
-    target: &BuiltinConfig,
-    source: &BpfUpgradeableConfig,
+    target: &TargetProgramBuiltin,
+    source: &SourceProgramBpfUpgradeable,
 ) -> Result<AccountSharedData, CoreBpfMigrationError> {
     let state = UpgradeableLoaderState::Program {
         programdata_address: target.program_data_address,
@@ -75,8 +75,8 @@ impl CoreBpfMigrationConfig {
     ) -> Result<(), CoreBpfMigrationError> {
         datapoint_info!(self.datapoint_name, ("slot", bank.slot, i64));
 
-        let target = BuiltinConfig::new_checked(bank, program_id, migration)?;
-        let source = BpfUpgradeableConfig::new_checked(bank, &self.source_program_id)?;
+        let target = TargetProgramBuiltin::new_checked(bank, program_id, migration)?;
+        let source = SourceProgramBpfUpgradeable::new_checked(bank, &self.source_program_id)?;
 
         // Attempt serialization first before touching the bank.
         let new_target_program_account = create_new_target_program_account(&target, &source)?;

@@ -43,7 +43,7 @@ pub use solana_sdk::reward_type::RewardType;
 use {
     crate::{
         bank::{
-            builtins::{BuiltinPrototype, BUILTINS, EPHEMERAL_BUILTINS},
+            builtins::{BuiltinPrototype, BUILTINS, STATELESS_BUILTINS},
             metrics::*,
         },
         bank_forks::BankForks,
@@ -5966,7 +5966,7 @@ impl Bank {
                 .chain(additional_builtins.unwrap_or(&[]).iter())
             {
                 let should_add_builtin = builtin.enable_feature_id.is_none() && {
-                    if let Some(core_bpf_migration) = &builtin.core_bpf_migration {
+                    if let Some(core_bpf_migration) = &builtin.core_bpf_migration_config {
                         // The built-in should be added if the feature to
                         // migrate it to Core BPF is not active.
                         !self.feature_set.is_active(&core_bpf_migration.feature_id)
@@ -6072,7 +6072,7 @@ impl Bank {
         self.load_slow(&self.ancestors, pubkey)
     }
 
-    pub fn get_builtins(&self) -> &HashSet<Pubkey> {
+    pub(crate) fn get_builtin_program_ids(&self) -> &HashSet<Pubkey> {
         &self.builtin_programs
     }
 
@@ -7337,12 +7337,12 @@ impl Bank {
             // Using the same feature gate for both enabling and migrating a
             // built-in to Core BPF should be strictly avoided.
             let mut builtin_disabled = false;
-            if let Some(core_bpf_migration) = &builtin.core_bpf_migration {
+            if let Some(core_bpf_migration_config) = &builtin.core_bpf_migration_config {
                 // If the built-in is set to be migrated to Core BPF on feature
                 // activation, perform the migration and do not add the program
                 // to the bank's builtins. The migration will remove it from
                 // the builtins list and the cache.
-                if new_feature_activations.contains(&core_bpf_migration.feature_id) {
+                if new_feature_activations.contains(&core_bpf_migration_config.feature_id) {
                     if let Err(e) = builtin.migrate_to_core_bpf(self) {
                         warn!(
                             "Failed to migrate built-in {} to Core BPF: {}",
@@ -7354,7 +7354,9 @@ impl Bank {
                 } else {
                     // If the built-in has already been migrated to Core BPF, do not
                     // add it to the bank's builtins.
-                    builtin_disabled = self.feature_set.is_active(&core_bpf_migration.feature_id);
+                    builtin_disabled = self
+                        .feature_set
+                        .is_active(&core_bpf_migration_config.feature_id);
                 }
             };
 
@@ -7380,16 +7382,16 @@ impl Bank {
             }
         }
 
-        // Migrate any necessary ephemeral built-ins to core BPF.
-        // Ephemeral built-ins do not have an `enable_feature_id` since they
+        // Migrate any necessary stateless built-ins to core BPF.
+        // Stateless built-ins do not have an `enable_feature_id` since they
         // do not exist on-chain.
-        for ephemeral_builtin in EPHEMERAL_BUILTINS.iter() {
-            if let Some(core_bpf_migration) = &ephemeral_builtin.core_bpf_migration {
-                if new_feature_activations.contains(&core_bpf_migration.feature_id) {
-                    if let Err(e) = ephemeral_builtin.migrate_to_core_bpf(self) {
+        for stateless_builtin in STATELESS_BUILTINS.iter() {
+            if let Some(core_bpf_migration_config) = &stateless_builtin.core_bpf_migration_config {
+                if new_feature_activations.contains(&core_bpf_migration_config.feature_id) {
+                    if let Err(e) = stateless_builtin.migrate_to_core_bpf(self) {
                         warn!(
-                            "Failed to migrate ephemeral built-in {} to Core BPF: {}",
-                            ephemeral_builtin.name, e
+                            "Failed to migrate stateless built-in {} to Core BPF: {}",
+                            stateless_builtin.name, e
                         );
                     }
                 }
