@@ -2,7 +2,17 @@ pub(crate) mod core_bpf_migration;
 pub mod prototypes;
 
 pub use prototypes::{BuiltinPrototype, StatelessBuiltinPrototype};
-use solana_sdk::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, feature_set};
+use {
+    self::core_bpf_migration::CoreBpfMigrationConfig,
+    solana_sdk::{
+        bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable,
+        feature_set::{self, migrate_builtin_to_core_bpf_test},
+    },
+};
+
+mod source_program_id {
+    solana_sdk::declare_id!("53dbcSybKZdhinAx2zvgjfgesYRiat6EQF3oj1bGgCJE");
+}
 
 pub static BUILTINS: &[BuiltinPrototype] = &[
     BuiltinPrototype {
@@ -63,7 +73,12 @@ pub static BUILTINS: &[BuiltinPrototype] = &[
     },
     BuiltinPrototype {
         enable_feature_id: None,
-        core_bpf_migration_config: None,
+        core_bpf_migration_config: Some(CoreBpfMigrationConfig {
+            source_program_id: source_program_id::id(),
+            feature_id: migrate_builtin_to_core_bpf_test::id(),
+            migration_target: core_bpf_migration::CoreBpfMigrationTarget::Builtin,
+            datapoint_name: "core_bpf_migration_test",
+        }),
         program_id: solana_sdk::address_lookup_table::program::id(),
         name: "address_lookup_table_program",
         entrypoint: solana_address_lookup_table_program::processor::Entrypoint::vm,
