@@ -17,7 +17,7 @@ use {
 
 /// Sets up a Core BPF migration for a built-in program.
 #[derive(Debug)]
-pub enum CoreBpfMigration {
+pub enum CoreBpfMigrationTarget {
     /// Builtin programs should have a program account.
     Builtin,
     /// Stateless builtins should not have a program account.
@@ -35,7 +35,7 @@ pub struct CoreBpfMigrationConfig {
     /// activated after the builtin is already enabled.
     pub feature_id: Pubkey,
     /// The type of migration to perform.
-    pub migration_type: CoreBpfMigration,
+    pub migration_target: CoreBpfMigrationTarget,
     pub datapoint_name: &'static str,
 }
 
@@ -75,7 +75,7 @@ impl CoreBpfMigrationConfig {
     ) -> Result<(), CoreBpfMigrationError> {
         datapoint_info!(self.datapoint_name, ("slot", bank.slot, i64));
 
-        let target = TargetProgramBuiltin::new_checked(bank, program_id, &self.migration_type)?;
+        let target = TargetProgramBuiltin::new_checked(bank, program_id, &self.migration_target)?;
         let source = SourceProgramBpfUpgradeable::new_checked(bank, &self.source_program_id)?;
 
         // Attempt serialization first before touching the bank.
@@ -285,7 +285,7 @@ mod tests {
         let core_bpf_migration_config = CoreBpfMigrationConfig {
             source_program_id,
             feature_id: Pubkey::new_unique(),
-            migration_type: CoreBpfMigration::Builtin,
+            migration_target: CoreBpfMigrationTarget::Builtin,
             datapoint_name: "test_migrate_builtin",
         };
 
@@ -337,7 +337,7 @@ mod tests {
         let core_bpf_migration_config = CoreBpfMigrationConfig {
             source_program_id,
             feature_id: Pubkey::new_unique(),
-            migration_type: CoreBpfMigration::Stateless,
+            migration_target: CoreBpfMigrationTarget::Stateless,
             datapoint_name: "test_migrate_stateless_builtin",
         };
 
