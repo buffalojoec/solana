@@ -1,6 +1,6 @@
 pub mod prototypes;
 
-pub use prototypes::BuiltinPrototype;
+pub use prototypes::{BuiltinPrototype, StatelessBuiltinPrototype};
 use solana_sdk::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, feature_set};
 
 pub static BUILTINS: &[BuiltinPrototype] = &[
@@ -71,3 +71,8 @@ pub static BUILTINS: &[BuiltinPrototype] = &[
         entrypoint: solana_loader_v4_program::Entrypoint::vm,
     },
 ];
+
+pub static STATELESS_BUILTINS: &[StatelessBuiltinPrototype] = &[StatelessBuiltinPrototype {
+    program_id: solana_sdk::feature::id(),
+    name: "feature_gate_program",
+}];

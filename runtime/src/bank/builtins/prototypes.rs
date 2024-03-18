@@ -36,3 +36,13 @@ impl solana_frozen_abi::abi_example::AbiExample for BuiltinPrototype {
         }
     }
 }
+
+/// Transitions of stateless built-in programs at epoch boundaries when
+/// features are activated.
+/// These are built-in programs that don't actually exist, but their address
+/// is reserved.
+#[derive(Debug)]
+pub struct StatelessBuiltinPrototype {
+    pub program_id: Pubkey,
+    pub name: &'static str,
+}
