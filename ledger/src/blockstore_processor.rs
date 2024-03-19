@@ -34,7 +34,7 @@ use {
     solana_rayon_threadlimit::{get_max_thread_count, get_thread_count},
     solana_runtime::{
         accounts_background_service::{AbsRequestSender, SnapshotRequestKind},
-        bank::{Bank, TransactionBalancesSet},
+        bank::{builtins::BuiltinPrograms, Bank, TransactionBalancesSet},
         bank_forks::BankForks,
         bank_utils,
         commitment::VOTE_THRESHOLD_SIZE,
@@ -801,7 +801,7 @@ pub(crate) fn process_blockstore_for_bank_0(
         Arc::new(opts.runtime_config.clone()),
         account_paths,
         opts.debug_keys.clone(),
-        None,
+        Arc::<BuiltinPrograms>::default(),
         opts.account_indexes.clone(),
         opts.shrink_ratio,
         false,

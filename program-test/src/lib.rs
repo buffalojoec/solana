@@ -22,7 +22,7 @@ use {
     },
     solana_runtime::{
         accounts_background_service::{AbsRequestSender, SnapshotRequestKind},
-        bank::Bank,
+        bank::{builtins::BuiltinPrograms, Bank},
         bank_forks::BankForks,
         commitment::BlockCommitmentCache,
         genesis_utils::{create_genesis_config_with_leader_ex, GenesisConfigInfo},
@@ -818,7 +818,7 @@ impl ProgramTest {
             }),
             Vec::default(),
             None,
-            None,
+            Arc::<BuiltinPrograms>::default(),
             AccountSecondaryIndexes::default(),
             AccountShrinkThreshold::default(),
             false,

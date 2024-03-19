@@ -38,10 +38,7 @@ use solana_sdk::recent_blockhashes_account;
 pub use solana_sdk::reward_type::RewardType;
 use {
     crate::{
-        bank::{
-            builtins::{BuiltinPrograms, BuiltinPrototype},
-            metrics::*,
-        },
+        bank::{builtins::BuiltinPrograms, metrics::*},
         bank_forks::BankForks,
         epoch_rewards_hasher::hash_rewards_into_partitions,
         epoch_stakes::{EpochStakes, NodeVoteAccounts},
@@ -1055,7 +1052,7 @@ impl Bank {
         runtime_config: Arc<RuntimeConfig>,
         paths: Vec<PathBuf>,
         debug_keys: Option<Arc<HashSet<Pubkey>>>,
-        _additional_builtins: Option<&[BuiltinPrototype]>,
+        builtins: Arc<BuiltinPrograms>,
         account_indexes: AccountSecondaryIndexes,
         shrink_ratio: AccountShrinkThreshold,
         debug_do_not_add_builtins: bool,
@@ -1076,6 +1073,7 @@ impl Bank {
         let accounts = Accounts::new(Arc::new(accounts_db));
         let mut bank = Self::default_with_accounts(accounts);
         bank.ancestors = Ancestors::from(vec![bank.slot()]);
+        bank.builtins = builtins;
         bank.transaction_debug_keys = debug_keys;
         bank.runtime_config = runtime_config;
         bank.cluster_type = Some(genesis_config.cluster_type);
@@ -1815,7 +1813,7 @@ impl Bank {
         runtime_config: Arc<RuntimeConfig>,
         fields: BankFieldsToDeserialize,
         debug_keys: Option<Arc<HashSet<Pubkey>>>,
-        _additional_builtins: Option<&[BuiltinPrototype]>,
+        builtins: Arc<BuiltinPrograms>,
         debug_do_not_add_builtins: bool,
         accounts_data_size_initial: u64,
     ) -> Self {
@@ -1876,7 +1874,7 @@ impl Bank {
             stakes_cache: StakesCache::new(stakes),
             epoch_stakes: fields.epoch_stakes,
             is_delta: AtomicBool::new(fields.is_delta),
-            builtins: Arc::<BuiltinPrograms>::default(),
+            builtins,
             builtin_program_ids: HashSet::<Pubkey>::default(),
             runtime_config,
             rewards: RwLock::new(vec![]),
@@ -6087,7 +6085,7 @@ impl Bank {
         );
 
         if !debug_do_not_add_builtins {
-            for builtin in BuiltinPrograms::default().iter() {
+            for builtin in Arc::clone(&self.builtins).iter() {
                 if builtin.enable_feature_id.is_none() {
                     self.add_builtin(
                         builtin.program_id,
@@ -7437,7 +7435,7 @@ impl Bank {
         only_apply_transitions_for_new_features: bool,
         new_feature_activations: &HashSet<Pubkey>,
     ) {
-        for builtin in BuiltinPrograms::default().iter() {
+        for builtin in Arc::clone(&self.builtins).iter() {
             if let Some(feature_id) = builtin.enable_feature_id {
                 let should_apply_action_for_feature_transition =
                     if only_apply_transitions_for_new_features {
@@ -7772,7 +7770,7 @@ impl Bank {
             runtime_config,
             paths,
             None,
-            None,
+            Arc::<BuiltinPrograms>::default(),
             account_indexes,
             shrink_ratio,
             false,
@@ -7795,7 +7793,7 @@ impl Bank {
             Arc::<RuntimeConfig>::default(),
             paths,
             None,
-            None,
+            Arc::<BuiltinPrograms>::default(),
             AccountSecondaryIndexes::default(),
             AccountShrinkThreshold::default(),
             false,

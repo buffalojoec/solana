@@ -2,7 +2,7 @@
 use std::ffi::{CStr, CString};
 use {
     crate::{
-        bank::{builtins::BuiltinPrototype, Bank, BankFieldsToDeserialize, BankRc},
+        bank::{builtins::BuiltinPrograms, Bank, BankFieldsToDeserialize, BankRc},
         epoch_stakes::EpochStakes,
         serde_snapshot::storage::SerializableAccountStorageEntry,
         snapshot_utils::{
@@ -357,7 +357,7 @@ pub(crate) fn bank_from_streams<R>(
     genesis_config: &GenesisConfig,
     runtime_config: &RuntimeConfig,
     debug_keys: Option<Arc<HashSet<Pubkey>>>,
-    additional_builtins: Option<&[BuiltinPrototype]>,
+    builtins: Arc<BuiltinPrograms>,
     account_secondary_indexes: AccountSecondaryIndexes,
     limit_load_slot_count_from_snapshot: Option<usize>,
     shrink_ratio: AccountShrinkThreshold,
@@ -378,7 +378,7 @@ where
         account_paths,
         storage_and_next_append_vec_id,
         debug_keys,
-        additional_builtins,
+        builtins,
         account_secondary_indexes,
         limit_load_slot_count_from_snapshot,
         shrink_ratio,
@@ -584,7 +584,7 @@ fn reconstruct_bank_from_fields<E>(
     account_paths: &[PathBuf],
     storage_and_next_append_vec_id: StorageAndNextAppendVecId,
     debug_keys: Option<Arc<HashSet<Pubkey>>>,
-    additional_builtins: Option<&[BuiltinPrototype]>,
+    builtins: Arc<BuiltinPrograms>,
     account_secondary_indexes: AccountSecondaryIndexes,
     limit_load_slot_count_from_snapshot: Option<usize>,
     shrink_ratio: AccountShrinkThreshold,
@@ -632,7 +632,7 @@ where
         runtime_config,
         bank_fields,
         debug_keys,
-        additional_builtins,
+        builtins,
         debug_do_not_add_builtins,
         reconstructed_accounts_db_info.accounts_data_len,
     );

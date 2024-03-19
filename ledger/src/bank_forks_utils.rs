@@ -13,6 +13,7 @@ use {
     solana_accounts_db::accounts_update_notifier_interface::AccountsUpdateNotifier,
     solana_runtime::{
         accounts_background_service::AbsRequestSender,
+        bank::builtins::BuiltinPrograms,
         bank_forks::BankForks,
         snapshot_archive_info::{
             FullSnapshotArchiveInfo, IncrementalSnapshotArchiveInfo, SnapshotArchiveInfoGetter,
@@ -272,7 +273,7 @@ fn bank_forks_from_snapshot(
             genesis_config,
             &process_options.runtime_config,
             process_options.debug_keys.clone(),
-            None,
+            Arc::<BuiltinPrograms>::default(),
             process_options.account_indexes.clone(),
             process_options.limit_load_slot_count_from_snapshot,
             process_options.shrink_ratio,
@@ -324,7 +325,7 @@ fn bank_forks_from_snapshot(
             genesis_config,
             &process_options.runtime_config,
             process_options.debug_keys.clone(),
-            None,
+            Arc::<BuiltinPrograms>::default(),
             process_options.account_indexes.clone(),
             process_options.limit_load_slot_count_from_snapshot,
             process_options.shrink_ratio,
