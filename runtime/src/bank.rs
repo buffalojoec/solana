@@ -551,6 +551,7 @@ impl PartialEq for Bank {
             epoch_stakes,
             is_delta,
             // TODO: Confirm if all these fields are intentionally ignored!
+            builtins: _,
             builtin_program_ids: _,
             runtime_config: _,
             rewards: _,
@@ -779,6 +780,8 @@ pub struct Bank {
     /// stream for the slot == self.slot
     is_delta: AtomicBool,
 
+    builtins: Arc<BuiltinPrograms>,
+
     builtin_program_ids: HashSet<Pubkey>,
 
     /// Optional config parameters that can override runtime behavior
@@ -1001,6 +1004,7 @@ impl Bank {
             stakes_cache: StakesCache::default(),
             epoch_stakes: HashMap::<Epoch, EpochStakes>::default(),
             is_delta: AtomicBool::default(),
+            builtins: Arc::<BuiltinPrograms>::default(),
             builtin_program_ids: HashSet::<Pubkey>::default(),
             runtime_config: Arc::<RuntimeConfig>::default(),
             rewards: RwLock::<Vec<(Pubkey, RewardInfo)>>::default(),
@@ -1254,6 +1258,8 @@ impl Bank {
 
         let (epoch_stakes, epoch_stakes_time_us) = measure_us!(parent.epoch_stakes.clone());
 
+        let (builtins, builtins_time_us) = measure_us!(Arc::clone(&parent.builtins));
+
         let (builtin_program_ids, builtin_program_ids_time_us) =
             measure_us!(parent.builtin_program_ids.clone());
 
@@ -1311,6 +1317,7 @@ impl Bank {
             ancestors: Ancestors::default(),
             hash: RwLock::new(Hash::default()),
             is_delta: AtomicBool::new(false),
+            builtins,
             builtin_program_ids,
             tick_height: AtomicU64::new(parent.tick_height.load(Relaxed)),
             signature_count: AtomicU64::new(0),
@@ -1473,6 +1480,7 @@ impl Bank {
                 blockhash_queue_time_us,
                 stakes_cache_time_us,
                 epoch_stakes_time_us,
+                builtins_time_us,
                 builtin_program_ids_time_us,
                 rewards_pool_pubkeys_time_us,
                 executor_cache_time_us: 0,
@@ -1868,6 +1876,7 @@ impl Bank {
             stakes_cache: StakesCache::new(stakes),
             epoch_stakes: fields.epoch_stakes,
             is_delta: AtomicBool::new(fields.is_delta),
+            builtins: Arc::<BuiltinPrograms>::default(),
             builtin_program_ids: HashSet::<Pubkey>::default(),
             runtime_config,
             rewards: RwLock::new(vec![]),
