@@ -13,7 +13,7 @@ mod tests {
 
         let mut bank = Bank::new_for_tests(&genesis_config);
         bank.feature_set = Arc::new(FeatureSet::all_enabled());
-        bank.finish_init(&genesis_config, None, false);
+        bank.finish_init(&genesis_config, false);
 
         // Overwrite precompile accounts to simulate a cluster which already added precompiles.
         for precompile in get_precompiles() {
@@ -48,7 +48,7 @@ mod tests {
 
         let mut bank = Bank::new_for_tests(&genesis_config);
         bank.feature_set = Arc::new(FeatureSet::all_enabled());
-        bank.finish_init(&genesis_config, None, false);
+        bank.finish_init(&genesis_config, false);
 
         // Overwrite precompile accounts to simulate a cluster which already added precompiles.
         for precompile in get_precompiles() {
@@ -59,6 +59,6 @@ mod tests {
         bank.freeze();
 
         // Simulate starting up from snapshot finishing the initialization for a frozen bank
-        bank.finish_init(&genesis_config, None, false);
+        bank.finish_init(&genesis_config, false);
     }
 }

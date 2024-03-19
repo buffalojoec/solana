@@ -33,6 +33,8 @@
 //! It offers a high-level API that signs transactions
 //! on behalf of the caller, and a low-level API for when they have
 //! already been signed and verified.
+
+pub use crate::builtins::BuiltinPrograms;
 #[cfg(feature = "dev-context-only-utils")]
 use solana_accounts_db::accounts_db::{
     ACCOUNTS_DB_CONFIG_FOR_BENCHMARKS, ACCOUNTS_DB_CONFIG_FOR_TESTING,
@@ -44,7 +46,7 @@ use {
     crate::{
         bank::metrics::*,
         bank_forks::BankForks,
-        builtins::{BuiltinPrototype, BUILTINS},
+        builtins::BuiltinPrototype,
         epoch_rewards_hasher::hash_rewards_into_partitions,
         epoch_stakes::{EpochStakes, NodeVoteAccounts},
         installed_scheduler_pool::{BankWithScheduler, InstalledSchedulerRwLock},
@@ -528,7 +530,8 @@ impl PartialEq for Bank {
             epoch_stakes,
             is_delta,
             // TODO: Confirm if all these fields are intentionally ignored!
-            builtin_programs: _,
+            builtins: _,
+            builtin_program_ids: _,
             runtime_config: _,
             rewards: _,
             cluster_type: _,
@@ -754,7 +757,9 @@ pub struct Bank {
     /// stream for the slot == self.slot
     is_delta: AtomicBool,
 
-    builtin_programs: HashSet<Pubkey>,
+    builtins: Arc<BuiltinPrograms>,
+
+    builtin_program_ids: HashSet<Pubkey>,
 
     /// Optional config parameters that can override runtime behavior
     pub(crate) runtime_config: Arc<RuntimeConfig>,
@@ -932,6 +937,9 @@ pub(super) enum RewardInterval {
 
 impl Bank {
     fn default_with_accounts(accounts: Accounts) -> Self {
+        let builtins = Arc::new(BuiltinPrograms::default());
+        let builtin_program_ids = builtins.get_program_ids();
+
         let mut bank = Self {
             skipped_rewrites: Mutex::default(),
             incremental_snapshot_persistence: None,
@@ -971,7 +979,8 @@ impl Bank {
             stakes_cache: StakesCache::default(),
             epoch_stakes: HashMap::<Epoch, EpochStakes>::default(),
             is_delta: AtomicBool::default(),
-            builtin_programs: HashSet::<Pubkey>::default(),
+            builtins,
+            builtin_program_ids,
             runtime_config: Arc::<RuntimeConfig>::default(),
             rewards: RwLock::<Vec<(Pubkey, RewardInfo)>>::default(),
             cluster_type: Option::<ClusterType>::default(),
@@ -1049,11 +1058,7 @@ impl Bank {
         #[cfg(feature = "dev-context-only-utils")]
         bank.process_genesis_config(genesis_config, collector_id_for_tests);
 
-        bank.finish_init(
-            genesis_config,
-            additional_builtins,
-            debug_do_not_add_builtins,
-        );
+        bank.finish_init(genesis_config, debug_do_not_add_builtins);
 
         // genesis needs stakes for all epochs up to the epoch implied by
         //  slot = 0 and genesis configuration
@@ -1226,8 +1231,10 @@ impl Bank {
 
         let (epoch_stakes, epoch_stakes_time_us) = measure_us!(parent.epoch_stakes.clone());
 
-        let (builtin_programs, builtin_programs_time_us) =
-            measure_us!(parent.builtin_programs.clone());
+        let (builtins, builtins_time_us) = measure_us!(parent.builtins.clone());
+
+        let (builtin_program_ids, builtin_program_ids_time_us) =
+            measure_us!(parent.builtin_program_ids.clone());
 
         let (rewards_pool_pubkeys, rewards_pool_pubkeys_time_us) =
             measure_us!(parent.rewards_pool_pubkeys.clone());
@@ -1283,7 +1290,8 @@ impl Bank {
             ancestors: Ancestors::default(),
             hash: RwLock::new(Hash::default()),
             is_delta: AtomicBool::new(false),
-            builtin_programs,
+            builtins,
+            builtin_program_ids,
             tick_height: AtomicU64::new(parent.tick_height.load(Relaxed)),
             signature_count: AtomicU64::new(0),
             runtime_config: parent.runtime_config.clone(),
@@ -1444,7 +1452,8 @@ impl Bank {
                 blockhash_queue_time_us,
                 stakes_cache_time_us,
                 epoch_stakes_time_us,
-                builtin_programs_time_us,
+                builtins_time_us,
+                builtin_program_ids_time_us,
                 rewards_pool_pubkeys_time_us,
                 executor_cache_time_us: 0,
                 transaction_debug_keys_time_us,
@@ -1778,7 +1787,7 @@ impl Bank {
         runtime_config: Arc<RuntimeConfig>,
         fields: BankFieldsToDeserialize,
         debug_keys: Option<Arc<HashSet<Pubkey>>>,
-        additional_builtins: Option<&[BuiltinPrototype]>,
+        builtins: Arc<BuiltinPrograms>,
         debug_do_not_add_builtins: bool,
         accounts_data_size_initial: u64,
     ) -> Self {
@@ -1799,6 +1808,7 @@ impl Bank {
             a corrupted snapshot or bugs in cached accounts or accounts-db.",
         );
         let stakes_accounts_load_duration = now.elapsed();
+        let builtin_program_ids = builtins.get_program_ids();
         let mut bank = Self {
             skipped_rewrites: Mutex::default(),
             incremental_snapshot_persistence: fields.incremental_snapshot_persistence,
@@ -1839,7 +1849,8 @@ impl Bank {
             stakes_cache: StakesCache::new(stakes),
             epoch_stakes: fields.epoch_stakes,
             is_delta: AtomicBool::new(fields.is_delta),
-            builtin_programs: HashSet::<Pubkey>::default(),
+            builtins,
+            builtin_program_ids,
             runtime_config,
             rewards: RwLock::new(vec![]),
             cluster_type: Some(genesis_config.cluster_type),
@@ -1875,11 +1886,7 @@ impl Bank {
             bank.loaded_programs_cache.clone(),
         );
 
-        bank.finish_init(
-            genesis_config,
-            additional_builtins,
-            debug_do_not_add_builtins,
-        );
+        bank.finish_init(genesis_config, debug_do_not_add_builtins);
         bank.fill_missing_sysvar_cache_entries();
         bank.rebuild_skipped_rewrites();
 
@@ -4650,7 +4657,7 @@ impl Bank {
                 recording_config,
                 timings,
                 account_overrides,
-                self.builtin_programs.iter(),
+                self.builtin_program_ids.iter(),
                 log_messages_bytes_limit,
                 limit_to_load_programs,
             );
@@ -5975,12 +5982,7 @@ impl Bank {
         self.rc.accounts.clone()
     }
 
-    fn finish_init(
-        &mut self,
-        genesis_config: &GenesisConfig,
-        additional_builtins: Option<&[BuiltinPrototype]>,
-        debug_do_not_add_builtins: bool,
-    ) {
+    fn finish_init(&mut self, genesis_config: &GenesisConfig, debug_do_not_add_builtins: bool) {
         self.rewards_pool_pubkeys =
             Arc::new(genesis_config.rewards_pools.keys().cloned().collect());
 
@@ -5990,10 +5992,7 @@ impl Bank {
         );
 
         if !debug_do_not_add_builtins {
-            for builtin in BUILTINS
-                .iter()
-                .chain(additional_builtins.unwrap_or(&[]).iter())
-            {
+            for builtin in self.builtins.clone().iter() {
                 if builtin.feature_id.is_none() {
                     self.add_builtin(
                         builtin.program_id,
@@ -6062,7 +6061,7 @@ impl Bank {
     }
 
     pub(crate) fn get_builtin_program_ids(&self) -> &HashSet<Pubkey> {
-        &self.builtin_programs
+        &self.builtin_program_ids
     }
 
     // Hi! leaky abstraction here....
@@ -7093,7 +7092,7 @@ impl Bank {
     pub fn add_builtin(&mut self, program_id: Pubkey, name: String, builtin: LoadedProgram) {
         debug!("Adding program {} under {:?}", name, program_id);
         self.add_builtin_account(name.as_str(), &program_id, false);
-        self.builtin_programs.insert(program_id);
+        self.builtin_program_ids.insert(program_id);
         self.loaded_programs_cache
             .write()
             .unwrap()
@@ -7343,7 +7342,7 @@ impl Bank {
         only_apply_transitions_for_new_features: bool,
         new_feature_activations: &HashSet<Pubkey>,
     ) {
-        for builtin in BUILTINS.iter() {
+        for builtin in self.builtins.clone().iter() {
             if let Some(feature_id) = builtin.feature_id {
                 let should_apply_action_for_feature_transition =
                     if only_apply_transitions_for_new_features {

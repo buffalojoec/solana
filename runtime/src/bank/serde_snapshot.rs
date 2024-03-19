@@ -3,8 +3,8 @@ mod tests {
     use {
         crate::{
             bank::{
-                epoch_accounts_hash_utils, test_utils as bank_test_utils, Bank, EpochRewardStatus,
-                StartBlockHeightAndRewards,
+                epoch_accounts_hash_utils, test_utils as bank_test_utils, Bank, BuiltinPrograms,
+                EpochRewardStatus, StartBlockHeightAndRewards,
             },
             genesis_utils::activate_all_features,
             serde_snapshot::{
@@ -265,7 +265,7 @@ mod tests {
             &genesis_config,
             &RuntimeConfig::default(),
             None,
-            None,
+            Arc::<BuiltinPrograms>::default(),
             AccountSecondaryIndexes::default(),
             None,
             AccountShrinkThreshold::default(),
@@ -394,7 +394,7 @@ mod tests {
                 &genesis_config,
                 &RuntimeConfig::default(),
                 None,
-                None,
+                Arc::<BuiltinPrograms>::default(),
                 AccountSecondaryIndexes::default(),
                 None,
                 AccountShrinkThreshold::default(),
@@ -484,7 +484,7 @@ mod tests {
                 &genesis_config,
                 &RuntimeConfig::default(),
                 None,
-                None,
+                Arc::<BuiltinPrograms>::default(),
                 AccountSecondaryIndexes::default(),
                 None,
                 AccountShrinkThreshold::default(),
@@ -578,7 +578,7 @@ mod tests {
             &genesis_config,
             &RuntimeConfig::default(),
             None,
-            None,
+            Arc::<BuiltinPrograms>::default(),
             AccountSecondaryIndexes::default(),
             None,
             AccountShrinkThreshold::default(),
