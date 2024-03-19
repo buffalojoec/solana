@@ -39,7 +39,7 @@ pub use solana_sdk::reward_type::RewardType;
 use {
     crate::{
         bank::{
-            builtins::{BuiltinPrototype, BUILTINS},
+            builtins::{BuiltinPrograms, BuiltinPrototype},
             metrics::*,
         },
         bank_forks::BankForks,
@@ -6091,7 +6091,7 @@ impl Bank {
         );
 
         if !debug_do_not_add_builtins {
-            for builtin in BUILTINS
+            for builtin in BuiltinPrograms::default()
                 .iter()
                 .chain(additional_builtins.unwrap_or(&[]).iter())
             {
@@ -7444,7 +7444,7 @@ impl Bank {
         only_apply_transitions_for_new_features: bool,
         new_feature_activations: &HashSet<Pubkey>,
     ) {
-        for builtin in BUILTINS.iter() {
+        for builtin in BuiltinPrograms::default().iter() {
             if let Some(feature_id) = builtin.enable_feature_id {
                 let should_apply_action_for_feature_transition =
                     if only_apply_transitions_for_new_features {
