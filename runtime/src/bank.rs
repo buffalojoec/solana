@@ -6064,6 +6064,10 @@ impl Bank {
         }
     }
 
+    pub(crate) fn get_builtin_program_ids(&self) -> &HashSet<Pubkey> {
+        &self.builtin_program_ids
+    }
+
     // Hi! leaky abstraction here....
     // try to use get_account_with_fixed_root() if it's called ONLY from on-chain runtime account
     // processing. That alternative fn provides more safety.
