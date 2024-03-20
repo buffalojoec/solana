@@ -20,7 +20,8 @@
 #![allow(clippy::arithmetic_side_effects)]
 use {
     crate::{
-        declare_deprecated_sysvar_id, fee_calculator::FeeCalculator, hash::Hash, sysvar::Sysvar,
+        declare_deprecated_sysvar_id, fee_calculator::FeeCalculator, hash::Hash,
+        program_error::ProgramError, sysvar::Sysvar,
     },
     std::{cmp::Ordering, collections::BinaryHeap, iter::FromIterator, ops::Deref},
 };
@@ -110,6 +111,28 @@ impl<'a> FromIterator<IterItem<'a>> for RecentBlockhashes {
             new.0.push(Entry::new(i.1, i.2))
         }
         new
+    }
+}
+
+pub trait SyscallGetLatestBlockhash {
+    fn get_latest_blockhash() -> Result<Option<Hash>, ProgramError>;
+}
+
+impl SyscallGetLatestBlockhash for RecentBlockhashes {
+    fn get_latest_blockhash() -> Result<Option<Hash>, ProgramError> {
+        let mut var = Option::<Hash>::Some(Hash::default());
+        let var_addr = &mut var as *mut _ as *mut u8;
+
+        #[cfg(target_os = "solana")]
+        let result = unsafe { crate::syscalls::sol_syscall_get_latest_blockhash(var_addr) };
+
+        #[cfg(not(target_os = "solana"))]
+        let result = crate::program_stubs::sol_syscall_get_latest_blockhash(var_addr);
+
+        match result {
+            crate::entrypoint::SUCCESS => Ok(var),
+            e => Err(e.into()),
+        }
     }
 }
 

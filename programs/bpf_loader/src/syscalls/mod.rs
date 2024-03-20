@@ -6,7 +6,8 @@ pub use self::{
     mem_ops::{SyscallMemcmp, SyscallMemcpy, SyscallMemmove, SyscallMemset},
     sysvar::{
         SyscallGetClockSysvar, SyscallGetEpochRewardsSysvar, SyscallGetEpochScheduleSysvar,
-        SyscallGetFeesSysvar, SyscallGetLastRestartSlotSysvar, SyscallGetRentSysvar,
+        SyscallGetFeesSysvar, SyscallGetLastRestartSlotSysvar, SyscallGetLatestBlockhash,
+        SyscallGetRentSysvar,
     },
 };
 #[allow(deprecated)]
@@ -360,6 +361,10 @@ pub fn create_program_runtime_environment_v1<'a>(
         SyscallGetFeesSysvar::vm,
     )?;
     result.register_function_hashed(*b"sol_get_rent_sysvar", SyscallGetRentSysvar::vm)?;
+    result.register_function_hashed(
+        *b"sol_syscall_get_latest_blockhash",
+        SyscallGetLatestBlockhash::vm,
+    )?;
 
     register_feature_gated_function!(
         result,
