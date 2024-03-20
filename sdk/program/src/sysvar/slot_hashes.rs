@@ -46,7 +46,7 @@
 //! ```
 
 pub use crate::slot_hashes::SlotHashes;
-use crate::{account_info::AccountInfo, program_error::ProgramError, sysvar::Sysvar};
+use crate::{account_info::AccountInfo, clock::Slot, program_error::ProgramError, sysvar::Sysvar};
 
 crate::declare_sysvar_id!("SysvarS1otHashes111111111111111111111111111", SlotHashes);
 
@@ -59,6 +59,28 @@ impl Sysvar for SlotHashes {
     fn from_account_info(_account_info: &AccountInfo) -> Result<Self, ProgramError> {
         // This sysvar is too large to bincode::deserialize in-program
         Err(ProgramError::UnsupportedSysvar)
+    }
+}
+
+pub trait SyscallGetSlots {
+    fn get_slots<'a>() -> Result<&'a [Slot], ProgramError>;
+}
+
+impl SyscallGetSlots for SlotHashes {
+    fn get_slots<'a>() -> Result<&'a [Slot], ProgramError> {
+        let mut var: &[Slot] = &[];
+        let var_addr = &mut var as *mut _ as *mut u8;
+
+        #[cfg(target_os = "solana")]
+        let result = unsafe { crate::syscalls::sol_syscall_get_slots(var_addr) };
+
+        #[cfg(not(target_os = "solana"))]
+        let result = crate::program_stubs::sol_syscall_get_slots(var_addr);
+
+        match result {
+            crate::entrypoint::SUCCESS => Ok(var),
+            e => Err(e.into()),
+        }
     }
 }
 
