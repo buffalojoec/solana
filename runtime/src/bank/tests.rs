@@ -8213,7 +8213,7 @@ fn test_program_is_native_loader() {
 fn test_debug_bank() {
     let (genesis_config, _mint_keypair) = create_genesis_config(50000);
     let mut bank = Bank::new_for_tests(&genesis_config);
-    bank.finish_init(&genesis_config, None, false);
+    bank.finish_init(&genesis_config, false);
     let debug = format!("{bank:#?}");
     assert!(!debug.is_empty());
 }
