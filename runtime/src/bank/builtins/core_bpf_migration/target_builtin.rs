@@ -1,5 +1,5 @@
 use {
-    super::{error::CoreBpfMigrationError, CoreBpfMigrationTarget},
+    super::{error::CoreBpfMigrationError, CoreBpfMigrationTargetType},
     crate::bank::Bank,
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount},
@@ -22,35 +22,34 @@ impl TargetProgramBuiltin {
     /// Create a new migration configuration for a built-in program.
     pub(crate) fn new_checked(
         bank: &Bank,
-        program_id: &Pubkey,
-        migration_target: &CoreBpfMigrationTarget,
+        program_address: &Pubkey,
+        migration_target: &CoreBpfMigrationTargetType,
     ) -> Result<Self, CoreBpfMigrationError> {
-        let program_address = *program_id;
         let program_account = match migration_target {
-            CoreBpfMigrationTarget::Builtin => {
+            CoreBpfMigrationTargetType::Builtin => {
                 // The program account should exist.
                 let program_account = bank
-                    .get_account_with_fixed_root(&program_address)
-                    .ok_or(CoreBpfMigrationError::AccountNotFound(program_address))?;
+                    .get_account_with_fixed_root(program_address)
+                    .ok_or(CoreBpfMigrationError::AccountNotFound(*program_address))?;
 
                 // The program account should be owned by the native loader.
                 if program_account.owner() != &NATIVE_LOADER_ID {
-                    return Err(CoreBpfMigrationError::IncorrectOwner(program_address));
+                    return Err(CoreBpfMigrationError::IncorrectOwner(*program_address));
                 }
 
                 program_account
             }
-            CoreBpfMigrationTarget::Stateless => {
+            CoreBpfMigrationTargetType::Stateless => {
                 // The program account should _not_ exist.
-                if bank.get_account_with_fixed_root(&program_address).is_some() {
-                    return Err(CoreBpfMigrationError::AccountExists(program_address));
+                if bank.get_account_with_fixed_root(program_address).is_some() {
+                    return Err(CoreBpfMigrationError::AccountExists(*program_address));
                 }
 
                 AccountSharedData::default()
             }
         };
 
-        let program_data_address = get_program_data_address(&program_address);
+        let program_data_address = get_program_data_address(program_address);
 
         // The program data account should not exist.
         if bank
@@ -58,7 +57,7 @@ impl TargetProgramBuiltin {
             .is_some()
         {
             return Err(CoreBpfMigrationError::ProgramHasDataAccount(
-                program_address,
+                *program_address,
             ));
         }
 
@@ -66,7 +65,7 @@ impl TargetProgramBuiltin {
         let total_data_size = program_account.data().len();
 
         Ok(Self {
-            program_address,
+            program_address: *program_address,
             program_account,
             program_data_address,
             total_data_size,
@@ -125,7 +124,7 @@ mod tests {
         Some(feature_set::zk_token_sdk_enabled::id())
     )]
     fn test_target_program_builtin(program_address: Pubkey, activation_feature: Option<Pubkey>) {
-        let migration_target = CoreBpfMigrationTarget::Builtin;
+        let migration_target = CoreBpfMigrationTargetType::Builtin;
         let mut bank = create_simple_test_bank(0);
 
         if let Some(feature_id) = activation_feature {
@@ -204,7 +203,7 @@ mod tests {
     #[test_case(solana_sdk::feature::id())]
     #[test_case(solana_sdk::native_loader::id())]
     fn test_target_program_stateless_builtin(program_address: Pubkey) {
-        let migration_target = CoreBpfMigrationTarget::Stateless;
+        let migration_target = CoreBpfMigrationTargetType::Stateless;
         let bank = create_simple_test_bank(0);
 
         let program_account = AccountSharedData::default();

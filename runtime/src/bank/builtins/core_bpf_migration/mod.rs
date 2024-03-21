@@ -2,7 +2,7 @@
 pub(crate) mod error;
 mod target_builtin;
 
-pub(crate) enum CoreBpfMigrationTarget {
+pub(crate) enum CoreBpfMigrationTargetType {
     Builtin,
     Stateless,
 }
