@@ -20,4 +20,9 @@ extern crate solana_frozen_abi_macro;
 #[macro_use]
 extern crate serde_derive;
 
-pub use log;
+// Not public API. Referenced by macro-generated code.
+#[doc(hidden)]
+pub mod __private {
+    #[doc(hidden)]
+    pub use log;
+}
