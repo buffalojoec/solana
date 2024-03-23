@@ -31,12 +31,7 @@ impl SourceUpgradeableBpf {
         // The program account should have a pointer to its data account.
         if let UpgradeableLoaderState::Program {
             programdata_address,
-        } = &self
-            .program_account
-            .deserialize_data()
-            .map_err::<CoreBpfMigrationError, _>(|_| {
-                CoreBpfMigrationError::InvalidProgramAccount(self.program_address)
-            })?
+        } = &self.program_account.deserialize_data()?
         {
             if programdata_address != &self.program_data_address {
                 return Err(CoreBpfMigrationError::InvalidProgramAccount(
@@ -66,8 +61,8 @@ impl SourceUpgradeableBpf {
         // Length checked in previous block.
         match bincode::deserialize::<UpgradeableLoaderState>(
             &self.program_data_account.data()[..programdata_data_offset],
-        ) {
-            Ok(UpgradeableLoaderState::ProgramData { .. }) => Ok(()),
+        )? {
+            UpgradeableLoaderState::ProgramData { .. } => Ok(()),
             _ => Err(CoreBpfMigrationError::InvalidProgramDataAccount(
                 self.program_data_address,
             )),
@@ -124,6 +119,7 @@ mod tests {
     use {
         super::*,
         crate::bank::tests::create_simple_test_bank,
+        assert_matches::assert_matches,
         solana_sdk::{account::Account, bpf_loader_upgradeable::ID as BPF_LOADER_UPGRADEABLE_ID},
     };
 
@@ -159,9 +155,9 @@ mod tests {
         let program_data_address = get_program_data_address(&program_id);
 
         // Fail if the program account does not exist
-        assert_eq!(
+        assert_matches!(
             SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
-            CoreBpfMigrationError::AccountNotFound(program_id)
+            CoreBpfMigrationError::AccountNotFound(..)
         );
 
         // Store the proper program account
@@ -178,9 +174,9 @@ mod tests {
         );
 
         // Fail if the program data account does not exist
-        assert_eq!(
+        assert_matches!(
             SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
-            CoreBpfMigrationError::ProgramHasNoDataAccount(program_id)
+            CoreBpfMigrationError::ProgramHasNoDataAccount(..)
         );
 
         // Store the proper program data account
@@ -276,9 +272,9 @@ mod tests {
             true,
             &Pubkey::new_unique(), // Not the upgradeable loader
         );
-        assert_eq!(
+        assert_matches!(
             SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
-            CoreBpfMigrationError::IncorrectOwner(program_id)
+            CoreBpfMigrationError::IncorrectOwner(..)
         );
 
         // Fail if the program account's state is not `UpgradeableLoaderState::Program`
@@ -290,9 +286,9 @@ mod tests {
             true,
             &BPF_LOADER_UPGRADEABLE_ID,
         );
-        assert_eq!(
+        assert_matches!(
             SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
-            CoreBpfMigrationError::InvalidProgramAccount(program_id)
+            CoreBpfMigrationError::BincodeError(..)
         );
 
         // Fail if the program account's state is `UpgradeableLoaderState::Program`,
@@ -307,9 +303,9 @@ mod tests {
             true,
             &BPF_LOADER_UPGRADEABLE_ID,
         );
-        assert_eq!(
+        assert_matches!(
             SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
-            CoreBpfMigrationError::InvalidProgramAccount(program_id)
+            CoreBpfMigrationError::InvalidProgramAccount(..)
         );
     }
 
@@ -344,9 +340,9 @@ mod tests {
             false,
             &Pubkey::new_unique(), // Not the upgradeable loader
         );
-        assert_eq!(
+        assert_matches!(
             SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
-            CoreBpfMigrationError::IncorrectOwner(program_data_address)
+            CoreBpfMigrationError::IncorrectOwner(..)
         );
 
         // Fail if the program data account does not have the correct state
@@ -358,9 +354,9 @@ mod tests {
             false,
             &BPF_LOADER_UPGRADEABLE_ID,
         );
-        assert_eq!(
+        assert_matches!(
             SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
-            CoreBpfMigrationError::InvalidProgramDataAccount(program_data_address)
+            CoreBpfMigrationError::BincodeError(..)
         );
     }
 }
