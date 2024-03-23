@@ -24,11 +24,6 @@ pub enum CoreBpfMigrationError {
     /// Invalid program data account
     #[error("Invalid program data account: {0:?}")]
     InvalidProgramDataAccount(Pubkey),
-    /// Failed to serialize new program account
-    #[error("Failed to serialize new program account")]
-    FailedToSerialize,
-    // Since `core_bpf_migration` does not return `ProgramError` or
-    // `InstructionError`, we have to duplicate `ArithmeticOverflow` here.
     /// Arithmetic overflow
     #[error("Arithmetic overflow")]
     ArithmeticOverflow,
