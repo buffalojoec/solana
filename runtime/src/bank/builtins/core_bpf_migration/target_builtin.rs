@@ -79,6 +79,7 @@ mod tests {
     use {
         super::*,
         crate::bank::{tests::create_simple_test_bank, ApplyFeatureActivationsCaller},
+        assert_matches::assert_matches,
         solana_sdk::{
             account::Account,
             bpf_loader_upgradeable::{UpgradeableLoaderState, ID as BPF_LOADER_UPGRADEABLE_ID},
@@ -159,9 +160,9 @@ mod tests {
             true,
             &Pubkey::new_unique(), // Not the native loader
         );
-        assert_eq!(
+        assert_matches!(
             TargetBuiltin::new_checked(&bank, &program_address, &migration_target).unwrap_err(),
-            CoreBpfMigrationError::IncorrectOwner(program_address)
+            CoreBpfMigrationError::IncorrectOwner(..)
         );
 
         // Fail if the program data account exists
@@ -182,9 +183,9 @@ mod tests {
             false,
             &BPF_LOADER_UPGRADEABLE_ID,
         );
-        assert_eq!(
+        assert_matches!(
             TargetBuiltin::new_checked(&bank, &program_address, &migration_target).unwrap_err(),
-            CoreBpfMigrationError::ProgramHasDataAccount(program_address)
+            CoreBpfMigrationError::ProgramHasDataAccount(..)
         );
 
         // Fail if the program account does not exist
@@ -192,9 +193,9 @@ mod tests {
             &program_address,
             &AccountSharedData::default(),
         );
-        assert_eq!(
+        assert_matches!(
             TargetBuiltin::new_checked(&bank, &program_address, &migration_target).unwrap_err(),
-            CoreBpfMigrationError::AccountNotFound(program_address)
+            CoreBpfMigrationError::AccountNotFound(..)
         );
     }
 
@@ -226,9 +227,9 @@ mod tests {
             false,
             &BPF_LOADER_UPGRADEABLE_ID,
         );
-        assert_eq!(
+        assert_matches!(
             TargetBuiltin::new_checked(&bank, &program_address, &migration_target).unwrap_err(),
-            CoreBpfMigrationError::ProgramHasDataAccount(program_address)
+            CoreBpfMigrationError::ProgramHasDataAccount(..)
         );
 
         // Fail if the program account exists
@@ -239,9 +240,9 @@ mod tests {
             true,
             &NATIVE_LOADER_ID,
         );
-        assert_eq!(
+        assert_matches!(
             TargetBuiltin::new_checked(&bank, &program_address, &migration_target).unwrap_err(),
-            CoreBpfMigrationError::AccountExists(program_address)
+            CoreBpfMigrationError::AccountExists(..)
         );
     }
 }

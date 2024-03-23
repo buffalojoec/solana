@@ -1,8 +1,11 @@
 use {solana_sdk::pubkey::Pubkey, thiserror::Error};
 
 /// Errors returned by a Core BPF migration.
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error)]
 pub enum CoreBpfMigrationError {
+    /// Bincode serialization error
+    #[error("Bincode serialization error: {0:?}")]
+    BincodeError(#[from] bincode::Error),
     /// Account not found
     #[error("Account not found: {0:?}")]
     AccountNotFound(Pubkey),
