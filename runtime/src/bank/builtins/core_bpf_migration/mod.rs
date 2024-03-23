@@ -128,3 +128,249 @@ impl CoreBpfMigrationConfig {
         Ok(())
     }
 }
+
+// All of the account state checks are handled by the `new_checked` functions
+// on both `TargetBuiltin` and `SourceUpgradeableBpf`.
+// Each of these checks are tested in the `core_bpf_migration` test suites
+// within the `source_upgradeable_bpf` and `target_builtin` sub-modules.
+// Here we're just testing the actual migration at the runtime level, ensuring
+// the accounts are properly replaced and the bank's state is updated.
+#[cfg(test)]
+mod tests {
+    use {
+        super::*,
+        crate::bank::tests::create_simple_test_bank,
+        solana_program_runtime::loaded_programs::LoadedProgram,
+        solana_sdk::{
+            account_utils::StateMut,
+            bpf_loader_upgradeable::{self, get_program_data_address},
+            clock::Slot,
+            native_loader,
+        },
+    };
+
+    const PROGRAM_DATA_OFFSET: usize = UpgradeableLoaderState::size_of_programdata_metadata();
+
+    struct TestContext {
+        builtin_id: Pubkey,
+        source_program_id: Pubkey,
+        slot: Slot,
+        upgrade_authority_address: Option<Pubkey>,
+        elf: Vec<u8>,
+    }
+    impl TestContext {
+        // Initialize some test values and set up the source BPF upgradeable
+        // program in the bank.
+        fn new(bank: &Bank) -> Self {
+            let builtin_id = Pubkey::new_unique();
+            let source_program_id = Pubkey::new_unique();
+            let slot = 99;
+            let upgrade_authority_address = Some(Pubkey::new_unique());
+            let elf = vec![4; 2000];
+
+            let source_program_data_address = get_program_data_address(&source_program_id);
+
+            let source_program_account = AccountSharedData::new_data(
+                100_000_000,
+                &UpgradeableLoaderState::Program {
+                    programdata_address: source_program_data_address,
+                },
+                &bpf_loader_upgradeable::id(),
+            )
+            .unwrap();
+
+            let source_program_data_account = {
+                let mut data = bincode::serialize(&UpgradeableLoaderState::ProgramData {
+                    slot,
+                    upgrade_authority_address,
+                })
+                .unwrap();
+                data.extend_from_slice(&elf);
+
+                let mut account =
+                    AccountSharedData::new(100_000_000, data.len(), &bpf_loader_upgradeable::id());
+                account.set_data(data);
+                account
+            };
+
+            bank.store_account_and_update_capitalization(
+                &source_program_id,
+                &source_program_account,
+            );
+            bank.store_account_and_update_capitalization(
+                &source_program_data_address,
+                &source_program_data_account,
+            );
+
+            Self {
+                builtin_id,
+                source_program_id,
+                slot,
+                upgrade_authority_address,
+                elf,
+            }
+        }
+
+        // Evaluate the account state of the builtin post-migration.
+        // Ensure the builtin program account is now a BPF upgradeable program
+        // as well as the bank's builtins and cache have been updated.
+        fn run_program_checks_post_migration(&self, bank: &Bank) {
+            let program_account = bank.get_account(&self.builtin_id).unwrap();
+            let program_data_address = get_program_data_address(&self.builtin_id);
+
+            // Program account is owned by the upgradeable loader.
+            assert_eq!(program_account.owner(), &bpf_loader_upgradeable::id());
+
+            // Program account has the correct state, with a pointer to its program
+            // data address.
+            let program_account_state: UpgradeableLoaderState = program_account.state().unwrap();
+            assert_eq!(
+                program_account_state,
+                UpgradeableLoaderState::Program {
+                    programdata_address: program_data_address
+                }
+            );
+
+            let program_data_account = bank.get_account(&program_data_address).unwrap();
+
+            // Program data account is owned by the upgradeable loader.
+            assert_eq!(program_data_account.owner(), &bpf_loader_upgradeable::id());
+
+            // Program data account has the correct state.
+            // It should exactly match the original, including upgrade authority
+            // and slot.
+            let program_data_account_state_metadata: UpgradeableLoaderState =
+                bincode::deserialize(&program_data_account.data()[..PROGRAM_DATA_OFFSET]).unwrap();
+            assert_eq!(
+                program_data_account_state_metadata,
+                UpgradeableLoaderState::ProgramData {
+                    slot: self.slot,
+                    upgrade_authority_address: self.upgrade_authority_address
+                },
+            );
+            assert_eq!(
+                &program_data_account.data()[PROGRAM_DATA_OFFSET..],
+                &self.elf,
+            );
+
+            // The bank's builtins should no longer contain the builtin
+            // program ID.
+            assert!(!bank.builtin_program_ids.contains(&self.builtin_id));
+
+            // The cache should have unloaded both programs.
+            let program_cache = bank.transaction_processor.program_cache.read().unwrap();
+            assert!(!program_cache
+                .get_flattened_entries(true, true)
+                .iter()
+                .any(|(id, _)| id == &self.builtin_id || id == &self.source_program_id));
+        }
+    }
+
+    #[test]
+    fn test_migrate_builtin() {
+        let mut bank = create_simple_test_bank(0);
+
+        let test_context = TestContext::new(&bank);
+
+        let TestContext {
+            builtin_id,
+            source_program_id,
+            ..
+        } = test_context;
+
+        // This will be checked by `TargetBuiltinProgram::new_checked`, but set
+        // up the mock builtin and ensure it exists as configured.
+        let builtin_account = {
+            let builtin_name = String::from("test_builtin");
+            let account =
+                AccountSharedData::new_data(100_000_000, &builtin_name, &native_loader::id())
+                    .unwrap();
+            bank.store_account_and_update_capitalization(&builtin_id, &account);
+            bank.add_builtin(builtin_id, builtin_name, LoadedProgram::default());
+            account
+        };
+        assert_eq!(&bank.get_account(&builtin_id).unwrap(), &builtin_account);
+
+        let core_bpf_migration_config = CoreBpfMigrationConfig {
+            source_program_id,
+            feature_id: Pubkey::new_unique(),
+            migration_target: CoreBpfMigrationTargetType::Builtin,
+            datapoint_name: "test_migrate_builtin",
+        };
+
+        // Gather bank information to check later.
+        let bank_pre_migration_capitalization = bank.capitalization();
+        let bank_pre_migration_accounts_data_size_delta_off_chain =
+            bank.accounts_data_size_delta_off_chain.load(Relaxed);
+
+        // Perform the migration.
+        core_bpf_migration_config
+            .migrate_builtin_to_core_bpf(&mut bank, &builtin_id)
+            .unwrap();
+
+        // Run the post-migration program checks.
+        test_context.run_program_checks_post_migration(&bank);
+
+        // The bank's capitalization should reflect the burned lamports
+        // from the replaced builtin program account.
+        assert_eq!(
+            bank.capitalization(),
+            bank_pre_migration_capitalization - builtin_account.lamports()
+        );
+
+        // The bank's accounts data size delta off-chain should reflect the
+        // change in data size from the replaced builtin program account.
+        assert_eq!(
+            bank.accounts_data_size_delta_off_chain.load(Relaxed),
+            bank_pre_migration_accounts_data_size_delta_off_chain
+                - builtin_account.data().len() as i64,
+        );
+    }
+
+    #[test]
+    fn test_migrate_stateless_builtin() {
+        let mut bank = create_simple_test_bank(0);
+
+        let test_context = TestContext::new(&bank);
+
+        let TestContext {
+            builtin_id,
+            source_program_id,
+            ..
+        } = test_context;
+
+        // This will be checked by `TargetBuiltinProgram::new_checked`, but
+        // assert the stateless builtin account doesn't exist.
+        assert!(bank.get_account(&builtin_id).is_none());
+
+        let core_bpf_migration_config = CoreBpfMigrationConfig {
+            source_program_id,
+            feature_id: Pubkey::new_unique(),
+            migration_target: CoreBpfMigrationTargetType::Stateless,
+            datapoint_name: "test_migrate_stateless_builtin",
+        };
+
+        // Gather bank information to check later.
+        let bank_pre_migration_capitalization = bank.capitalization();
+        let bank_pre_migration_accounts_data_size_delta_off_chain =
+            bank.accounts_data_size_delta_off_chain.load(Relaxed);
+
+        // Perform the migration.
+        core_bpf_migration_config
+            .migrate_builtin_to_core_bpf(&mut bank, &builtin_id)
+            .unwrap();
+
+        // Run the post-migration program checks.
+        test_context.run_program_checks_post_migration(&bank);
+
+        // The bank's capitalization should be exactly the same.
+        assert_eq!(bank.capitalization(), bank_pre_migration_capitalization);
+
+        // The bank's accounts data size delta off-chain should be exactly the
+        // same.
+        assert_eq!(
+            bank.accounts_data_size_delta_off_chain.load(Relaxed),
+            bank_pre_migration_accounts_data_size_delta_off_chain,
+        );
+    }
+}
