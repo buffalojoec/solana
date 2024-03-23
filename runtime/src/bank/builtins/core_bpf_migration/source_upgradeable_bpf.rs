@@ -10,10 +10,10 @@ use {
     },
 };
 
-/// Used to validate a source BPF Upgradeable program's account and data
-/// account before migrating a built-in program to Core BPF.
+/// The account details of an Upgradeable BPF program slated to replace a
+/// built-in program.
 #[derive(Debug)]
-pub(crate) struct SourceProgramBpfUpgradeable {
+pub(crate) struct SourceUpgradeableBpf {
     pub program_address: Pubkey,
     pub program_account: AccountSharedData,
     pub program_data_address: Pubkey,
@@ -21,7 +21,7 @@ pub(crate) struct SourceProgramBpfUpgradeable {
     pub total_data_size: usize,
 }
 
-impl SourceProgramBpfUpgradeable {
+impl SourceUpgradeableBpf {
     fn check_program_account(&self) -> Result<(), CoreBpfMigrationError> {
         // The program account should be owned by the upgradeable loader.
         if self.program_account.owner() != &BPF_LOADER_UPGRADEABLE_ID {
@@ -74,24 +74,26 @@ impl SourceProgramBpfUpgradeable {
         }
     }
 
-    /// Create a new migration configuration for a BPF Upgradeable source
-    /// program.
+    /// Collects the details of an upgradeable BPF program and verifies it is
+    /// properly configured.
+    /// The program account should exist with a pointer to its data account.
+    /// The program data account should exist with the correct state
+    /// (a ProgramData header and the program ELF).
     pub(crate) fn new_checked(
         bank: &Bank,
-        program_id: &Pubkey,
+        program_address: &Pubkey,
     ) -> Result<Self, CoreBpfMigrationError> {
-        let program_address = *program_id;
         // The program account should exist.
         let program_account = bank
-            .get_account_with_fixed_root(&program_address)
-            .ok_or(CoreBpfMigrationError::AccountNotFound(program_address))?;
+            .get_account_with_fixed_root(program_address)
+            .ok_or(CoreBpfMigrationError::AccountNotFound(*program_address))?;
 
         // The program data account should exist.
-        let program_data_address = get_program_data_address(&program_address);
+        let program_data_address = get_program_data_address(program_address);
         let program_data_account = bank
             .get_account_with_fixed_root(&program_data_address)
             .ok_or(CoreBpfMigrationError::ProgramHasNoDataAccount(
-                program_address,
+                *program_address,
             ))?;
 
         // The total data size is the size of the program account's data plus
@@ -102,18 +104,18 @@ impl SourceProgramBpfUpgradeable {
             .checked_add(program_data_account.data().len())
             .ok_or(CoreBpfMigrationError::ArithmeticOverflow)?;
 
-        let config = Self {
-            program_address,
+        let source_upgradeable_bpf = Self {
+            program_address: *program_address,
             program_account,
             program_data_address,
             program_data_account,
             total_data_size,
         };
 
-        config.check_program_account()?;
-        config.check_program_data_account()?;
+        source_upgradeable_bpf.check_program_account()?;
+        source_upgradeable_bpf.check_program_data_account()?;
 
-        Ok(config)
+        Ok(source_upgradeable_bpf)
     }
 }
 
@@ -150,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn test_source_program_bpf_upgradeable() {
+    fn test_source_upgradeable_bpf() {
         let bank = create_simple_test_bank(0);
 
         let program_id = Pubkey::new_unique();
@@ -158,7 +160,7 @@ mod tests {
 
         // Fail if the program account does not exist
         assert_eq!(
-            SourceProgramBpfUpgradeable::new_checked(&bank, &program_id).unwrap_err(),
+            SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
             CoreBpfMigrationError::AccountNotFound(program_id)
         );
 
@@ -177,7 +179,7 @@ mod tests {
 
         // Fail if the program data account does not exist
         assert_eq!(
-            SourceProgramBpfUpgradeable::new_checked(&bank, &program_id).unwrap_err(),
+            SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
             CoreBpfMigrationError::ProgramHasNoDataAccount(program_id)
         );
 
@@ -196,8 +198,7 @@ mod tests {
         );
 
         // Success
-        let bpf_upgradeable_program_config =
-            SourceProgramBpfUpgradeable::new_checked(&bank, &program_id).unwrap();
+        let source_upgradeable_bpf = SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap();
 
         let check_program_account_data = bincode::serialize(&proper_program_account_state).unwrap();
         let check_program_account_data_len = check_program_account_data.len();
@@ -225,27 +226,27 @@ mod tests {
             ..Account::default()
         });
 
-        assert_eq!(bpf_upgradeable_program_config.program_address, program_id);
+        assert_eq!(source_upgradeable_bpf.program_address, program_id);
         assert_eq!(
-            bpf_upgradeable_program_config.program_account,
+            source_upgradeable_bpf.program_account,
             check_program_account
         );
         assert_eq!(
-            bpf_upgradeable_program_config.program_data_address,
+            source_upgradeable_bpf.program_data_address,
             program_data_address
         );
         assert_eq!(
-            bpf_upgradeable_program_config.program_data_account,
+            source_upgradeable_bpf.program_data_account,
             check_program_data_account
         );
         assert_eq!(
-            bpf_upgradeable_program_config.total_data_size,
+            source_upgradeable_bpf.total_data_size,
             check_program_account_data_len + check_program_data_account_data_len
         );
     }
 
     #[test]
-    fn test_source_program_bpf_upgradeable_bad_program_account() {
+    fn test_source_upgradeable_bpf_bad_program_account() {
         let bank = create_simple_test_bank(0);
 
         let program_id = Pubkey::new_unique();
@@ -276,7 +277,7 @@ mod tests {
             &Pubkey::new_unique(), // Not the upgradeable loader
         );
         assert_eq!(
-            SourceProgramBpfUpgradeable::new_checked(&bank, &program_id).unwrap_err(),
+            SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
             CoreBpfMigrationError::IncorrectOwner(program_id)
         );
 
@@ -290,7 +291,7 @@ mod tests {
             &BPF_LOADER_UPGRADEABLE_ID,
         );
         assert_eq!(
-            SourceProgramBpfUpgradeable::new_checked(&bank, &program_id).unwrap_err(),
+            SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
             CoreBpfMigrationError::InvalidProgramAccount(program_id)
         );
 
@@ -307,13 +308,13 @@ mod tests {
             &BPF_LOADER_UPGRADEABLE_ID,
         );
         assert_eq!(
-            SourceProgramBpfUpgradeable::new_checked(&bank, &program_id).unwrap_err(),
+            SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
             CoreBpfMigrationError::InvalidProgramAccount(program_id)
         );
     }
 
     #[test]
-    fn test_source_program_bpf_upgradeable_bad_program_data_account() {
+    fn test_source_upgradeable_bpf_bad_program_data_account() {
         let bank = create_simple_test_bank(0);
 
         let program_id = Pubkey::new_unique();
@@ -344,7 +345,7 @@ mod tests {
             &Pubkey::new_unique(), // Not the upgradeable loader
         );
         assert_eq!(
-            SourceProgramBpfUpgradeable::new_checked(&bank, &program_id).unwrap_err(),
+            SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
             CoreBpfMigrationError::IncorrectOwner(program_data_address)
         );
 
@@ -358,7 +359,7 @@ mod tests {
             &BPF_LOADER_UPGRADEABLE_ID,
         );
         assert_eq!(
-            SourceProgramBpfUpgradeable::new_checked(&bank, &program_id).unwrap_err(),
+            SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap_err(),
             CoreBpfMigrationError::InvalidProgramDataAccount(program_data_address)
         );
     }
