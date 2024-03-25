@@ -1,4 +1,3 @@
-#![allow(dead_code)] // Removed in later commit
 pub(crate) mod error;
 mod source_upgradeable_bpf;
 mod target_builtin;
@@ -27,6 +26,7 @@ use {
 /// Identifies the type of built-in program targeted for Core BPF migration.
 /// The type of target determines whether the program should have a program
 /// account or not, which is checked before migration.
+#[allow(dead_code)] // Remove after first migration is configured.
 #[derive(Debug, PartialEq)]
 pub(crate) enum CoreBpfMigrationTargetType {
     /// A standard (stateful) builtin program must have a program account.
