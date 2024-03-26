@@ -58,7 +58,7 @@ fn checked_add(a: usize, b: usize) -> Result<usize, CoreBpfMigrationError> {
 /// Note that the account's data is initialized manually, but the rest of the
 /// account's fields are inherited from the source program account, including
 /// the lamports.
-fn create_new_target_program_account(
+fn new_target_program_account(
     target: &TargetBuiltin,
     source: &SourceUpgradeableBpf,
 ) -> Result<AccountSharedData, CoreBpfMigrationError> {
@@ -94,7 +94,7 @@ impl CoreBpfMigrationConfig {
         let source = SourceUpgradeableBpf::new_checked(bank, &self.source_program_id)?;
 
         // Attempt serialization first before touching the bank.
-        let new_target_program_account = create_new_target_program_account(&target, &source)?;
+        let new_target_program_account = new_target_program_account(&target, &source)?;
 
         // Update the account data size delta.
         // The old data size is the total size of all accounts involved.
