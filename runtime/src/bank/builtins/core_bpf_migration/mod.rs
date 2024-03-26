@@ -96,7 +96,8 @@ impl CoreBpfMigrationConfig {
         // Attempt serialization first before touching the bank.
         let new_target_program_account = new_target_program_account(&target, &source)?;
 
-        // Update the account data size delta.
+        // Gather old and new account data sizes, for updating the bank's
+        // accounts data size delta off-chain.
         // The old data size is the total size of all accounts involved.
         // The new data size is the total size of the source program accounts,
         // since the target program account is replaced with a new program
@@ -111,7 +112,6 @@ impl CoreBpfMigrationConfig {
             checked_add(source_program_len, source_program_data_len)?,
         )?;
         let new_data_size = checked_add(source_program_len, source_program_data_len)?;
-        bank.calculate_and_update_accounts_data_size_delta_off_chain(old_data_size, new_data_size);
 
         // Burn lamports from the target program account, since it will be
         // replaced.
@@ -139,6 +139,9 @@ impl CoreBpfMigrationConfig {
             .write()
             .unwrap()
             .remove_programs([source.program_address, target.program_address].into_iter());
+
+        // Update the account data size delta.
+        bank.calculate_and_update_accounts_data_size_delta_off_chain(old_data_size, new_data_size);
 
         Ok(())
     }
