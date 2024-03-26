@@ -179,14 +179,20 @@ mod tests {
 
             let source_program_data_address = get_program_data_address(&source_program_id);
 
-            let source_program_account = AccountSharedData::new_data(
-                100_000_000,
-                &UpgradeableLoaderState::Program {
+            let source_program_account = {
+                let data = bincode::serialize(&UpgradeableLoaderState::Program {
                     programdata_address: source_program_data_address,
-                },
-                &bpf_loader_upgradeable::id(),
-            )
-            .unwrap();
+                })
+                .unwrap();
+
+                let data_len = data.len();
+                let lamports = bank.get_minimum_balance_for_rent_exemption(data_len);
+
+                let mut account =
+                    AccountSharedData::new(lamports, data_len, &bpf_loader_upgradeable::id());
+                account.set_data(data);
+                account
+            };
 
             let source_program_data_account = {
                 let mut data = bincode::serialize(&UpgradeableLoaderState::ProgramData {
@@ -196,8 +202,11 @@ mod tests {
                 .unwrap();
                 data.extend_from_slice(&elf);
 
+                let data_len = data.len();
+                let lamports = bank.get_minimum_balance_for_rent_exemption(data_len);
+
                 let mut account =
-                    AccountSharedData::new(100_000_000, data.len(), &bpf_loader_upgradeable::id());
+                    AccountSharedData::new(lamports, data_len, &bpf_loader_upgradeable::id());
                 account.set_data(data);
                 account
             };
@@ -300,8 +309,7 @@ mod tests {
         let builtin_account = {
             let builtin_name = String::from("test_builtin");
             let account =
-                AccountSharedData::new_data(100_000_000, &builtin_name, &native_loader::id())
-                    .unwrap();
+                AccountSharedData::new_data(1, &builtin_name, &native_loader::id()).unwrap();
             bank.store_account_and_update_capitalization(&builtin_id, &account);
             bank.add_builtin(builtin_id, builtin_name, LoadedProgram::default());
             account
