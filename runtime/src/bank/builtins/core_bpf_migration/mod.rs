@@ -16,27 +16,33 @@ use {
     target_builtin::TargetBuiltin,
 };
 
-/// Sets up a Core BPF migration for a built-in program.
+/// Identifies the type of built-in program targeted for Core BPF migration.
+/// The type of target determines whether the program should have a program
+/// account or not, which is checked before migration.
 #[derive(Debug)]
 pub(crate) enum CoreBpfMigrationTargetType {
-    /// Builtin programs should have a program account.
+    /// A standard (stateful) builtin program must have a program account.
     Builtin,
-    /// Stateless builtins should not have a program account.
+    /// A stateless builtin must not have a program account.
     Stateless,
 }
 
-/// Configurations for migrating a built-in program to Core BPF.
+/// Configuration for migrating a built-in program to Core BPF.
 #[derive(Debug)]
 pub(crate) struct CoreBpfMigrationConfig {
-    /// The source program ID to replace the builtin with.
+    /// The program ID of the source program to be used to replace the builtin.
     pub source_program_id: Pubkey,
     /// The feature gate to trigger the migration to Core BPF.
     /// Note: This feature gate should never be the same as any builtin's
     /// `enable_feature_id`. It should always be a feature gate that will be
     /// activated after the builtin is already enabled.
     pub feature_id: Pubkey,
-    /// The type of migration to perform.
+    /// The type of target to replace.
     pub migration_target: CoreBpfMigrationTargetType,
+    /// Static message used to emit datapoint logging.
+    /// This is used to identify the migration in the logs.
+    /// Should be unique to the migration, ie:
+    /// "migrate_{builtin/stateless}_to_core_bpf_{program_name}".
     pub datapoint_name: &'static str,
 }
 
@@ -45,11 +51,13 @@ fn checked_add(a: usize, b: usize) -> Result<usize, CoreBpfMigrationError> {
         .ok_or(CoreBpfMigrationError::ArithmeticOverflow)
 }
 
-/// Create a new `Account` with a pointer to the target's new data account.
+/// Create an `AccountSharedData` with data initialized to
+/// `UpgradeableLoaderState::Program` populated with the target's new data
+/// account address.
 ///
-/// Note the pointer is created manually, as well as the owner and
-/// executable values. The rest is inherited from the source program
-/// account, including the lamports.
+/// Note that the account's data is initialized manually, but the rest of the
+/// account's fields are inherited from the source program account, including
+/// the lamports.
 fn create_new_target_program_account(
     target: &TargetBuiltin,
     source: &SourceUpgradeableBpf,
@@ -91,13 +99,10 @@ impl CoreBpfMigrationConfig {
         // Update the account data size delta.
         // The old data size is the total size of all accounts involved.
         // The new data size is the total size of the source program accounts,
-        // since the target program account is replaced.
-        //
-        // [B] Builtin      =>      [S]  Source         =       [S]  New Target
-        //                  =>      [SD] SourceData     =       [SD] SourceData
-        //
-        //       Old Data Size: [B + S + SD]            New Data Size: [S + SD]
-        //
+        // since the target program account is replaced with a new program
+        // account of the same size as the source program account, and the
+        // source program data account is copied to the target program data
+        // account before both source program accounts are cleared.
         let target_program_len = target.program_account.data().len();
         let source_program_len = source.program_account.data().len();
         let source_program_data_len = source.program_data_account.data().len();
@@ -113,14 +118,15 @@ impl CoreBpfMigrationConfig {
         bank.capitalization
             .fetch_sub(target.program_account.lamports(), Relaxed);
 
-        // Replace the native program account with the created to point to the new data
-        // account and clear the source program account.
+        // Replace the target builtin account with the
+        // `new_target_program_account` and clear the source program account.
         bank.store_account(&target.program_address, &new_target_program_account);
         bank.store_account(&source.program_address, &AccountSharedData::default());
 
-        // Copy the upgradeable BPF program's data account into the native
-        // program's data address, which is checked to be empty, then clear the
-        // upgradeable BPF program's data account.
+        // Copy the source program data account into the account at the target
+        // builtin program's data address, which was verified to be empty by
+        // `TargetBuiltin::new_checked`, then clear the source program data
+        // account.
         bank.store_account(&target.program_data_address, &source.program_data_account);
         bank.store_account(&source.program_data_address, &AccountSharedData::default());
 
@@ -138,12 +144,6 @@ impl CoreBpfMigrationConfig {
     }
 }
 
-// All of the account state checks are handled by the `new_checked` functions
-// on both `TargetBuiltin` and `SourceUpgradeableBpf`.
-// Each of these checks are tested in the `core_bpf_migration` test suites
-// within the `source_upgradeable_bpf` and `target_builtin` sub-modules.
-// Here we're just testing the actual migration at the runtime level, ensuring
-// the accounts are properly replaced and the bank's state is updated.
 #[cfg(test)]
 mod tests {
     use {
