@@ -15,7 +15,6 @@ pub(crate) struct TargetBuiltin {
     pub program_address: Pubkey,
     pub program_account: AccountSharedData,
     pub program_data_address: Pubkey,
-    pub total_data_size: usize,
 }
 
 impl TargetBuiltin {
@@ -62,14 +61,10 @@ impl TargetBuiltin {
             ));
         }
 
-        // The total data size is the size of the program account's data.
-        let total_data_size = program_account.data().len();
-
         Ok(Self {
             program_address: *program_address,
             program_account,
             program_data_address,
-            total_data_size,
         })
     }
 }
@@ -150,7 +145,6 @@ mod tests {
         assert_eq!(target_builtin.program_address, program_address);
         assert_eq!(target_builtin.program_account, program_account);
         assert_eq!(target_builtin.program_data_address, program_data_address);
-        assert_eq!(target_builtin.total_data_size, program_account.data().len());
 
         // Fail if the program account is not owned by the native loader
         store_account(
@@ -214,7 +208,6 @@ mod tests {
         assert_eq!(target_builtin.program_address, program_address);
         assert_eq!(target_builtin.program_account, program_account);
         assert_eq!(target_builtin.program_data_address, program_data_address);
-        assert_eq!(target_builtin.total_data_size, program_account.data().len());
 
         // Fail if the program data account exists
         store_account(

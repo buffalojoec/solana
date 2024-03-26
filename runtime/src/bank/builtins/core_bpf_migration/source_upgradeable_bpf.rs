@@ -18,7 +18,6 @@ pub(crate) struct SourceUpgradeableBpf {
     pub program_account: AccountSharedData,
     pub program_data_address: Pubkey,
     pub program_data_account: AccountSharedData,
-    pub total_data_size: usize,
 }
 
 impl SourceUpgradeableBpf {
@@ -91,20 +90,11 @@ impl SourceUpgradeableBpf {
                 *program_address,
             ))?;
 
-        // The total data size is the size of the program account's data plus
-        // the size of the program data account's data.
-        let total_data_size = program_account
-            .data()
-            .len()
-            .checked_add(program_data_account.data().len())
-            .ok_or(CoreBpfMigrationError::ArithmeticOverflow)?;
-
         let source_upgradeable_bpf = Self {
             program_address: *program_address,
             program_account,
             program_data_address,
             program_data_account,
-            total_data_size,
         };
 
         source_upgradeable_bpf.check_program_account()?;
@@ -234,10 +224,6 @@ mod tests {
         assert_eq!(
             source_upgradeable_bpf.program_data_account,
             check_program_data_account
-        );
-        assert_eq!(
-            source_upgradeable_bpf.total_data_size,
-            check_program_account_data_len + check_program_data_account_data_len
         );
     }
 
