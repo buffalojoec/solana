@@ -82,18 +82,19 @@ fn new_target_program_account(
     Ok(account)
 }
 
-impl CoreBpfMigrationConfig {
+impl Bank {
     pub(crate) fn migrate_builtin_to_core_bpf(
-        &self,
-        bank: &mut Bank,
-        program_id: &Pubkey,
+        &mut self,
+        builtin_program_id: &Pubkey,
+        config: &CoreBpfMigrationConfig,
     ) -> Result<(), CoreBpfMigrationError> {
-        datapoint_info!(self.datapoint_name, ("slot", bank.slot, i64));
+        datapoint_info!(config.datapoint_name, ("slot", self.slot, i64));
 
-        let target = TargetBuiltin::new_checked(bank, program_id, &self.migration_target)?;
-        let source = SourceUpgradeableBpf::new_checked(bank, &self.source_program_id)?;
+        let target =
+            TargetBuiltin::new_checked(self, builtin_program_id, &config.migration_target)?;
+        let source = SourceUpgradeableBpf::new_checked(self, &config.source_program_id)?;
 
-        // Attempt serialization first before touching the bank.
+        // Attempt serialization first before modifying the bank.
         let new_target_program_account = new_target_program_account(&target, &source)?;
 
         // Gather old and new account data sizes, for updating the bank's
@@ -115,33 +116,33 @@ impl CoreBpfMigrationConfig {
 
         // Burn lamports from the target program account, since it will be
         // replaced.
-        bank.capitalization
+        self.capitalization
             .fetch_sub(target.program_account.lamports(), Relaxed);
 
         // Replace the target builtin account with the
         // `new_target_program_account` and clear the source program account.
-        bank.store_account(&target.program_address, &new_target_program_account);
-        bank.store_account(&source.program_address, &AccountSharedData::default());
+        self.store_account(&target.program_address, &new_target_program_account);
+        self.store_account(&source.program_address, &AccountSharedData::default());
 
         // Copy the source program data account into the account at the target
         // builtin program's data address, which was verified to be empty by
         // `TargetBuiltin::new_checked`, then clear the source program data
         // account.
-        bank.store_account(&target.program_data_address, &source.program_data_account);
-        bank.store_account(&source.program_data_address, &AccountSharedData::default());
+        self.store_account(&target.program_data_address, &source.program_data_account);
+        self.store_account(&source.program_data_address, &AccountSharedData::default());
 
         // Remove the built-in program from the bank's list of built-ins.
-        bank.builtin_program_ids.remove(&target.program_address);
+        self.builtin_program_ids.remove(&target.program_address);
 
         // Unload the programs from the bank's cache.
-        bank.transaction_processor
+        self.transaction_processor
             .program_cache
             .write()
             .unwrap()
             .remove_programs([source.program_address, target.program_address].into_iter());
 
         // Update the account data size delta.
-        bank.calculate_and_update_accounts_data_size_delta_off_chain(old_data_size, new_data_size);
+        self.calculate_and_update_accounts_data_size_delta_off_chain(old_data_size, new_data_size);
 
         Ok(())
     }
@@ -332,8 +333,7 @@ mod tests {
             bank.accounts_data_size_delta_off_chain.load(Relaxed);
 
         // Perform the migration.
-        core_bpf_migration_config
-            .migrate_builtin_to_core_bpf(&mut bank, &builtin_id)
+        bank.migrate_builtin_to_core_bpf(&builtin_id, &core_bpf_migration_config)
             .unwrap();
 
         // Run the post-migration program checks.
@@ -384,8 +384,7 @@ mod tests {
             bank.accounts_data_size_delta_off_chain.load(Relaxed);
 
         // Perform the migration.
-        core_bpf_migration_config
-            .migrate_builtin_to_core_bpf(&mut bank, &builtin_id)
+        bank.migrate_builtin_to_core_bpf(&builtin_id, &core_bpf_migration_config)
             .unwrap();
 
         // Run the post-migration program checks.
