@@ -124,17 +124,17 @@ macro_rules! deploy_program {
         load_program_metrics.register_syscalls_us = register_syscalls_time.as_us();
         // Verify using stricter deployment_program_runtime_environment
         let mut load_elf_time = Measure::start("load_elf_time");
-        let executable = Executable::<InvokeContext>::load(
+                let executable = Executable::<InvokeContext>::load(
             $new_programdata,
             Arc::new(deployment_program_runtime_environment),
         ).map_err(|err| {
             ic_logger_msg!($invoke_context.get_log_collector(), "{}", err);
-            InstructionError::InvalidAccountData
+                        InstructionError::InvalidAccountData
         })?;
         load_elf_time.stop();
         load_program_metrics.load_elf_us = load_elf_time.as_us();
         let mut verify_code_time = Measure::start("verify_code_time");
-        executable.verify::<RequisiteVerifier>().map_err(|err| {
+                executable.verify::<RequisiteVerifier>().map_err(|err| {
             ic_logger_msg!($invoke_context.get_log_collector(), "{}", err);
             InstructionError::InvalidAccountData
         })?;
@@ -166,6 +166,29 @@ macro_rules! deploy_program {
         load_program_metrics.submit_datapoint(&mut $invoke_context.timings);
         $invoke_context.programs_modified_by_tx.replenish($program_id, Arc::new(executor));
     }};
+}
+
+/// Directly deploy a program using a provided invoke context.
+/// This function should only be invoked from the runtime, since it does not
+/// provide any account loads or checks.
+pub fn direct_deploy_program(
+    invoke_context: &mut InvokeContext,
+    program_id: &Pubkey,
+    loader_key: &Pubkey,
+    account_size: usize,
+    elf: &[u8],
+    slot: Slot,
+) -> Result<(), InstructionError> {
+    deploy_program!(
+        invoke_context,
+        *program_id,
+        loader_key,
+        account_size,
+        slot,
+        {},
+        elf,
+    );
+    Ok(())
 }
 
 fn write_program_data(
