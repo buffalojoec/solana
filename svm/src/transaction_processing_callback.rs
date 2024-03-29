@@ -19,6 +19,8 @@ pub trait TransactionProcessingCallback {
 
     fn get_feature_set(&self) -> Arc<FeatureSet>;
 
+    fn get_epoch_stake(&self, vote_address: &Pubkey) -> u64;
+
     fn get_program_match_criteria(&self, _program: &Pubkey) -> ProgramCacheMatchCriteria {
         ProgramCacheMatchCriteria::NoCriteria
     }

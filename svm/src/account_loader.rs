@@ -499,6 +499,7 @@ mod tests {
         accounts_map: HashMap<Pubkey, AccountSharedData>,
         rent_collector: RentCollector,
         feature_set: Arc<FeatureSet>,
+        epoch_stake: u64,
     }
 
     impl TransactionProcessingCallback for TestCallbacks {
@@ -521,6 +522,10 @@ mod tests {
         fn get_feature_set(&self) -> Arc<FeatureSet> {
             self.feature_set.clone()
         }
+
+        fn get_epoch_stake(&self, _vote_address: &Pubkey) -> u64 {
+            self.epoch_stake
+        }
     }
 
     fn load_accounts_with_fee_and_rent(
@@ -542,6 +547,7 @@ mod tests {
             accounts_map,
             rent_collector: rent_collector.clone(),
             feature_set: Arc::new(feature_set.clone()),
+            epoch_stake: 0,
         };
         load_accounts(
             &callbacks,
@@ -1030,6 +1036,7 @@ mod tests {
             accounts_map,
             rent_collector: RentCollector::default(),
             feature_set: Arc::new(FeatureSet::all_enabled()),
+            epoch_stake: 0,
         };
         load_accounts(
             &callbacks,

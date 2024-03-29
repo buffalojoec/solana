@@ -15,6 +15,7 @@ use {
 pub struct MockBankCallback {
     rent_collector: RentCollector,
     feature_set: Arc<FeatureSet>,
+    epoch_stake: u64,
     pub account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
 }
 
@@ -46,6 +47,10 @@ impl TransactionProcessingCallback for MockBankCallback {
 
     fn get_feature_set(&self) -> Arc<FeatureSet> {
         self.feature_set.clone()
+    }
+
+    fn get_epoch_stake(&self, _vote_address: &Pubkey) -> u64 {
+        self.epoch_stake
     }
 
     fn add_builtin_account(&self, name: &str, program_id: &Pubkey) {
