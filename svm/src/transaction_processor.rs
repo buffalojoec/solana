@@ -615,12 +615,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         );
 
         let log_collector = if recording_config.enable_log_recording {
-            match log_messages_bytes_limit {
-                None => Some(LogCollector::new_ref()),
-                Some(log_messages_bytes_limit) => Some(LogCollector::new_ref_with_limit(Some(
-                    log_messages_bytes_limit,
-                ))),
-            }
+            Some(LogCollector::new_ref_with_limit(log_messages_bytes_limit))
         } else {
             None
         };
