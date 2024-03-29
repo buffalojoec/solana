@@ -6,11 +6,18 @@ mod target_builtin;
 use {
     crate::bank::Bank,
     error::CoreBpfMigrationError,
+    solana_program_runtime::{
+        invoke_context::InvokeContext, loaded_programs::LoadedProgramsForTxBatch,
+        sysvar_cache::SysvarCache,
+    },
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount, WritableAccount},
-        bpf_loader_upgradeable::UpgradeableLoaderState,
+        bpf_loader_upgradeable::{self, UpgradeableLoaderState},
         clock::Slot,
+        hash::Hash,
+        instruction::InstructionError,
         pubkey::Pubkey,
+        transaction_context::TransactionContext,
     },
     source_upgradeable_bpf::SourceUpgradeableBpf,
     std::sync::atomic::Ordering::Relaxed,
@@ -125,6 +132,94 @@ fn new_target_program_data_account(
 }
 
 impl Bank {
+    /// In order to properly update the newly migrated Core BPF program in
+    /// the program cache, the migration must directly invoke the BPF
+    /// Upgradeable Loader's deployment functionality for validating the ELF
+    /// bytes against the current environment, as well as updating the program
+    /// cache.
+    ///
+    /// Invoking the loader's `direct_deploy_program` function will update the
+    /// program cache in the currently executing context (ie. `programs_loaded`
+    /// and `programs_modified`), but the runtime must also propagate those
+    /// updates to the currently active cache.
+    fn directly_invoke_loader_v3_deploy(
+        &self,
+        builtin_program_id: &Pubkey,
+        program_data_account: &AccountSharedData,
+    ) -> Result<(), InstructionError> {
+        let programdata_data_offset = UpgradeableLoaderState::size_of_programdata_metadata();
+        let data_len = program_data_account.data().len();
+        let elf = program_data_account
+            .data()
+            .get(programdata_data_offset..)
+            .ok_or(InstructionError::InvalidAccountData)?;
+
+        // Set up the two `LoadedProgramsForTxBatch` instances, as if
+        // processing a new transaction batch.
+        let programs_loaded = LoadedProgramsForTxBatch::new_from_cache(
+            self.slot,
+            self.epoch,
+            &self.transaction_processor.program_cache.read().unwrap(),
+        );
+        let mut programs_modified = LoadedProgramsForTxBatch::new(
+            self.slot,
+            programs_loaded.environments.clone(),
+            programs_loaded.upcoming_environments.clone(),
+            programs_loaded.latest_root_epoch,
+        );
+
+        // Configure a dummy `InvokeContext` from the runtime's current
+        // environment, as well as the two `LoadedProgramsForTxBatch`
+        // instances configured above, then invoke the loader.
+        {
+            let compute_budget = self.runtime_config.compute_budget.unwrap_or_default();
+            let mut sysvar_cache = SysvarCache::default();
+            sysvar_cache.fill_missing_entries(|pubkey, set_sysvar| {
+                if let Some(account) = self.get_account(pubkey) {
+                    set_sysvar(account.data());
+                }
+            });
+
+            let mut dummy_transaction_context = TransactionContext::new(
+                vec![],
+                self.rent_collector.rent.clone(),
+                compute_budget.max_invoke_stack_height,
+                compute_budget.max_instruction_trace_length,
+            );
+
+            let mut dummy_invoke_context = InvokeContext::new(
+                &mut dummy_transaction_context,
+                &sysvar_cache,
+                None,
+                compute_budget,
+                &programs_loaded,
+                &mut programs_modified,
+                self.feature_set.clone(),
+                Hash::default(),
+                0,
+            );
+
+            solana_bpf_loader_program::direct_deploy_program(
+                &mut dummy_invoke_context,
+                builtin_program_id,
+                &bpf_loader_upgradeable::id(),
+                data_len,
+                elf,
+                self.slot,
+            )?
+        }
+
+        // Update the program cache by merging with `programs_modified`, which
+        // should have been updated by the deploy function.
+        self.transaction_processor
+            .program_cache
+            .write()
+            .unwrap()
+            .merge(&programs_modified);
+
+        Ok(())
+    }
+
     pub(crate) fn migrate_builtin_to_core_bpf(
         &mut self,
         builtin_program_id: &Pubkey,
@@ -157,6 +252,14 @@ impl Bank {
         )?;
         let new_data_size = checked_add(source_program_len, source_program_data_len)?;
 
+        // Deploy the new target Core BPF program.
+        // This step will validate the program ELF against the current runtime
+        // environment, as well as update the program cache.
+        self.directly_invoke_loader_v3_deploy(
+            &target.program_address,
+            &source.program_data_account,
+        )?;
+
         // Burn lamports from the target program account, since it will be
         // replaced.
         self.capitalization
@@ -180,13 +283,6 @@ impl Bank {
         // Remove the built-in program from the bank's list of built-ins.
         self.builtin_program_ids.remove(&target.program_address);
 
-        // Unload the programs from the bank's cache.
-        self.transaction_processor
-            .program_cache
-            .write()
-            .unwrap()
-            .remove_programs([source.program_address, target.program_address].into_iter());
-
         // Update the account data size delta.
         self.calculate_and_update_accounts_data_size_delta_off_chain(old_data_size, new_data_size);
 
@@ -199,13 +295,17 @@ mod tests {
     use {
         super::*,
         crate::bank::tests::create_simple_test_bank,
-        solana_program_runtime::loaded_programs::LoadedProgram,
+        assert_matches::assert_matches,
+        solana_program_runtime::loaded_programs::{LoadedProgram, LoadedProgramType},
         solana_sdk::{
             account_utils::StateMut,
             bpf_loader_upgradeable::{self, get_program_data_address},
             native_loader,
         },
     };
+
+    const TEST_ELF: &[u8] =
+        include_bytes!("../../../../../programs/bpf_loader/test_elfs/out/noop_aligned.so");
 
     const PROGRAM_DATA_OFFSET: usize = UpgradeableLoaderState::size_of_programdata_metadata();
 
@@ -222,7 +322,7 @@ mod tests {
             let builtin_id = Pubkey::new_unique();
             let source_program_id = Pubkey::new_unique();
             let upgrade_authority_address = Some(Pubkey::new_unique());
-            let elf = vec![4; 2000];
+            let elf = TEST_ELF.to_vec();
 
             let source_program_data_address = get_program_data_address(&source_program_id);
 
@@ -329,12 +429,23 @@ mod tests {
             // program ID.
             assert!(!bank.builtin_program_ids.contains(&self.builtin_id));
 
-            // The cache should have unloaded both programs.
+            // The cache should contain the target program.
             let program_cache = bank.transaction_processor.program_cache.read().unwrap();
-            assert!(!program_cache
-                .get_flattened_entries(true, true)
+            let entries = program_cache.get_flattened_entries(true, true);
+            let target_entry = entries
                 .iter()
-                .any(|(id, _)| id == &self.builtin_id || id == &self.source_program_id));
+                .find(|(program_id, _)| program_id == &self.builtin_id)
+                .map(|(_, entry)| entry)
+                .unwrap();
+
+            // The target program entry should be updated.
+            assert_eq!(target_entry.account_size, program_data_account.data().len());
+            assert_eq!(target_entry.deployment_slot, bank.slot());
+            assert_eq!(target_entry.effective_slot, bank.slot() + 1);
+            assert_eq!(target_entry.latest_access_slot.load(Relaxed), bank.slot());
+
+            // The target program entry should now be a BPF program.
+            assert_matches!(target_entry.program, LoadedProgramType::LegacyV1(..));
         }
     }
 
