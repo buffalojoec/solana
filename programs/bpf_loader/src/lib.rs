@@ -7,14 +7,16 @@ pub mod syscalls;
 use {
     solana_measure::measure::Measure,
     solana_program_runtime::{
+        compute_budget::ComputeBudget,
         ic_logger_msg, ic_msg,
         invoke_context::{BpfAllocator, InvokeContext, SerializedAccountMetadata, SyscallContext},
         loaded_programs::{
-            LoadProgramMetrics, LoadedProgram, LoadedProgramType, DELAY_VISIBILITY_SLOT_OFFSET,
+            LoadProgramMetrics, LoadedProgram, LoadedProgramType, LoadedProgramsForTxBatch,
+            DELAY_VISIBILITY_SLOT_OFFSET,
         },
         log_collector::LogCollector,
         stable_log,
-        sysvar_cache::get_sysvar_with_account_check,
+        sysvar_cache::{get_sysvar_with_account_check, SysvarCache},
     },
     solana_rbpf::{
         aligned_memory::AlignedMemory,
@@ -33,14 +35,17 @@ use {
         bpf_loader_upgradeable::{self, UpgradeableLoaderState},
         clock::Slot,
         entrypoint::{MAX_PERMITTED_DATA_INCREASE, SUCCESS},
+        epoch_schedule::EpochSchedule,
         feature_set::{
-            bpf_account_data_direct_mapping, enable_bpf_loader_set_authority_checked_ix,
+            bpf_account_data_direct_mapping, enable_bpf_loader_set_authority_checked_ix, FeatureSet,
         },
+        hash::Hash,
         instruction::{AccountMeta, InstructionError},
         loader_upgradeable_instruction::UpgradeableLoaderInstruction,
         loader_v4, native_loader,
         program_utils::limited_deserialize,
         pubkey::Pubkey,
+        rent::Rent,
         saturating_add_assign,
         system_instruction::{self, MAX_PERMITTED_DATA_LENGTH},
         transaction_context::{IndexOfAccount, InstructionContext, TransactionContext},
@@ -101,6 +106,58 @@ pub fn load_program_from_bytes(
     Ok(loaded_program)
 }
 
+/// For runtime use only!
+pub fn direct_deploy_program(
+    programs_loaded: &mut LoadedProgramsForTxBatch,
+    programs_modified: &mut LoadedProgramsForTxBatch,
+    epoch_schedule: EpochSchedule,
+    feature_set: Arc<FeatureSet>,
+    program_id: &Pubkey,
+    loader_key: &Pubkey,
+    account_size: usize,
+    slot: Slot,
+    elf: &[u8],
+) -> Result<(), InstructionError> {
+    let compute_budget = ComputeBudget::default();
+    let mut sysvar_cache = SysvarCache::default();
+    sysvar_cache.set_epoch_schedule(epoch_schedule);
+
+    let mut transaction_context = TransactionContext::new(
+        vec![],
+        Rent::default(),
+        compute_budget.max_invoke_stack_height,
+        compute_budget.max_instruction_trace_length,
+    );
+
+    let mut invoke_context = InvokeContext::new(
+        &mut transaction_context,
+        &sysvar_cache,
+        None,
+        compute_budget,
+        programs_loaded,
+        programs_modified,
+        feature_set,
+        Hash::default(),
+        0,
+    );
+
+    deploy_program!(
+        invoke_context,
+        *program_id,
+        loader_key,
+        account_size,
+        slot,
+        {},
+        elf,
+    );
+
+    // Is this how it updates the cache?
+    programs_loaded.merge(programs_modified);
+
+    Ok(())
+}
+
+#[macro_export]
 macro_rules! deploy_program {
     ($invoke_context:expr, $program_id:expr, $loader_key:expr,
      $account_size:expr, $slot:expr, $drop:expr, $new_programdata:expr $(,)?) => {{
