@@ -169,6 +169,7 @@ pub struct InvokeContext<'a> {
     pub programs_loaded_for_tx_batch: &'a ProgramCacheForTxBatch,
     pub programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     pub feature_set: Arc<FeatureSet>,
+    pub get_epoch_stake_callback: &'a dyn Fn(&'a Pubkey) -> u64,
     pub timings: ExecuteDetailsTimings,
     pub blockhash: Hash,
     pub lamports_per_signature: u64,
@@ -186,6 +187,7 @@ impl<'a> InvokeContext<'a> {
         programs_loaded_for_tx_batch: &'a ProgramCacheForTxBatch,
         programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
         feature_set: Arc<FeatureSet>,
+        get_epoch_stake_callback: &'a dyn Fn(&'a Pubkey) -> u64,
         blockhash: Hash,
         lamports_per_signature: u64,
     ) -> Self {
@@ -199,6 +201,7 @@ impl<'a> InvokeContext<'a> {
             programs_loaded_for_tx_batch,
             programs_modified_by_tx,
             feature_set,
+            get_epoch_stake_callback,
             timings: ExecuteDetailsTimings::default(),
             blockhash,
             lamports_per_signature,
@@ -685,6 +688,7 @@ macro_rules! with_mock_invoke_context {
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
             Arc::new(FeatureSet::all_enabled()),
+            &|_| 0,
             Hash::default(),
             0,
         );

@@ -280,6 +280,7 @@ mod tests {
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
             Arc::new(FeatureSet::all_enabled()),
+            &|_| 0,
             Hash::default(),
             0,
         );
@@ -331,6 +332,7 @@ mod tests {
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
             Arc::new(FeatureSet::all_enabled()),
+            &|_| 0,
             Hash::default(),
             0,
         );
@@ -372,6 +374,7 @@ mod tests {
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
             Arc::new(FeatureSet::all_enabled()),
+            &|_| 0,
             Hash::default(),
             0,
         );
@@ -504,6 +507,7 @@ mod tests {
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
             Arc::new(FeatureSet::all_enabled()),
+            &|_| 0,
             Hash::default(),
             0,
         );
@@ -540,6 +544,7 @@ mod tests {
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
             Arc::new(FeatureSet::all_enabled()),
+            &|_| 0,
             Hash::default(),
             0,
         );
@@ -573,6 +578,7 @@ mod tests {
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
             Arc::new(FeatureSet::all_enabled()),
+            &|_| 0,
             Hash::default(),
             0,
         );
@@ -667,6 +673,7 @@ mod tests {
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
             Arc::new(FeatureSet::all_enabled()),
+            &|_| 0,
             Hash::default(),
             0,
         );

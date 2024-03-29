@@ -531,6 +531,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             programs_loaded_for_tx_batch.latest_root_epoch,
         );
         let sysvar_cache = &self.sysvar_cache.read().unwrap();
+        let epoch_stake_callback = |pubkey| callback.get_epoch_stake(pubkey);
 
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
@@ -540,6 +541,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
             callback.get_feature_set(),
+            &epoch_stake_callback,
             blockhash,
             lamports_per_signature,
         );

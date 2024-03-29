@@ -180,6 +180,7 @@ impl Bank {
                 &programs_loaded,
                 &mut programs_modified,
                 self.feature_set.clone(),
+                &|_| 0,
                 Hash::default(),
                 0,
             );
