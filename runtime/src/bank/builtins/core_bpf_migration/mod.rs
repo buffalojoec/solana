@@ -7,8 +7,9 @@ use {
     crate::bank::Bank,
     error::CoreBpfMigrationError,
     solana_sdk::{
-        account::{AccountSharedData, ReadableAccount},
+        account::{AccountSharedData, ReadableAccount, WritableAccount},
         bpf_loader_upgradeable::UpgradeableLoaderState,
+        clock::Slot,
         pubkey::Pubkey,
     },
     source_upgradeable_bpf::SourceUpgradeableBpf,
@@ -82,6 +83,47 @@ fn new_target_program_account(
     Ok(account)
 }
 
+/// Create an `AccountSharedData` with data initialized to
+/// `UpgradeableLoaderState::ProgramData` populated with the current slot, as
+/// well as the source program data account's upgrade authority and ELF.
+///
+/// Note that the account's data is initialized manually, but the rest of the
+/// account's fields are inherited from the source program account, including
+/// the lamports.
+fn new_target_program_data_account(
+    source: &SourceUpgradeableBpf,
+    slot: Slot,
+) -> Result<AccountSharedData, CoreBpfMigrationError> {
+    let programdata_data_offset = UpgradeableLoaderState::size_of_programdata_metadata();
+    // Deserialize the program data metadata to get the upgrade authority.
+    if let UpgradeableLoaderState::ProgramData {
+        upgrade_authority_address,
+        ..
+    } = bincode::deserialize(&source.program_data_account.data()[..programdata_data_offset])?
+    {
+        let mut account = source.program_data_account.clone();
+        // This account's data was just partially deserialized into
+        // `UpgradeableLoaderState`, so it's guaranteed to have at least enough
+        // space for the same type to be serialized in.
+        // The ELF should remain untouched, since it follows the
+        // `UpgradeableLoaderState`.
+        //
+        // Serialize the new `UpgradeableLoaderState` with the bank's current
+        // slot and the deserialized upgrade authority.
+        bincode::serialize_into(
+            account.data_as_mut_slice(),
+            &UpgradeableLoaderState::ProgramData {
+                slot,
+                upgrade_authority_address,
+            },
+        )?;
+        return Ok(account);
+    }
+    Err(CoreBpfMigrationError::InvalidProgramDataAccount(
+        source.program_data_address,
+    ))
+}
+
 impl Bank {
     pub(crate) fn migrate_builtin_to_core_bpf(
         &mut self,
@@ -96,6 +138,7 @@ impl Bank {
 
         // Attempt serialization first before modifying the bank.
         let new_target_program_account = new_target_program_account(&target, &source)?;
+        let new_target_program_data_account = new_target_program_data_account(&source, self.slot)?;
 
         // Gather old and new account data sizes, for updating the bank's
         // accounts data size delta off-chain.
@@ -128,7 +171,10 @@ impl Bank {
         // builtin program's data address, which was verified to be empty by
         // `TargetBuiltin::new_checked`, then clear the source program data
         // account.
-        self.store_account(&target.program_data_address, &source.program_data_account);
+        self.store_account(
+            &target.program_data_address,
+            &new_target_program_data_account,
+        );
         self.store_account(&source.program_data_address, &AccountSharedData::default());
 
         // Remove the built-in program from the bank's list of built-ins.
@@ -157,7 +203,6 @@ mod tests {
         solana_sdk::{
             account_utils::StateMut,
             bpf_loader_upgradeable::{self, get_program_data_address},
-            clock::Slot,
             native_loader,
         },
     };
@@ -167,7 +212,6 @@ mod tests {
     struct TestContext {
         builtin_id: Pubkey,
         source_program_id: Pubkey,
-        slot: Slot,
         upgrade_authority_address: Option<Pubkey>,
         elf: Vec<u8>,
     }
@@ -177,7 +221,6 @@ mod tests {
         fn new(bank: &Bank) -> Self {
             let builtin_id = Pubkey::new_unique();
             let source_program_id = Pubkey::new_unique();
-            let slot = 99;
             let upgrade_authority_address = Some(Pubkey::new_unique());
             let elf = vec![4; 2000];
 
@@ -200,7 +243,7 @@ mod tests {
 
             let source_program_data_account = {
                 let mut data = bincode::serialize(&UpgradeableLoaderState::ProgramData {
-                    slot,
+                    slot: 99, // Arbitrary slot for testing.
                     upgrade_authority_address,
                 })
                 .unwrap();
@@ -227,7 +270,6 @@ mod tests {
             Self {
                 builtin_id,
                 source_program_id,
-                slot,
                 upgrade_authority_address,
                 elf,
             }
@@ -274,8 +316,8 @@ mod tests {
             assert_eq!(
                 program_data_account_state_metadata,
                 UpgradeableLoaderState::ProgramData {
-                    slot: self.slot,
-                    upgrade_authority_address: self.upgrade_authority_address
+                    slot: bank.slot, // _Not_ the original deployment slot
+                    upgrade_authority_address: self.upgrade_authority_address  // Preserved
                 },
             );
             assert_eq!(
