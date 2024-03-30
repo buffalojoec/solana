@@ -23,7 +23,7 @@ fn sysvar_last_restart_slot_process_instruction(
     assert_eq!(input.len(), 8);
     let expected_last_hardfork_slot = u64::from_le_bytes(input[0..8].try_into().unwrap());
 
-    let last_restart_slot = LastRestartSlot::get();
+    let last_restart_slot = LastRestartSlot::load();
     msg!("last restart slot: {:?}", last_restart_slot);
     assert_eq!(
         last_restart_slot,

@@ -212,6 +212,7 @@ pub trait Sysvar:
     ///
     /// Not all sysvars support this method. If not, it returns
     /// [`ProgramError::UnsupportedSysvar`].
+    #[deprecated(since = "2.0.0", note = "Please use `Sysvar::load`.")]
     fn get() -> Result<Self, ProgramError> {
         Err(ProgramError::UnsupportedSysvar)
     }

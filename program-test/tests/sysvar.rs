@@ -15,13 +15,13 @@ fn sysvar_getter_process_instruction(
 ) -> ProgramResult {
     msg!("sysvar_getter");
 
-    let clock = Clock::get()?;
+    let clock = Clock::load()?;
     assert_eq!(42, clock.slot);
 
-    let epoch_schedule = EpochSchedule::get()?;
+    let epoch_schedule = EpochSchedule::load()?;
     assert_eq!(epoch_schedule, EpochSchedule::default());
 
-    let rent = Rent::get()?;
+    let rent = Rent::load()?;
     assert_eq!(rent, Rent::default());
 
     Ok(())
@@ -65,10 +65,10 @@ fn epoch_reward_sysvar_getter_process_instruction(
     // input[0] == 1 indicates the bank is in reward period.
     if input[0] == 0 {
         // epoch rewards sysvar should not exist for banks that are not in reward period
-        let epoch_rewards = EpochRewards::get();
+        let epoch_rewards = EpochRewards::load();
         assert!(epoch_rewards.is_err());
     } else {
-        let _epoch_rewards = EpochRewards::get()?;
+        let _epoch_rewards = EpochRewards::load()?;
     }
 
     Ok(())

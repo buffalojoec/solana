@@ -95,7 +95,7 @@ fn invoke_create_account(
     let payer_info = next_account_info(account_info_iter)?;
     let create_account_info = next_account_info(account_info_iter)?;
     let system_program_info = next_account_info(account_info_iter)?;
-    let rent = Rent::get()?;
+    let rent = Rent::load()?;
     let minimum_balance = rent.minimum_balance(MAX_PERMITTED_DATA_INCREASE);
     invoke(
         &system_instruction::create_account(
