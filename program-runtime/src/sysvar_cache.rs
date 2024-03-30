@@ -210,6 +210,40 @@ impl SysvarCache {
     pub fn reset(&mut self) {
         *self = SysvarCache::default();
     }
+
+    /// [Syscall Sol-Get-Sysvar]: This is a mockup implementation.
+    ///
+    /// The production approach will reimplement the sysvar cache to store raw
+    /// bytes to avoid re-serialization.
+    ///
+    /// For now, this provides the intended functionality as an example. It's
+    /// positioned to have its replacement dropped-in to the working syscall
+    /// architecture.
+    pub fn get_sysvar_bytes(&self, sysvar_id: &Pubkey) -> Result<Vec<u8>, InstructionError> {
+        fn serialize<T: serde::Serialize>(sysvar: &T) -> Result<Vec<u8>, InstructionError> {
+            bincode::serialize(sysvar).map_err(|_| InstructionError::InvalidArgument)
+        }
+
+        let bytes = if sysvar_id == &<Clock as SysvarId>::id() {
+            serialize(&self.get_clock()?)
+        } else if sysvar_id == &<EpochSchedule as SysvarId>::id() {
+            serialize(&self.get_epoch_schedule()?)
+        } else if sysvar_id == &<EpochRewards as SysvarId>::id() {
+            serialize(&self.get_epoch_rewards()?)
+        } else if sysvar_id == &<Rent as SysvarId>::id() {
+            serialize(&self.get_rent()?)
+        } else if sysvar_id == &<SlotHashes as SysvarId>::id() {
+            serialize(&self.get_slot_hashes()?)
+        } else if sysvar_id == &<StakeHistory as SysvarId>::id() {
+            serialize(&self.get_stake_history()?)
+        } else if sysvar_id == &<LastRestartSlot as SysvarId>::id() {
+            serialize(&self.get_last_restart_slot()?)
+        } else {
+            Err(InstructionError::UnsupportedSysvar)
+        }?;
+
+        Ok(bytes)
+    }
 }
 
 /// These methods facilitate a transition from fetching sysvars from keyed
