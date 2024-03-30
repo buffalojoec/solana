@@ -6672,6 +6672,7 @@ dependencies = [
  "solana-logger",
  "solana-sdk-macro",
  "static_assertions",
+ "test-case",
  "thiserror",
  "tiny-bip39",
  "wasm-bindgen",
