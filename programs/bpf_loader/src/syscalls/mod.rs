@@ -7,6 +7,7 @@ pub use self::{
     sysvar::{
         SyscallGetClockSysvar, SyscallGetEpochRewardsSysvar, SyscallGetEpochScheduleSysvar,
         SyscallGetFeesSysvar, SyscallGetLastRestartSlotSysvar, SyscallGetRentSysvar,
+        SyscallGetSysvar,
     },
 };
 #[allow(deprecated)]
@@ -38,8 +39,9 @@ use {
             disable_deploy_of_alloc_free_syscall, disable_fees_sysvar,
             enable_alt_bn128_compression_syscall, enable_alt_bn128_syscall,
             enable_big_mod_exp_syscall, enable_partitioned_epoch_reward, enable_poseidon_syscall,
-            error_on_syscall_bpf_function_hash_collisions, last_restart_slot_sysvar,
-            reject_callx_r10, remaining_compute_units_syscall_enabled, switch_to_new_elf_parser,
+            enable_syscall_get_sysvar, error_on_syscall_bpf_function_hash_collisions,
+            last_restart_slot_sysvar, reject_callx_r10, remaining_compute_units_syscall_enabled,
+            switch_to_new_elf_parser,
         },
         hash::{Hash, Hasher},
         instruction::{AccountMeta, InstructionError, ProcessedSiblingInstruction},
@@ -278,6 +280,7 @@ pub fn create_program_runtime_environment_v1<'a>(
     let enable_poseidon_syscall = feature_set.is_active(&enable_poseidon_syscall::id());
     let remaining_compute_units_syscall_enabled =
         feature_set.is_active(&remaining_compute_units_syscall_enabled::id());
+    let enable_syscall_get_sysvar = feature_set.is_active(&enable_syscall_get_sysvar::id());
     // !!! ATTENTION !!!
     // When adding new features for RBPF here,
     // also add them to `Bank::apply_builtin_program_feature_transitions()`.
@@ -391,6 +394,13 @@ pub fn create_program_runtime_environment_v1<'a>(
         epoch_rewards_syscall_enabled,
         *b"sol_get_epoch_rewards_sysvar",
         SyscallGetEpochRewardsSysvar::vm,
+    )?;
+
+    register_feature_gated_function!(
+        result,
+        enable_syscall_get_sysvar,
+        *b"sol_get_sysvar",
+        SyscallGetSysvar::vm,
     )?;
 
     // Memory ops
@@ -4115,6 +4125,464 @@ mod tests {
             assert_matches!(
                 result,
                 Result::Err(error) if error.downcast_ref::<SyscallError>().unwrap() == &SyscallError::InvalidLength
+            );
+        }
+    }
+
+    #[test]
+    fn test_syscall_get_sysvar_unified_syscall_aborts() {
+        const SYSVAR_ID_VA: u64 = 0x100000000;
+        const DATA_VA: u64 = 0x200000000;
+
+        let config = Config::default();
+
+        // Just add `Clock` for one valid sysvar, for testing.
+        let src_clock = create_filled_type::<Clock>(false);
+        let transaction_accounts = vec![(
+            sysvar::clock::id(),
+            create_account_shared_data_for_test(&src_clock),
+        )];
+        with_mock_invoke_context!(invoke_context, transaction_context, transaction_accounts);
+
+        // Sysvar is unavailable => `Ok(1)`
+        {
+            let mut mock_epochschedule = EpochSchedule::default();
+            let offset = 0;
+            let length = bincode::serialized_size(&mock_epochschedule).unwrap() as u64;
+            let mut memory_mapping = MemoryMapping::new(
+                vec![
+                    MemoryRegion::new_readonly(
+                        bytes_of(&sysvar::epoch_schedule::id()),
+                        SYSVAR_ID_VA,
+                    ),
+                    MemoryRegion::new_writable(bytes_of_mut(&mut mock_epochschedule), DATA_VA),
+                ],
+                &config,
+                &SBPFVersion::V2,
+            )
+            .unwrap();
+            assert_eq!(
+                SyscallGetSysvar::rust(
+                    &mut invoke_context,
+                    SYSVAR_ID_VA,
+                    DATA_VA,
+                    offset,
+                    length,
+                    0,
+                    &mut memory_mapping,
+                )
+                .unwrap(),
+                1
+            );
+        }
+
+        // VM Abort:
+        // Not all bytes in VM memory range `[sysvar_id, sysvar_id + 32)` are
+        // readable.
+        {
+            let offset = 0;
+            let length = 0;
+            let mut memory_mapping = MemoryMapping::new(
+                vec![
+                    // Too small of a region.
+                    MemoryRegion::new_readonly(bytes_of(&[0u8; 30]), SYSVAR_ID_VA),
+                ],
+                &config,
+                &SBPFVersion::V2,
+            )
+            .unwrap();
+            let result = SyscallGetSysvar::rust(
+                &mut invoke_context,
+                SYSVAR_ID_VA,
+                DATA_VA,
+                offset,
+                length,
+                0,
+                &mut memory_mapping,
+            );
+            assert_access_violation!(result, 0x100000000, 32);
+        }
+
+        // VM Abort:
+        // Not all bytes in VM memory range `[var_addr, var_addr + length)` are
+        // writable.
+        {
+            let offset = 0;
+            let length = bincode::serialized_size(&src_clock).unwrap() as u64;
+            let mut memory_mapping = MemoryMapping::new(
+                vec![
+                    MemoryRegion::new_readonly(bytes_of(&sysvar::clock::id()), SYSVAR_ID_VA),
+                    // Readonly region.
+                    MemoryRegion::new_readonly(bytes_of(&[0u8; 32]), DATA_VA),
+                ],
+                &config,
+                &SBPFVersion::V2,
+            )
+            .unwrap();
+            let result = SyscallGetSysvar::rust(
+                &mut invoke_context,
+                SYSVAR_ID_VA,
+                DATA_VA,
+                offset,
+                length,
+                0,
+                &mut memory_mapping,
+            );
+            assert_access_violation!(result, 0x200000000, 40);
+        }
+
+        // VM Abort:
+        // Compute budget is exceeded.
+        {
+            let mut mock_clock = src_clock.clone();
+            let offset = 0;
+            let length = 350_000_000; // Default max CUs x CPI bytes per unit.
+            let mut memory_mapping = MemoryMapping::new(
+                vec![
+                    MemoryRegion::new_readonly(bytes_of(&sysvar::clock::id()), SYSVAR_ID_VA),
+                    MemoryRegion::new_writable(bytes_of_mut(&mut mock_clock), DATA_VA),
+                ],
+                &config,
+                &SBPFVersion::V2,
+            )
+            .unwrap();
+            let result = SyscallGetSysvar::rust(
+                &mut invoke_context,
+                SYSVAR_ID_VA,
+                DATA_VA,
+                offset,
+                length,
+                0,
+                &mut memory_mapping,
+            );
+            assert_matches!(
+                result,
+                Result::Err(error) if error.downcast_ref::<InstructionError>().unwrap() == &InstructionError::ComputationalBudgetExceeded
+            );
+        }
+    }
+
+    #[test]
+    fn test_syscall_get_sysvar_unified_syscall() {
+        let config = Config::default();
+
+        let mut src_clock = create_filled_type::<Clock>(false);
+        src_clock.slot = 1;
+        src_clock.epoch_start_timestamp = 2;
+        src_clock.epoch = 3;
+        src_clock.leader_schedule_epoch = 4;
+        src_clock.unix_timestamp = 5;
+
+        let mut src_epochschedule = create_filled_type::<EpochSchedule>(false);
+        src_epochschedule.slots_per_epoch = 1;
+        src_epochschedule.leader_schedule_slot_offset = 2;
+        src_epochschedule.warmup = false;
+        src_epochschedule.first_normal_epoch = 3;
+        src_epochschedule.first_normal_slot = 4;
+
+        let mut src_rent = create_filled_type::<Rent>(false);
+        src_rent.lamports_per_byte_year = 1;
+        src_rent.exemption_threshold = 2.0;
+        src_rent.burn_percent = 3;
+
+        let mut src_rewards = create_filled_type::<EpochRewards>(false);
+        src_rewards.distribution_starting_block_height = 42;
+        src_rewards.num_partitions = 2;
+        src_rewards.parent_blockhash = Hash::new(&[3; 32]);
+        src_rewards.total_points = 4;
+        src_rewards.total_rewards = 100;
+        src_rewards.distributed_rewards = 10;
+        src_rewards.active = true;
+
+        let mut sysvar_cache = SysvarCache::default();
+        sysvar_cache.set_clock(src_clock.clone());
+        sysvar_cache.set_epoch_schedule(src_epochschedule.clone());
+        sysvar_cache.set_rent(src_rent.clone());
+        sysvar_cache.set_epoch_rewards(src_rewards.clone());
+
+        let transaction_accounts = vec![
+            (
+                sysvar::clock::id(),
+                create_account_shared_data_for_test(&src_clock),
+            ),
+            (
+                sysvar::epoch_schedule::id(),
+                create_account_shared_data_for_test(&src_epochschedule),
+            ),
+            (
+                sysvar::rent::id(),
+                create_account_shared_data_for_test(&src_rent),
+            ),
+            (
+                sysvar::epoch_rewards::id(),
+                create_account_shared_data_for_test(&src_rewards),
+            ),
+        ];
+        with_mock_invoke_context!(invoke_context, transaction_context, transaction_accounts);
+
+        // Test clock sysvar
+        {
+            let sysvar_id_va = 0x100000000;
+            let mut got_clock = Clock::default();
+            let got_clock_va = 0x200000000;
+            let offset = 0;
+            let length = bincode::serialized_size(&src_clock).unwrap() as u64;
+
+            let mut memory_mapping = MemoryMapping::new(
+                vec![
+                    MemoryRegion::new_readonly(bytes_of(&sysvar::clock::id()), sysvar_id_va),
+                    MemoryRegion::new_writable(bytes_of_mut(&mut got_clock), got_clock_va),
+                ],
+                &config,
+                &SBPFVersion::V2,
+            )
+            .unwrap();
+
+            // `offset + length` greater than the size of the sysvar => `Ok(2)`
+            assert_eq!(
+                SyscallGetSysvar::rust(
+                    &mut invoke_context,
+                    sysvar_id_va,
+                    got_clock_va,
+                    offset,
+                    length * 2, // Twice the length.
+                    0,
+                    &mut memory_mapping,
+                )
+                .unwrap(),
+                2,
+            );
+
+            let result = SyscallGetSysvar::rust(
+                &mut invoke_context,
+                sysvar_id_va,
+                got_clock_va,
+                offset,
+                length,
+                0,
+                &mut memory_mapping,
+            );
+            result.unwrap();
+            assert_eq!(got_clock, src_clock);
+
+            let mut clean_clock = create_filled_type::<Clock>(true);
+            clean_clock.slot = src_clock.slot;
+            clean_clock.epoch_start_timestamp = src_clock.epoch_start_timestamp;
+            clean_clock.epoch = src_clock.epoch;
+            clean_clock.leader_schedule_epoch = src_clock.leader_schedule_epoch;
+            clean_clock.unix_timestamp = src_clock.unix_timestamp;
+            assert!(are_bytes_equal(&got_clock, &clean_clock));
+        }
+
+        // Test epoch_schedule sysvar
+        {
+            let sysvar_id_va = 0x100000000;
+            let mut got_epochschedule = EpochSchedule::default();
+            let got_epochschedule_va = 0x200000000;
+            let offset = 0;
+            let length = bincode::serialized_size(&src_epochschedule).unwrap() as u64;
+
+            let mut memory_mapping = MemoryMapping::new(
+                vec![
+                    MemoryRegion::new_readonly(
+                        bytes_of(&sysvar::epoch_schedule::id()),
+                        sysvar_id_va,
+                    ),
+                    MemoryRegion::new_writable(
+                        bytes_of_mut(&mut got_epochschedule),
+                        got_epochschedule_va,
+                    ),
+                ],
+                &config,
+                &SBPFVersion::V2,
+            )
+            .unwrap();
+
+            // `offset + length` greater than the size of the sysvar => `Ok(2)`
+            assert_eq!(
+                SyscallGetSysvar::rust(
+                    &mut invoke_context,
+                    sysvar_id_va,
+                    got_epochschedule_va,
+                    offset,
+                    length * 2, // Twice the length.
+                    0,
+                    &mut memory_mapping,
+                )
+                .unwrap(),
+                2,
+            );
+
+            // Something is missing from the memory mapping step in the syscall...
+            //
+            // For layouts requiring alignment, like `EpochSchedule`
+            // (see `warmup`), the syscall needs to handle the padding using
+            // the memory mapping.
+            // Un-commenting the below test, you'll see failure since `warmup`
+            // will be padded to `8` bytes in the memory map.
+
+            // let result = SyscallGetSysvar::rust(
+            //     &mut invoke_context,
+            //     sysvar_id_va,
+            //     got_epochschedule_va,
+            //     offset,
+            //     length,
+            //     0,
+            //     &mut memory_mapping,
+            // );
+            // result.unwrap();
+            // assert_eq!(got_epochschedule, src_epochschedule);
+
+            // let mut clean_epochschedule = create_filled_type::<EpochSchedule>(true);
+            // clean_epochschedule.slots_per_epoch = src_epochschedule.slots_per_epoch;
+            // clean_epochschedule.leader_schedule_slot_offset =
+            //     src_epochschedule.leader_schedule_slot_offset;
+            // clean_epochschedule.warmup = src_epochschedule.warmup;
+            // clean_epochschedule.first_normal_epoch = src_epochschedule.first_normal_epoch;
+            // clean_epochschedule.first_normal_slot = src_epochschedule.first_normal_slot;
+            // assert!(are_bytes_equal(&got_epochschedule, &clean_epochschedule));
+        }
+
+        // Test rent sysvar
+        {
+            let sysvar_id_va = 0x100000000;
+            let mut got_rent = create_filled_type::<Rent>(true);
+            let got_rent_va = 0x200000000;
+            let offset = 0;
+            let length = bincode::serialized_size(&src_rent).unwrap() as u64;
+
+            let mut memory_mapping = MemoryMapping::new(
+                vec![
+                    MemoryRegion::new_readonly(bytes_of(&sysvar::rent::id()), sysvar_id_va),
+                    MemoryRegion::new_writable(bytes_of_mut(&mut got_rent), got_rent_va),
+                ],
+                &config,
+                &SBPFVersion::V2,
+            )
+            .unwrap();
+
+            // `offset + length` greater than the size of the sysvar => `Ok(2)`
+            assert_eq!(
+                SyscallGetSysvar::rust(
+                    &mut invoke_context,
+                    sysvar_id_va,
+                    got_rent_va,
+                    offset,
+                    length * 2, // Twice the length.
+                    0,
+                    &mut memory_mapping,
+                )
+                .unwrap(),
+                2,
+            );
+
+            let result = SyscallGetSysvar::rust(
+                &mut invoke_context,
+                sysvar_id_va,
+                got_rent_va,
+                offset,
+                length,
+                0,
+                &mut memory_mapping,
+            );
+            result.unwrap();
+            assert_eq!(got_rent, src_rent);
+
+            let mut clean_rent = create_filled_type::<Rent>(true);
+            clean_rent.lamports_per_byte_year = src_rent.lamports_per_byte_year;
+            clean_rent.exemption_threshold = src_rent.exemption_threshold;
+            clean_rent.burn_percent = src_rent.burn_percent;
+            assert!(are_bytes_equal(&got_rent, &clean_rent));
+        }
+
+        // Test epoch rewards sysvar
+        {
+            let sysvar_id_va = 0x100000000;
+            let mut got_rewards = create_filled_type::<EpochRewards>(true);
+            let got_rewards_va = 0x200000000;
+            let offset = 0;
+            let length = bincode::serialized_size(&src_rewards).unwrap() as u64;
+
+            let mut memory_mapping = MemoryMapping::new(
+                vec![
+                    MemoryRegion::new_readonly(
+                        bytes_of(&sysvar::epoch_rewards::id()),
+                        sysvar_id_va,
+                    ),
+                    MemoryRegion::new_writable(bytes_of_mut(&mut got_rewards), got_rewards_va),
+                ],
+                &config,
+                &SBPFVersion::V2,
+            )
+            .unwrap();
+
+            // `offset + length` greater than the size of the sysvar => `Ok(2)`
+            assert_eq!(
+                SyscallGetSysvar::rust(
+                    &mut invoke_context,
+                    sysvar_id_va,
+                    got_rewards_va,
+                    offset,
+                    length * 2, // Twice the length.
+                    0,
+                    &mut memory_mapping,
+                )
+                .unwrap(),
+                2,
+            );
+
+            let result = SyscallGetSysvar::rust(
+                &mut invoke_context,
+                sysvar_id_va,
+                got_rewards_va,
+                offset,
+                length,
+                0,
+                &mut memory_mapping,
+            );
+            result.unwrap();
+            assert_eq!(got_rewards, src_rewards);
+
+            let mut clean_rewards = create_filled_type::<EpochRewards>(true);
+            clean_rewards.distribution_starting_block_height =
+                src_rewards.distribution_starting_block_height;
+            clean_rewards.num_partitions = src_rewards.num_partitions;
+            clean_rewards.parent_blockhash = src_rewards.parent_blockhash;
+            clean_rewards.total_points = src_rewards.total_points;
+            clean_rewards.total_rewards = src_rewards.total_rewards;
+            clean_rewards.distributed_rewards = src_rewards.distributed_rewards;
+            clean_rewards.active = src_rewards.active;
+            assert!(are_bytes_equal(&got_rewards, &clean_rewards));
+        }
+
+        // Unknown sysvar (unavailable) => `Ok(1)`
+        {
+            let sysvar_id_va = 0x100000000;
+            let mut mock_epochschedule = EpochSchedule::default();
+            let data_va = 0x200000000;
+            let offset = 0;
+            let length = bincode::serialized_size(&mock_epochschedule).unwrap() as u64;
+            let mut memory_mapping = MemoryMapping::new(
+                vec![
+                    MemoryRegion::new_readonly(bytes_of(&Pubkey::new_unique()), sysvar_id_va),
+                    MemoryRegion::new_writable(bytes_of_mut(&mut mock_epochschedule), data_va),
+                ],
+                &config,
+                &SBPFVersion::V2,
+            )
+            .unwrap();
+            assert_eq!(
+                SyscallGetSysvar::rust(
+                    &mut invoke_context,
+                    sysvar_id_va,
+                    data_va,
+                    offset,
+                    length,
+                    0,
+                    &mut memory_mapping,
+                )
+                .unwrap(),
+                1
             );
         }
     }

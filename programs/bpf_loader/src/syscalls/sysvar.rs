@@ -1,5 +1,64 @@
 use super::*;
 
+declare_builtin_function!(
+    /// Get a slice of sysvar data from the sysvar cache.
+    SyscallGetSysvar,
+    fn rust(
+        invoke_context: &mut InvokeContext,
+        sysvar_id: u64,
+        var_addr: u64,
+        offset: u64,
+        length: u64,
+        _arg5: u64,
+        memory_mapping: &mut MemoryMapping,
+    ) -> Result<u64, Error> {
+        let compute_budget = invoke_context.get_compute_budget();
+        let div_by_cpi = |n: u64| -> u64 {
+            n.checked_div(compute_budget.cpi_bytes_per_unit)
+                .unwrap_or(u64::MAX)
+        };
+        consume_compute_meter(
+            invoke_context,
+            compute_budget
+                .sysvar_base_cost
+                .max(div_by_cpi(32).saturating_add(div_by_cpi(length)))
+        )?;
+
+        let check_aligned = invoke_context.get_check_aligned();
+        let sysvar_cache = invoke_context.get_sysvar_cache();
+
+        let sysvar_id = translate_type::<Pubkey>(memory_mapping, sysvar_id, check_aligned)?;
+        let sysvar_bytes = match sysvar_cache.get_sysvar_bytes(sysvar_id) {
+            Ok(bytes) => bytes,
+            Err(err) => match err {
+                // The sysvar was unavailable in the sysvar cache, return `1`.
+                InstructionError::UnsupportedSysvar => return Ok(1),
+                // Unknown error
+                _ => return Err(err.into()),
+            }
+        };
+
+        let offset = offset as usize;
+        let end = offset
+            .checked_add(length as usize)
+            .ok_or(InstructionError::ArithmeticOverflow)?;
+        if end > sysvar_bytes.len() {
+            // The `offset` and `length` provided are out of range for the
+            // sysvar data, return `2`.
+            return Ok(2);
+        }
+
+        let var = translate_slice_mut::<u8>(memory_mapping, var_addr, length, check_aligned)?;
+        var.copy_from_slice(
+            sysvar_bytes
+            .get(offset..end)
+            .ok_or(InstructionError::InvalidArgument)?,
+        );
+
+        Ok(SUCCESS)
+    }
+);
+
 fn get_sysvar<T: std::fmt::Debug + Sysvar + SysvarId + Clone>(
     sysvar: Result<Arc<T>, InstructionError>,
     var_addr: u64,
