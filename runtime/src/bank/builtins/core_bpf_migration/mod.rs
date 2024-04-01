@@ -287,7 +287,7 @@ impl Bank {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use {
         super::*,
         crate::bank::tests::create_simple_test_bank,
@@ -296,6 +296,7 @@ mod tests {
         solana_sdk::{
             account_utils::StateMut,
             bpf_loader_upgradeable::{self, get_program_data_address},
+            clock::Slot,
             native_loader,
         },
         test_case::test_case,
@@ -304,18 +305,16 @@ mod tests {
     const TEST_ELF: &[u8] =
         include_bytes!("../../../../../programs/bpf_loader/test_elfs/out/noop_aligned.so");
 
-    struct TestContext {
+    pub(crate) struct TestContext {
         builtin_id: Pubkey,
         source_buffer_address: Pubkey,
         upgrade_authority_address: Option<Pubkey>,
         elf: Vec<u8>,
-        expected_post_migration_capitalization: u64,
-        expected_post_migration_accounts_data_size_delta_off_chain: i64,
     }
     impl TestContext {
         // Initialize some test values and set up the source buffer account in
         // the bank.
-        fn new(
+        pub(crate) fn new(
             bank: &Bank,
             builtin_id: &Pubkey,
             source_buffer_address: &Pubkey,
@@ -351,42 +350,48 @@ mod tests {
                 &source_buffer_account,
             );
 
-            let (builtin_lamports, builtin_data_len) = bank
-                .get_account(builtin_id)
-                .map(|a| (a.lamports(), a.data().len()))
-                .unwrap_or((0, 0));
-
-            let resulting_program_data_len = UpgradeableLoaderState::size_of_program();
-            let resulting_programdata_data_len =
-                UpgradeableLoaderState::size_of_programdata_metadata() + elf.len();
-
-            let expected_post_migration_capitalization =
-                bank.capitalization() - builtin_lamports - source_buffer_account.lamports()
-                    + bank.get_minimum_balance_for_rent_exemption(resulting_program_data_len)
-                    + bank.get_minimum_balance_for_rent_exemption(resulting_programdata_data_len);
-
-            let expected_post_migration_accounts_data_size_delta_off_chain =
-                bank.accounts_data_size_delta_off_chain.load(Relaxed)
-                    + resulting_program_data_len as i64
-                    + resulting_programdata_data_len as i64
-                    - builtin_data_len as i64
-                    - source_buffer_account.data().len() as i64;
-
             Self {
                 builtin_id: *builtin_id,
                 source_buffer_address: *source_buffer_address,
                 upgrade_authority_address,
                 elf,
+            }
+        }
+
+        // Given a bank, calculate the expected capitalization and accounts data
+        // size delta off-chain after the migration, using the values stored in
+        // the test context.
+        pub(crate) fn calculate_post_migration_capitalization_and_accounts_data_size_delta_off_chain(
+            &self,
+            bank: &Bank,
+        ) -> (u64, i64) {
+            let builtin_account = bank.get_account(&self.builtin_id).unwrap_or_default();
+            let source_buffer_account = bank.get_account(&self.source_buffer_address).unwrap();
+            let resulting_program_data_len = UpgradeableLoaderState::size_of_program();
+            let resulting_programdata_data_len =
+                UpgradeableLoaderState::size_of_programdata_metadata() + self.elf.len();
+            let expected_post_migration_capitalization = bank.capitalization()
+                - builtin_account.lamports()
+                - source_buffer_account.lamports()
+                + bank.get_minimum_balance_for_rent_exemption(resulting_program_data_len)
+                + bank.get_minimum_balance_for_rent_exemption(resulting_programdata_data_len);
+            let expected_post_migration_accounts_data_size_delta_off_chain =
+                bank.accounts_data_size_delta_off_chain.load(Relaxed)
+                    + resulting_program_data_len as i64
+                    + resulting_programdata_data_len as i64
+                    - builtin_account.data().len() as i64
+                    - source_buffer_account.data().len() as i64;
+            (
                 expected_post_migration_capitalization,
                 expected_post_migration_accounts_data_size_delta_off_chain,
-            }
+            )
         }
 
         // Evaluate the account state of the builtin and source post-migration.
         // Ensure the builtin program account is now a BPF upgradeable program,
         // the source buffer account has been cleared, and the bank's builtin
         // IDs and cache have been updated.
-        fn run_program_checks_post_migration(&self, bank: &Bank) {
+        pub(crate) fn run_program_checks_post_migration(&self, bank: &Bank, migration_slot: Slot) {
             // Verify the source buffer account has been cleared.
             assert!(bank.get_account(&self.source_buffer_address).is_none());
 
@@ -422,8 +427,8 @@ mod tests {
             assert_eq!(
                 program_data_account_state_metadata,
                 UpgradeableLoaderState::ProgramData {
-                    slot: bank.slot, // _Not_ the original deployment slot
-                    upgrade_authority_address: self.upgrade_authority_address  // Preserved
+                    slot: migration_slot,
+                    upgrade_authority_address: self.upgrade_authority_address // Preserved
                 },
             );
             assert_eq!(
@@ -451,24 +456,11 @@ mod tests {
 
             // The target program entry should be updated.
             assert_eq!(target_entry.account_size, program_data_account.data().len());
-            assert_eq!(target_entry.deployment_slot, bank.slot());
-            assert_eq!(target_entry.effective_slot, bank.slot() + 1);
-            assert_eq!(target_entry.latest_access_slot.load(Relaxed), bank.slot());
+            assert_eq!(target_entry.deployment_slot, migration_slot);
+            assert_eq!(target_entry.effective_slot, migration_slot + 1);
 
             // The target program entry should now be a BPF program.
             assert_matches!(target_entry.program, ProgramCacheEntryType::Loaded(..));
-
-            // Check the bank's capitalization.
-            assert_eq!(
-                bank.capitalization(),
-                self.expected_post_migration_capitalization
-            );
-
-            // Check the bank's accounts data size delta off-chain.
-            assert_eq!(
-                bank.accounts_data_size_delta_off_chain.load(Relaxed),
-                self.expected_post_migration_accounts_data_size_delta_off_chain
-            );
         }
     }
 
@@ -509,6 +501,12 @@ mod tests {
             ..
         } = test_context;
 
+        let (
+            expected_post_migration_capitalization,
+            expected_post_migration_accounts_data_size_delta_off_chain,
+        ) = test_context
+            .calculate_post_migration_capitalization_and_accounts_data_size_delta_off_chain(&bank);
+
         let core_bpf_migration_config = CoreBpfMigrationConfig {
             source_buffer_address,
             feature_id: Pubkey::new_unique(),
@@ -517,11 +515,24 @@ mod tests {
         };
 
         // Perform the migration.
+        let migration_slot = bank.slot();
         bank.migrate_builtin_to_core_bpf(&builtin_id, &core_bpf_migration_config)
             .unwrap();
 
         // Run the post-migration program checks.
-        test_context.run_program_checks_post_migration(&bank);
+        test_context.run_program_checks_post_migration(&bank, migration_slot);
+
+        // Check the bank's capitalization.
+        assert_eq!(
+            bank.capitalization(),
+            expected_post_migration_capitalization
+        );
+
+        // Check the bank's accounts data size delta off-chain.
+        assert_eq!(
+            bank.accounts_data_size_delta_off_chain.load(Relaxed),
+            expected_post_migration_accounts_data_size_delta_off_chain
+        );
     }
 
     #[test_case(Some(Pubkey::new_unique()); "with_upgrade_authority")]
@@ -548,6 +559,12 @@ mod tests {
         // assert the stateless builtin account doesn't exist.
         assert!(bank.get_account(&builtin_id).is_none());
 
+        let (
+            expected_post_migration_capitalization,
+            expected_post_migration_accounts_data_size_delta_off_chain,
+        ) = test_context
+            .calculate_post_migration_capitalization_and_accounts_data_size_delta_off_chain(&bank);
+
         let core_bpf_migration_config = CoreBpfMigrationConfig {
             source_buffer_address,
             feature_id: Pubkey::new_unique(),
@@ -556,10 +573,23 @@ mod tests {
         };
 
         // Perform the migration.
+        let migration_slot = bank.slot();
         bank.migrate_builtin_to_core_bpf(&builtin_id, &core_bpf_migration_config)
             .unwrap();
 
         // Run the post-migration program checks.
-        test_context.run_program_checks_post_migration(&bank);
+        test_context.run_program_checks_post_migration(&bank, migration_slot);
+
+        // Check the bank's capitalization.
+        assert_eq!(
+            bank.capitalization(),
+            expected_post_migration_capitalization
+        );
+
+        // Check the bank's accounts data size delta off-chain.
+        assert_eq!(
+            bank.accounts_data_size_delta_off_chain.load(Relaxed),
+            expected_post_migration_accounts_data_size_delta_off_chain
+        );
     }
 }
