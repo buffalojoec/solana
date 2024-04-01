@@ -295,7 +295,7 @@ impl Bank {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use {
         super::*,
         crate::bank::tests::create_simple_test_bank,
@@ -313,7 +313,7 @@ mod tests {
 
     const PROGRAM_DATA_OFFSET: usize = UpgradeableLoaderState::size_of_programdata_metadata();
 
-    struct TestContext {
+    pub(crate) struct TestContext {
         builtin_id: Pubkey,
         source_program_id: Pubkey,
         upgrade_authority_address: Option<Pubkey>,
@@ -322,13 +322,11 @@ mod tests {
     impl TestContext {
         // Initialize some test values and set up the source BPF upgradeable
         // program in the bank.
-        fn new(bank: &Bank) -> Self {
-            let builtin_id = Pubkey::new_unique();
-            let source_program_id = Pubkey::new_unique();
+        pub(crate) fn new(bank: &Bank, builtin_id: &Pubkey, source_program_id: &Pubkey) -> Self {
             let upgrade_authority_address = Some(Pubkey::new_unique());
             let elf = TEST_ELF.to_vec();
 
-            let source_program_data_address = get_program_data_address(&source_program_id);
+            let source_program_data_address = get_program_data_address(source_program_id);
 
             let source_program_account = {
                 let data = bincode::serialize(&UpgradeableLoaderState::Program {
@@ -363,7 +361,7 @@ mod tests {
             };
 
             bank.store_account_and_update_capitalization(
-                &source_program_id,
+                source_program_id,
                 &source_program_account,
             );
             bank.store_account_and_update_capitalization(
@@ -372,8 +370,8 @@ mod tests {
             );
 
             Self {
-                builtin_id,
-                source_program_id,
+                builtin_id: *builtin_id,
+                source_program_id: *source_program_id,
                 upgrade_authority_address,
                 elf,
             }
@@ -383,7 +381,7 @@ mod tests {
         // Ensure the builtin program account is now a BPF upgradeable program,
         // the source program account and data account have been cleared, and
         // the bank's builtin IDs and cache have been updated.
-        fn run_program_checks_post_migration(&self, bank: &Bank) {
+        pub(crate) fn run_program_checks_post_migration(&self, bank: &Bank, migration_slot: Slot) {
             // Verify both the source program account and source program data
             // account have been cleared.
             assert!(bank.get_account(&self.source_program_id).is_none());
@@ -420,8 +418,8 @@ mod tests {
             assert_eq!(
                 program_data_account_state_metadata,
                 UpgradeableLoaderState::ProgramData {
-                    slot: bank.slot, // _Not_ the original deployment slot
-                    upgrade_authority_address: self.upgrade_authority_address  // Preserved
+                    slot: migration_slot,
+                    upgrade_authority_address: self.upgrade_authority_address // Preserved
                 },
             );
             assert_eq!(
@@ -449,9 +447,12 @@ mod tests {
 
             // The target program entry should be updated.
             assert_eq!(target_entry.account_size, program_data_account.data().len());
-            assert_eq!(target_entry.deployment_slot, bank.slot());
-            assert_eq!(target_entry.effective_slot, bank.slot() + 1);
-            assert_eq!(target_entry.latest_access_slot.load(Relaxed), bank.slot());
+            assert_eq!(target_entry.deployment_slot, migration_slot);
+            assert_eq!(target_entry.effective_slot, migration_slot + 1);
+            assert_eq!(
+                target_entry.latest_access_slot.load(Relaxed),
+                migration_slot
+            );
 
             // The target program entry should now be a BPF program.
             assert_matches!(target_entry.program, LoadedProgramType::LegacyV1(..));
@@ -461,8 +462,10 @@ mod tests {
     #[test]
     fn test_migrate_builtin() {
         let mut bank = create_simple_test_bank(0);
+        let builtin_id = Pubkey::new_unique();
+        let source_program_id = Pubkey::new_unique();
 
-        let test_context = TestContext::new(&bank);
+        let test_context = TestContext::new(&bank, &builtin_id, &source_program_id);
 
         let TestContext {
             builtin_id,
@@ -500,11 +503,12 @@ mod tests {
             bank.accounts_data_size_delta_off_chain.load(Relaxed);
 
         // Perform the migration.
+        let migration_slot = bank.slot();
         bank.migrate_builtin_to_core_bpf(&builtin_id, &core_bpf_migration_config)
             .unwrap();
 
         // Run the post-migration program checks.
-        test_context.run_program_checks_post_migration(&bank);
+        test_context.run_program_checks_post_migration(&bank, migration_slot);
 
         // The bank's capitalization should reflect the burned lamports
         // from the replaced builtin program account.
@@ -525,8 +529,10 @@ mod tests {
     #[test]
     fn test_migrate_stateless_builtin() {
         let mut bank = create_simple_test_bank(0);
+        let builtin_id = Pubkey::new_unique();
+        let source_program_id = Pubkey::new_unique();
 
-        let test_context = TestContext::new(&bank);
+        let test_context = TestContext::new(&bank, &builtin_id, &source_program_id);
 
         let TestContext {
             builtin_id,
@@ -551,11 +557,12 @@ mod tests {
             bank.accounts_data_size_delta_off_chain.load(Relaxed);
 
         // Perform the migration.
+        let migration_slot = bank.slot();
         bank.migrate_builtin_to_core_bpf(&builtin_id, &core_bpf_migration_config)
             .unwrap();
 
         // Run the post-migration program checks.
-        test_context.run_program_checks_post_migration(&bank);
+        test_context.run_program_checks_post_migration(&bank, migration_slot);
 
         // The bank's capitalization should be exactly the same.
         assert_eq!(bank.capitalization(), bank_pre_migration_capitalization);
