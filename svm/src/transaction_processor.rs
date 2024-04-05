@@ -5,6 +5,9 @@ use {
         },
         account_overrides::AccountOverrides,
         message_processor::MessageProcessor,
+        program_loader::{
+            load_program_accounts, load_program_from_bytes, ProgramAccountLoadResult,
+        },
         transaction_account_state_info::TransactionAccountStateInfo,
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_processing_callback::TransactionProcessingCallback,
@@ -20,8 +23,7 @@ use {
         invoke_context::InvokeContext,
         loaded_programs::{
             ForkGraph, LoadProgramMetrics, LoadedProgram, LoadedProgramMatchCriteria,
-            LoadedProgramType, LoadedProgramsForTxBatch, ProgramCache, ProgramRuntimeEnvironment,
-            DELAY_VISIBILITY_SLOT_OFFSET,
+            LoadedProgramType, LoadedProgramsForTxBatch, ProgramCache,
         },
         log_collector::LogCollector,
         runtime_config::RuntimeConfig,
@@ -37,7 +39,7 @@ use {
         fee::FeeStructure,
         inner_instruction::{InnerInstruction, InnerInstructionsList},
         instruction::{CompiledInstruction, InstructionError, TRANSACTION_LEVEL_STACK_HEIGHT},
-        loader_v4::{self, LoaderV4State, LoaderV4Status},
+        loader_v4::{self, LoaderV4State},
         message::SanitizedMessage,
         native_loader,
         pubkey::Pubkey,
@@ -80,14 +82,6 @@ impl ExecutionRecordingConfig {
             enable_cpi_recording: option,
         }
     }
-}
-
-#[derive(Debug)]
-enum ProgramAccountLoadResult {
-    InvalidAccountData,
-    ProgramOfLoaderV1orV2(AccountSharedData),
-    ProgramOfLoaderV3(AccountSharedData, AccountSharedData, Slot),
-    ProgramOfLoaderV4(AccountSharedData, Slot),
 }
 
 #[derive(AbiExample)]
@@ -375,14 +369,16 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             ..LoadProgramMetrics::default()
         };
 
-        let mut loaded_program = match self.load_program_accounts(callbacks, pubkey)? {
-            ProgramAccountLoadResult::InvalidAccountData => Ok(LoadedProgram::new_tombstone(
+        let mut loaded_program = match load_program_accounts(callbacks, pubkey, environments) {
+            ProgramAccountLoadResult::AccountNotFound => Ok(LoadedProgram::new_tombstone(
                 self.slot,
                 LoadedProgramType::Closed,
             )),
 
+            ProgramAccountLoadResult::InvalidAccountData(env) => Err((self.slot, env)),
+
             ProgramAccountLoadResult::ProgramOfLoaderV1orV2(program_account) => {
-                Self::load_program_from_bytes(
+                load_program_from_bytes(
                     &mut load_program_metrics,
                     program_account.data(),
                     program_account.owner(),
@@ -403,7 +399,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 .get(UpgradeableLoaderState::size_of_programdata_metadata()..)
                 .ok_or(Box::new(InstructionError::InvalidAccountData).into())
                 .and_then(|programdata| {
-                    Self::load_program_from_bytes(
+                    load_program_from_bytes(
                         &mut load_program_metrics,
                         programdata,
                         program_account.owner(),
@@ -423,7 +419,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 .get(LoaderV4State::program_data_offset()..)
                 .ok_or(Box::new(InstructionError::InvalidAccountData).into())
                 .and_then(|elf_bytes| {
-                    Self::load_program_from_bytes(
+                    load_program_from_bytes(
                         &mut load_program_metrics,
                         elf_bytes,
                         &loader_v4::id(),
@@ -771,89 +767,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         }
     }
 
-    fn load_program_from_bytes(
-        load_program_metrics: &mut LoadProgramMetrics,
-        programdata: &[u8],
-        loader_key: &Pubkey,
-        account_size: usize,
-        deployment_slot: Slot,
-        program_runtime_environment: ProgramRuntimeEnvironment,
-        reloading: bool,
-    ) -> std::result::Result<LoadedProgram, Box<dyn std::error::Error>> {
-        if reloading {
-            // Safety: this is safe because the program is being reloaded in the cache.
-            unsafe {
-                LoadedProgram::reload(
-                    loader_key,
-                    program_runtime_environment.clone(),
-                    deployment_slot,
-                    deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
-                    programdata,
-                    account_size,
-                    load_program_metrics,
-                )
-            }
-        } else {
-            LoadedProgram::new(
-                loader_key,
-                program_runtime_environment.clone(),
-                deployment_slot,
-                deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
-                programdata,
-                account_size,
-                load_program_metrics,
-            )
-        }
-    }
-
-    fn load_program_accounts<CB: TransactionProcessingCallback>(
-        &self,
-        callbacks: &CB,
-        pubkey: &Pubkey,
-    ) -> Option<ProgramAccountLoadResult> {
-        let program_account = callbacks.get_account_shared_data(pubkey)?;
-
-        if loader_v4::check_id(program_account.owner()) {
-            return Some(
-                solana_loader_v4_program::get_state(program_account.data())
-                    .ok()
-                    .and_then(|state| {
-                        (!matches!(state.status, LoaderV4Status::Retracted)).then_some(state.slot)
-                    })
-                    .map(|slot| ProgramAccountLoadResult::ProgramOfLoaderV4(program_account, slot))
-                    .unwrap_or(ProgramAccountLoadResult::InvalidAccountData),
-            );
-        }
-
-        if !bpf_loader_upgradeable::check_id(program_account.owner()) {
-            return Some(ProgramAccountLoadResult::ProgramOfLoaderV1orV2(
-                program_account,
-            ));
-        }
-
-        if let Ok(UpgradeableLoaderState::Program {
-            programdata_address,
-        }) = program_account.state()
-        {
-            if let Some(programdata_account) =
-                callbacks.get_account_shared_data(&programdata_address)
-            {
-                if let Ok(UpgradeableLoaderState::ProgramData {
-                    slot,
-                    upgrade_authority_address: _,
-                }) = programdata_account.state()
-                {
-                    return Some(ProgramAccountLoadResult::ProgramOfLoaderV3(
-                        program_account,
-                        programdata_account,
-                        slot,
-                    ));
-                }
-            }
-        }
-        Some(ProgramAccountLoadResult::InvalidAccountData)
-    }
-
     /// Extract the InnerInstructionsList from a TransactionContext
     fn inner_instructions_list_from_instruction_trace(
         transaction_context: &TransactionContext,
@@ -932,16 +845,14 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 mod tests {
     use {
         super::*,
-        solana_program_runtime::{
-            loaded_programs::{BlockRelation, ProgramRuntimeEnvironments},
-            solana_rbpf::program::BuiltinProgram,
-        },
+        solana_program_runtime::loaded_programs::{BlockRelation, ProgramRuntimeEnvironments},
         solana_sdk::{
             account::{create_account_shared_data_for_test, WritableAccount},
             bpf_loader,
             feature_set::FeatureSet,
             fee_calculator::FeeCalculator,
             hash::Hash,
+            loader_v4::LoaderV4Status,
             message::{LegacyMessage, Message, MessageHeader},
             rent_collector::RentCollector,
             rent_debits::RentDebits,
@@ -1050,157 +961,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_load_program_accounts_account_not_found() {
-        let mut mock_bank = MockBankCallback::default();
-        let key = Pubkey::new_unique();
-        let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
-
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
-        assert!(result.is_none());
-
-        let mut account_data = AccountSharedData::default();
-        account_data.set_owner(bpf_loader_upgradeable::id());
-        let state = UpgradeableLoaderState::Program {
-            programdata_address: Pubkey::new_unique(),
-        };
-        account_data.set_data(bincode::serialize(&state).unwrap());
-        mock_bank
-            .account_shared_data
-            .insert(key, account_data.clone());
-
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
-        assert!(matches!(
-            result,
-            Some(ProgramAccountLoadResult::InvalidAccountData)
-        ));
-
-        account_data.set_data(Vec::new());
-        mock_bank.account_shared_data.insert(key, account_data);
-
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
-
-        assert!(matches!(
-            result,
-            Some(ProgramAccountLoadResult::InvalidAccountData)
-        ));
-    }
-
-    #[test]
-    fn test_load_program_accounts_loader_v4() {
-        let key = Pubkey::new_unique();
-        let mut mock_bank = MockBankCallback::default();
-        let mut account_data = AccountSharedData::default();
-        account_data.set_owner(loader_v4::id());
-        let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
-        mock_bank
-            .account_shared_data
-            .insert(key, account_data.clone());
-
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
-        assert!(matches!(
-            result,
-            Some(ProgramAccountLoadResult::InvalidAccountData)
-        ));
-
-        account_data.set_data(vec![0; 64]);
-        mock_bank
-            .account_shared_data
-            .insert(key, account_data.clone());
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
-        assert!(matches!(
-            result,
-            Some(ProgramAccountLoadResult::InvalidAccountData)
-        ));
-
-        let loader_data = LoaderV4State {
-            slot: 25,
-            authority_address: Pubkey::new_unique(),
-            status: LoaderV4Status::Deployed,
-        };
-        let encoded = unsafe {
-            std::mem::transmute::<&LoaderV4State, &[u8; LoaderV4State::program_data_offset()]>(
-                &loader_data,
-            )
-        };
-        account_data.set_data(encoded.to_vec());
-        mock_bank
-            .account_shared_data
-            .insert(key, account_data.clone());
-
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
-
-        match result {
-            Some(ProgramAccountLoadResult::ProgramOfLoaderV4(data, slot)) => {
-                assert_eq!(data, account_data);
-                assert_eq!(slot, 25);
-            }
-
-            _ => panic!("Invalid result"),
-        }
-    }
-
-    #[test]
-    fn test_load_program_accounts_loader_v1_or_v2() {
-        let key = Pubkey::new_unique();
-        let mut mock_bank = MockBankCallback::default();
-        let mut account_data = AccountSharedData::default();
-        account_data.set_owner(bpf_loader::id());
-        let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
-        mock_bank
-            .account_shared_data
-            .insert(key, account_data.clone());
-
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
-        match result {
-            Some(ProgramAccountLoadResult::ProgramOfLoaderV1orV2(data)) => {
-                assert_eq!(data, account_data);
-            }
-            _ => panic!("Invalid result"),
-        }
-    }
-
-    #[test]
-    fn test_load_program_accounts_success() {
-        let key1 = Pubkey::new_unique();
-        let key2 = Pubkey::new_unique();
-        let mut mock_bank = MockBankCallback::default();
-        let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
-
-        let mut account_data = AccountSharedData::default();
-        account_data.set_owner(bpf_loader_upgradeable::id());
-
-        let state = UpgradeableLoaderState::Program {
-            programdata_address: key2,
-        };
-        account_data.set_data(bincode::serialize(&state).unwrap());
-        mock_bank
-            .account_shared_data
-            .insert(key1, account_data.clone());
-
-        let state = UpgradeableLoaderState::ProgramData {
-            slot: 25,
-            upgrade_authority_address: None,
-        };
-        let mut account_data2 = AccountSharedData::default();
-        account_data2.set_data(bincode::serialize(&state).unwrap());
-        mock_bank
-            .account_shared_data
-            .insert(key2, account_data2.clone());
-
-        let result = batch_processor.load_program_accounts(&mock_bank, &key1);
-
-        match result {
-            Some(ProgramAccountLoadResult::ProgramOfLoaderV3(data1, data2, slot)) => {
-                assert_eq!(data1, account_data);
-                assert_eq!(data2, account_data2);
-                assert_eq!(slot, 25);
-            }
-
-            _ => panic!("Invalid result"),
-        }
-    }
-
     fn load_test_program() -> Vec<u8> {
         let mut dir = env::current_dir().unwrap();
         dir.push("tests");
@@ -1212,41 +972,6 @@ mod tests {
         let mut buffer = vec![0; metadata.len() as usize];
         file.read_exact(&mut buffer).expect("Buffer overflow");
         buffer
-    }
-
-    #[test]
-    fn test_load_program_from_bytes() {
-        let buffer = load_test_program();
-
-        let mut metrics = LoadProgramMetrics::default();
-        let loader = bpf_loader_upgradeable::id();
-        let size = buffer.len();
-        let slot = 2;
-        let environment = ProgramRuntimeEnvironment::new(BuiltinProgram::new_mock());
-
-        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_from_bytes(
-            &mut metrics,
-            &buffer,
-            &loader,
-            size,
-            slot,
-            environment.clone(),
-            false,
-        );
-
-        assert!(result.is_ok());
-
-        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_from_bytes(
-            &mut metrics,
-            &buffer,
-            &loader,
-            size,
-            slot,
-            environment,
-            true,
-        );
-
-        assert!(result.is_ok());
     }
 
     #[test]
@@ -1324,7 +1049,7 @@ mod tests {
         let result = batch_processor.load_program_with_pubkey(&mock_bank, &key, false, 20);
 
         let environments = ProgramRuntimeEnvironments::default();
-        let expected = TransactionBatchProcessor::<TestForkGraph>::load_program_from_bytes(
+        let expected = load_program_from_bytes(
             &mut LoadProgramMetrics::default(),
             account_data.data(),
             account_data.owner(),
@@ -1405,7 +1130,7 @@ mod tests {
             .set_data(data[UpgradeableLoaderState::size_of_programdata_metadata()..].to_vec());
 
         let environments = ProgramRuntimeEnvironments::default();
-        let expected = TransactionBatchProcessor::<TestForkGraph>::load_program_from_bytes(
+        let expected = load_program_from_bytes(
             &mut LoadProgramMetrics::default(),
             account_data.data(),
             account_data.owner(),
@@ -1477,7 +1202,7 @@ mod tests {
             .insert(key, account_data.clone());
 
         let environments = ProgramRuntimeEnvironments::default();
-        let expected = TransactionBatchProcessor::<TestForkGraph>::load_program_from_bytes(
+        let expected = load_program_from_bytes(
             &mut LoadProgramMetrics::default(),
             account_data.data(),
             account_data.owner(),
