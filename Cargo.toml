@@ -104,6 +104,7 @@ members = [
     "svm",
     "test-validator",
     "thin-client",
+    "timing",
     "tokens",
     "tpu-client",
     "transaction-dos",

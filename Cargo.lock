@@ -7380,6 +7380,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-timing"
+version = "2.0.0"
+
+[[package]]
 name = "solana-tokens"
 version = "2.0.0"
 dependencies = [
