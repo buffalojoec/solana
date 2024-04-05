@@ -36,9 +36,8 @@ use {
     solana_svm::{
         account_loader::TransactionCheckResult,
         transaction_error_metrics::TransactionErrorMetrics,
-        transaction_processor::{
-            ExecutionRecordingConfig, TransactionBatchProcessor, TransactionProcessingCallback,
-        },
+        transaction_processing_callback::TransactionProcessingCallback,
+        transaction_processor::{ExecutionRecordingConfig, TransactionBatchProcessor},
         transaction_results::TransactionExecutionResult,
     },
     std::{

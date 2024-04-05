@@ -6,7 +6,7 @@ use {
         pubkey::Pubkey,
         rent_collector::RentCollector,
     },
-    solana_svm::transaction_processor::TransactionProcessingCallback,
+    solana_svm::transaction_processing_callback::TransactionProcessingCallback,
     std::{collections::HashMap, sync::Arc},
 };
 
