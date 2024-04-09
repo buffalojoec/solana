@@ -182,7 +182,6 @@ declare_builtin_function!(
         )?;
 
         let sysvar_id = translate_type::<Pubkey>(memory_mapping, sysvar_id_addr, check_aligned)?;
-
         let var = translate_slice_mut::<u8>(memory_mapping, var_addr, length, check_aligned)?;
 
         let cache = invoke_context.get_sysvar_cache();

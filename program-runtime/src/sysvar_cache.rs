@@ -26,10 +26,7 @@ impl ::solana_frozen_abi::abi_example::AbiExample for SysvarCache {
 
 #[derive(Default, Clone, Debug)]
 pub struct SysvarCache {
-    // full account data as provided by bank, including any trailing zeroes
-    // the setters MUST NOT be changed to serialize an object representation
-    // it is required that the syscall be able to access the full buffer
-    // TODO enforce this in tests
+    // full account data as provided by bank, including any trailing zero bytes
     clock: Option<Vec<u8>>,
     epoch_schedule: Option<Vec<u8>>,
     epoch_rewards: Option<Vec<u8>>,
@@ -350,5 +347,41 @@ pub mod get_sysvar_with_account_check {
             instruction_account_index,
         )?;
         invoke_context.get_sysvar_cache().get_last_restart_slot()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {super::*, test_case::test_case};
+
+    // sysvar cache provides the full account data of a sysvar
+    // the setters MUST NOT be changed to serialize an object representation
+    // it is required that the syscall be able to access the full buffer as it exists onchain
+    #[test_case(Clock::default(); "clock")]
+    #[test_case(EpochSchedule::default(); "epoch_schedule")]
+    #[test_case(EpochRewards::default(); "epoch_rewards")]
+    #[test_case(Rent::default(); "rent")]
+    #[test_case(SlotHashes::default(); "slot_hashes")]
+    #[test_case(StakeHistory::default(); "stake_history")]
+    #[test_case(LastRestartSlot::default(); "last_restart_slot")]
+    fn test_sysvar_cache_preserves_bytes<T: Sysvar>(_: T) {
+        let id = T::id();
+        let size = T::size_of();
+        let in_buf = vec![0; size];
+        let mut out_buf = vec![0xff; size];
+
+        let mut sysvar_cache = SysvarCache::default();
+        sysvar_cache.fill_missing_entries(|pubkey, callback| {
+            if *pubkey == id {
+                callback(&in_buf)
+            }
+        });
+        let sysvar_cache = sysvar_cache;
+
+        sysvar_cache
+            .read_sysvar_into(&id, size, 0, &mut out_buf)
+            .unwrap();
+
+        assert_eq!(out_buf, in_buf);
     }
 }
