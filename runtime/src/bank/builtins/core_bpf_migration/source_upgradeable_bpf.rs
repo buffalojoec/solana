@@ -51,16 +51,18 @@ impl SourceUpgradeableBpf {
         }
 
         // The program data account should have the correct state.
-        let programdata_data_offset = UpgradeableLoaderState::size_of_programdata_metadata();
-        if self.program_data_account.data().len() < programdata_data_offset {
+        if self.program_data_account.data().len()
+            < UpgradeableLoaderState::size_of_programdata_metadata()
+        {
             return Err(CoreBpfMigrationError::InvalidProgramDataAccount(
                 self.program_data_address,
             ));
         }
         // Length checked in previous block.
-        match bincode::deserialize::<UpgradeableLoaderState>(
-            &self.program_data_account.data()[..programdata_data_offset],
-        )? {
+        match self
+            .program_data_account
+            .deserialize_data::<UpgradeableLoaderState>()?
+        {
             UpgradeableLoaderState::ProgramData { .. } => Ok(()),
             _ => Err(CoreBpfMigrationError::InvalidProgramDataAccount(
                 self.program_data_address,
@@ -225,6 +227,20 @@ mod tests {
             source_upgradeable_bpf.program_data_account,
             check_program_data_account
         );
+
+        // Try again will null upgrade authority.
+        store_account(
+            &bank,
+            &program_data_address,
+            &UpgradeableLoaderState::ProgramData {
+                slot: 0,
+                upgrade_authority_address: None,
+            },
+            Some(&[4u8; 200]),
+            false,
+            &BPF_LOADER_UPGRADEABLE_ID,
+        );
+        let _result = SourceUpgradeableBpf::new_checked(&bank, &program_id).unwrap();
     }
 
     #[test]

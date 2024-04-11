@@ -101,12 +101,11 @@ fn new_target_program_data_account(
     source: &SourceUpgradeableBpf,
     slot: Slot,
 ) -> Result<AccountSharedData, CoreBpfMigrationError> {
-    let programdata_data_offset = UpgradeableLoaderState::size_of_programdata_metadata();
     // Deserialize the program data metadata to get the upgrade authority.
     if let UpgradeableLoaderState::ProgramData {
         upgrade_authority_address,
         ..
-    } = bincode::deserialize(&source.program_data_account.data()[..programdata_data_offset])?
+    } = source.program_data_account.deserialize_data()?
     {
         let mut account = source.program_data_account.clone();
         // This account's data was just partially deserialized into
@@ -146,13 +145,26 @@ impl Bank {
         &self,
         builtin_program_id: &Pubkey,
         program_data_account: &AccountSharedData,
-    ) -> Result<(), InstructionError> {
-        let programdata_data_offset = UpgradeableLoaderState::size_of_programdata_metadata();
+    ) -> Result<(), CoreBpfMigrationError> {
         let data_len = program_data_account.data().len();
-        let elf = program_data_account
-            .data()
-            .get(programdata_data_offset..)
-            .ok_or(InstructionError::InvalidAccountData)?;
+        let elf = if let UpgradeableLoaderState::ProgramData {
+            slot,
+            upgrade_authority_address,
+        } = program_data_account.deserialize_data()?
+        {
+            let offset = bincode::serialized_size(&UpgradeableLoaderState::ProgramData {
+                slot,
+                upgrade_authority_address,
+            })? as usize;
+            println!("Deserializing ELF...");
+            program_data_account
+                .data()
+                .get(offset..)
+                .ok_or(InstructionError::InvalidAccountData)?
+        } else {
+            println!("Failed to deserialize account.");
+            return Err(InstructionError::InvalidAccountData.into());
+        };
 
         // Set up the two `LoadedProgramsForTxBatch` instances, as if
         // processing a new transaction batch.
@@ -306,12 +318,11 @@ pub(crate) mod tests {
             bpf_loader_upgradeable::{self, get_program_data_address},
             native_loader,
         },
+        test_case::test_case,
     };
 
     const TEST_ELF: &[u8] =
         include_bytes!("../../../../../programs/bpf_loader/test_elfs/out/noop_aligned.so");
-
-    const PROGRAM_DATA_OFFSET: usize = UpgradeableLoaderState::size_of_programdata_metadata();
 
     pub(crate) struct TestContext {
         builtin_id: Pubkey,
@@ -322,8 +333,12 @@ pub(crate) mod tests {
     impl TestContext {
         // Initialize some test values and set up the source BPF upgradeable
         // program in the bank.
-        pub(crate) fn new(bank: &Bank, builtin_id: &Pubkey, source_program_id: &Pubkey) -> Self {
-            let upgrade_authority_address = Some(Pubkey::new_unique());
+        pub(crate) fn new(
+            bank: &Bank,
+            builtin_id: &Pubkey,
+            source_program_id: &Pubkey,
+            upgrade_authority_address: Option<Pubkey>,
+        ) -> Self {
             let elf = TEST_ELF.to_vec();
 
             let source_program_data_address = get_program_data_address(source_program_id);
@@ -414,7 +429,7 @@ pub(crate) mod tests {
             // It should exactly match the original, including upgrade authority
             // and slot.
             let program_data_account_state_metadata: UpgradeableLoaderState =
-                bincode::deserialize(&program_data_account.data()[..PROGRAM_DATA_OFFSET]).unwrap();
+                program_data_account.deserialize_data().unwrap();
             assert_eq!(
                 program_data_account_state_metadata,
                 UpgradeableLoaderState::ProgramData {
@@ -422,10 +437,9 @@ pub(crate) mod tests {
                     upgrade_authority_address: self.upgrade_authority_address // Preserved
                 },
             );
-            assert_eq!(
-                &program_data_account.data()[PROGRAM_DATA_OFFSET..],
-                &self.elf,
-            );
+            let elf_offset =
+                bincode::serialized_size(&program_data_account_state_metadata).unwrap() as usize;
+            assert_eq!(&program_data_account.data()[elf_offset..], &self.elf);
 
             // The bank's builtins should no longer contain the builtin
             // program ID.
@@ -459,13 +473,19 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
-    fn test_migrate_builtin() {
+    #[test_case(Some(Pubkey::new_unique()) ; "With upgrade authority")]
+    #[test_case(None ; "Without upgrade authority")]
+    fn test_migrate_builtin(upgrade_authority_address: Option<Pubkey>) {
         let mut bank = create_simple_test_bank(0);
         let builtin_id = Pubkey::new_unique();
         let source_program_id = Pubkey::new_unique();
 
-        let test_context = TestContext::new(&bank, &builtin_id, &source_program_id);
+        let test_context = TestContext::new(
+            &bank,
+            &builtin_id,
+            &source_program_id,
+            upgrade_authority_address,
+        );
 
         let TestContext {
             builtin_id,
@@ -526,13 +546,19 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
-    fn test_migrate_stateless_builtin() {
+    #[test_case(Some(Pubkey::new_unique()) ; "With upgrade authority")]
+    #[test_case(None ; "Without upgrade authority")]
+    fn test_migrate_stateless_builtin(upgrade_authority_address: Option<Pubkey>) {
         let mut bank = create_simple_test_bank(0);
         let builtin_id = Pubkey::new_unique();
         let source_program_id = Pubkey::new_unique();
 
-        let test_context = TestContext::new(&bank, &builtin_id, &source_program_id);
+        let test_context = TestContext::new(
+            &bank,
+            &builtin_id,
+            &source_program_id,
+            upgrade_authority_address,
+        );
 
         let TestContext {
             builtin_id,

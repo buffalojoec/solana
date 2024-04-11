@@ -122,12 +122,18 @@ mod tests_core_bpf_migration {
         let (builtin_id, config) = prototype.deconstruct();
         let feature_id = &config.feature_id;
         let source_program_id = &config.source_program_id;
+        let upgrade_authority_address = Some(Pubkey::new_unique());
 
         let mut feature_set = FeatureSet::all_enabled();
         feature_set.inactive.insert(*feature_id);
         bank.feature_set = Arc::new(feature_set);
 
-        let test_context = TestContext::new(&bank, builtin_id, source_program_id);
+        let test_context = TestContext::new(
+            &bank,
+            builtin_id,
+            source_program_id,
+            upgrade_authority_address,
+        );
 
         // Simulate crossing an epoch boundary for a new bank.
         bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, false);
@@ -177,13 +183,19 @@ mod tests_core_bpf_migration {
         let (builtin_id, config) = test_prototype.deconstruct();
         let feature_id = &config.feature_id;
         let source_program_id = &config.source_program_id;
+        let upgrade_authority_address = Some(Pubkey::new_unique());
 
         let mut feature_set = FeatureSet::all_enabled();
         feature_set.inactive.insert(*feature_id);
         bank.feature_set = Arc::new(feature_set);
 
         // Unused but sets everything up.
-        let _test_context = TestContext::new(&bank, builtin_id, source_program_id);
+        let _test_context = TestContext::new(
+            &bank,
+            builtin_id,
+            source_program_id,
+            upgrade_authority_address,
+        );
 
         // Intentionally nuke the source program account to force the migration
         // to fail.
@@ -329,13 +341,19 @@ mod tests_core_bpf_migration {
         let (builtin_id, config) = test_prototype.deconstruct();
         let feature_id = &config.feature_id;
         let source_program_id = &config.source_program_id;
+        let upgrade_authority_address = Some(Pubkey::new_unique());
 
         let mut feature_set = FeatureSet::all_enabled();
         feature_set.inactive.insert(*feature_id);
         bank.feature_set = Arc::new(feature_set);
 
         // Set everything up for migration.
-        let test_context = TestContext::new(&bank, builtin_id, source_program_id);
+        let test_context = TestContext::new(
+            &bank,
+            builtin_id,
+            source_program_id,
+            upgrade_authority_address,
+        );
 
         // Activate the feature to perform the migration.
         let migration_slot = bank.slot();
