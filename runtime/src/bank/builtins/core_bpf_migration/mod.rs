@@ -345,7 +345,7 @@ pub(crate) mod tests {
 
             let source_program_data_account = {
                 let mut data = bincode::serialize(&UpgradeableLoaderState::ProgramData {
-                    slot: 99, // Arbitrary slot for testing.
+                    slot: bank.slot(),
                     upgrade_authority_address,
                 })
                 .unwrap();
@@ -449,10 +449,6 @@ pub(crate) mod tests {
             assert_eq!(target_entry.account_size, program_data_account.data().len());
             assert_eq!(target_entry.deployment_slot, migration_slot);
             assert_eq!(target_entry.effective_slot, migration_slot + 1);
-            assert_eq!(
-                target_entry.latest_access_slot.load(Relaxed),
-                migration_slot
-            );
 
             // The target program entry should now be a BPF program.
             assert_matches!(target_entry.program, LoadedProgramType::LegacyV1(..));

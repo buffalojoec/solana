@@ -3231,7 +3231,10 @@ fn new_from_parent(parent: Arc<Bank>) -> Bank {
     Bank::new_from_parent(parent, &collector_id, slot)
 }
 
-fn new_from_parent_with_fork_next_slot(parent: Arc<Bank>, fork: &RwLock<BankForks>) -> Arc<Bank> {
+pub(in crate::bank) fn new_from_parent_with_fork_next_slot(
+    parent: Arc<Bank>,
+    fork: &RwLock<BankForks>,
+) -> Arc<Bank> {
     let slot = parent.slot() + 1;
     new_bank_from_parent_with_bank_forks(fork, parent, &Pubkey::default(), slot)
 }
