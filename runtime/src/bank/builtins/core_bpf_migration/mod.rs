@@ -14,7 +14,6 @@ use {
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount, WritableAccount},
         bpf_loader_upgradeable::{self, UpgradeableLoaderState},
-        clock::Slot,
         hash::Hash,
         instruction::InstructionError,
         pubkey::Pubkey,
@@ -60,79 +59,80 @@ fn checked_add(a: usize, b: usize) -> Result<usize, CoreBpfMigrationError> {
         .ok_or(CoreBpfMigrationError::ArithmeticOverflow)
 }
 
-/// Create an `AccountSharedData` with data initialized to
-/// `UpgradeableLoaderState::Program` populated with the target's new data
-/// account address.
-///
-/// Note that the account's data is initialized manually, but the rest of the
-/// account's fields are inherited from the source program account, including
-/// the lamports.
-fn new_target_program_account(
-    target: &TargetBuiltin,
-    source: &SourceUpgradeableBpf,
-) -> Result<AccountSharedData, CoreBpfMigrationError> {
-    let state = UpgradeableLoaderState::Program {
-        programdata_address: target.program_data_address,
-    };
-    let data = bincode::serialize(&state)?;
-    // The source program account has the same state, so it should already have
-    // a sufficient lamports balance to cover rent for this state.
-    // Out of an abundance of caution, first ensure the source program
-    // account's data is the same length as the serialized state.
-    if source.program_account.data().len() != data.len() {
-        return Err(CoreBpfMigrationError::InvalidProgramAccount(
-            source.program_address,
-        ));
-    }
-    // Then copy the source account's contents and overwrite the data with the
-    // newly created target program account data.
-    let mut account = source.program_account.clone();
-    account.set_data_from_slice(&data);
-    Ok(account)
-}
-
-/// Create an `AccountSharedData` with data initialized to
-/// `UpgradeableLoaderState::ProgramData` populated with the current slot, as
-/// well as the source program data account's upgrade authority and ELF.
-///
-/// Note that the account's data is initialized manually, but the rest of the
-/// account's fields are inherited from the source program account, including
-/// the lamports.
-fn new_target_program_data_account(
-    source: &SourceUpgradeableBpf,
-    slot: Slot,
-) -> Result<AccountSharedData, CoreBpfMigrationError> {
-    let programdata_data_offset = UpgradeableLoaderState::size_of_programdata_metadata();
-    // Deserialize the program data metadata to get the upgrade authority.
-    if let UpgradeableLoaderState::ProgramData {
-        upgrade_authority_address,
-        ..
-    } = bincode::deserialize(&source.program_data_account.data()[..programdata_data_offset])?
-    {
-        let mut account = source.program_data_account.clone();
-        // This account's data was just partially deserialized into
-        // `UpgradeableLoaderState`, so it's guaranteed to have at least enough
-        // space for the same type to be serialized in.
-        // The ELF should remain untouched, since it follows the
-        // `UpgradeableLoaderState`.
-        //
-        // Serialize the new `UpgradeableLoaderState` with the bank's current
-        // slot and the deserialized upgrade authority.
-        bincode::serialize_into(
-            account.data_as_mut_slice(),
-            &UpgradeableLoaderState::ProgramData {
-                slot,
-                upgrade_authority_address,
-            },
-        )?;
-        return Ok(account);
-    }
-    Err(CoreBpfMigrationError::InvalidProgramDataAccount(
-        source.program_data_address,
-    ))
-}
-
 impl Bank {
+    /// Create an `AccountSharedData` with data initialized to
+    /// `UpgradeableLoaderState::Program` populated with the target's new data
+    /// account address.
+    ///
+    /// Note that the account's data is initialized manually, but the rest of the
+    /// account's fields are inherited from the source program account, including
+    /// the lamports.
+    fn new_target_program_account(
+        &self,
+        target: &TargetBuiltin,
+        source: &SourceUpgradeableBpf,
+    ) -> Result<AccountSharedData, CoreBpfMigrationError> {
+        let state = UpgradeableLoaderState::Program {
+            programdata_address: target.program_data_address,
+        };
+        let data = bincode::serialize(&state)?;
+        // The source program account has the same state, so it should already have
+        // a sufficient lamports balance to cover rent for this state.
+        // Out of an abundance of caution, first ensure the source program
+        // account's data is the same length as the serialized state.
+        if source.program_account.data().len() != data.len() {
+            return Err(CoreBpfMigrationError::InvalidProgramAccount(
+                source.program_address,
+            ));
+        }
+        // Then copy the source account's contents and overwrite the data with the
+        // newly created target program account data.
+        let mut account = source.program_account.clone();
+        account.set_data_from_slice(&data);
+        Ok(account)
+    }
+
+    /// Create an `AccountSharedData` with data initialized to
+    /// `UpgradeableLoaderState::ProgramData` populated with the current slot, as
+    /// well as the source program data account's upgrade authority and ELF.
+    ///
+    /// Note that the account's data is initialized manually, but the rest of the
+    /// account's fields are inherited from the source program account, including
+    /// the lamports.
+    fn new_target_program_data_account(
+        &self,
+        source: &SourceUpgradeableBpf,
+    ) -> Result<AccountSharedData, CoreBpfMigrationError> {
+        let programdata_data_offset = UpgradeableLoaderState::size_of_programdata_metadata();
+        // Deserialize the program data metadata to get the upgrade authority.
+        if let UpgradeableLoaderState::ProgramData {
+            upgrade_authority_address,
+            ..
+        } = bincode::deserialize(&source.program_data_account.data()[..programdata_data_offset])?
+        {
+            let mut account = source.program_data_account.clone();
+            // This account's data was just partially deserialized into
+            // `UpgradeableLoaderState`, so it's guaranteed to have at least enough
+            // space for the same type to be serialized in.
+            // The ELF should remain untouched, since it follows the
+            // `UpgradeableLoaderState`.
+            //
+            // Serialize the new `UpgradeableLoaderState` with the bank's current
+            // slot and the deserialized upgrade authority.
+            bincode::serialize_into(
+                account.data_as_mut_slice(),
+                &UpgradeableLoaderState::ProgramData {
+                    slot: self.slot,
+                    upgrade_authority_address,
+                },
+            )?;
+            return Ok(account);
+        }
+        Err(CoreBpfMigrationError::InvalidProgramDataAccount(
+            source.program_data_address,
+        ))
+    }
+
     /// In order to properly update the newly migrated Core BPF program in
     /// the program cache, the migration must directly invoke the BPF
     /// Upgradeable Loader's deployment functionality for validating the ELF
@@ -233,8 +233,8 @@ impl Bank {
         let source = SourceUpgradeableBpf::new_checked(self, &config.source_program_id)?;
 
         // Attempt serialization first before modifying the bank.
-        let new_target_program_account = new_target_program_account(&target, &source)?;
-        let new_target_program_data_account = new_target_program_data_account(&source, self.slot)?;
+        let new_target_program_account = self.new_target_program_account(&target, &source)?;
+        let new_target_program_data_account = self.new_target_program_data_account(&source)?;
 
         // Gather old and new account data sizes, for updating the bank's
         // accounts data size delta off-chain.
