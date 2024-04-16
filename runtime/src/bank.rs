@@ -882,6 +882,46 @@ pub struct CommitTransactionCounts {
 
 impl Bank {
     fn default_with_accounts(accounts: Accounts) -> Self {
+        #[cfg(not(feature = "dev-context-only-utils"))]
+        let feature_set = Arc::<FeatureSet>::default();
+        #[cfg(feature = "dev-context-only-utils")]
+        let feature_set = {
+            let mut feature_set = FeatureSet::default();
+            feature_set
+                .inactive
+                .insert(builtins::test_only::system_program::feature::id());
+            feature_set
+                .inactive
+                .insert(builtins::test_only::vote_program::feature::id());
+            feature_set
+                .inactive
+                .insert(builtins::test_only::stake_program::feature::id());
+            feature_set
+                .inactive
+                .insert(builtins::test_only::config_program::feature::id());
+            feature_set
+                .inactive
+                .insert(builtins::test_only::solana_bpf_loader_deprecated_program::feature::id());
+            feature_set
+                .inactive
+                .insert(builtins::test_only::solana_bpf_loader_program::feature::id());
+            feature_set
+                .inactive
+                .insert(builtins::test_only::solana_bpf_loader_upgradeable_program::feature::id());
+            feature_set
+                .inactive
+                .insert(builtins::test_only::compute_budget_program::feature::id());
+            feature_set
+                .inactive
+                .insert(builtins::test_only::address_lookup_table_program::feature::id());
+            feature_set
+                .inactive
+                .insert(builtins::test_only::zk_token_proof_program::feature::id());
+            feature_set
+                .inactive
+                .insert(builtins::test_only::feature_gate_program::feature::id());
+            Arc::new(feature_set)
+        };
         let mut bank = Self {
             skipped_rewrites: Mutex::default(),
             incremental_snapshot_persistence: None,
@@ -929,7 +969,7 @@ impl Bank {
             transaction_log_collector_config: Arc::<RwLock<TransactionLogCollectorConfig>>::default(
             ),
             transaction_log_collector: Arc::<RwLock<TransactionLogCollector>>::default(),
-            feature_set: Arc::<FeatureSet>::default(),
+            feature_set,
             reserved_account_keys: Arc::<ReservedAccountKeys>::default(),
             drop_callback: RwLock::new(OptionalDropCallback(None)),
             freeze_started: AtomicBool::default(),
