@@ -46,9 +46,9 @@ pub trait SyscallStubs: Sync + Send {
     fn sol_get_sysvar(
         &self,
         _sysvar_id_addr: *const u8,
-        _length: u64,
-        _offset: u64,
         _var_addr: *mut u8,
+        _offset: u64,
+        _length: u64,
     ) -> u64 {
         UNSUPPORTED_SYSVAR
     }
@@ -157,14 +157,14 @@ pub(crate) fn sol_invoke_signed(
 #[allow(dead_code)]
 pub(crate) fn sol_get_sysvar(
     sysvar_id_addr: *const u8,
-    length: u64,
-    offset: u64,
     var_addr: *mut u8,
+    offset: u64,
+    length: u64,
 ) -> u64 {
     SYSCALL_STUBS
         .read()
         .unwrap()
-        .sol_get_sysvar(sysvar_id_addr, length, offset, var_addr)
+        .sol_get_sysvar(sysvar_id_addr, var_addr, offset, length)
 }
 
 pub(crate) fn sol_get_clock_sysvar(var_addr: *mut u8) -> u64 {

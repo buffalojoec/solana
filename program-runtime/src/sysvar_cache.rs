@@ -357,6 +357,10 @@ mod tests {
     // sysvar cache provides the full account data of a sysvar
     // the setters MUST NOT be changed to serialize an object representation
     // it is required that the syscall be able to access the full buffer as it exists onchain
+    // this is meant to cover the cases:
+    // * account data is larger than struct sysvar
+    // * vector sysvar has fewer than its maximum entries
+    // if at any point the data is roundtripped through bincode, the vector will shrink
     #[test_case(Clock::default(); "clock")]
     #[test_case(EpochSchedule::default(); "epoch_schedule")]
     #[test_case(EpochRewards::default(); "epoch_rewards")]
@@ -366,7 +370,7 @@ mod tests {
     #[test_case(LastRestartSlot::default(); "last_restart_slot")]
     fn test_sysvar_cache_preserves_bytes<T: Sysvar>(_: T) {
         let id = T::id();
-        let size = T::size_of();
+        let size = T::size_of().saturating_mul(2);
         let in_buf = vec![0; size];
         let mut out_buf = vec![0xff; size];
 

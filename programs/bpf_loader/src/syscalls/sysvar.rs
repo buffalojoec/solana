@@ -166,19 +166,28 @@ declare_builtin_function!(
     fn rust(
         invoke_context: &mut InvokeContext,
         sysvar_id_addr: u64,
-        length: u64,
-        offset: u64,
         var_addr: u64,
+        offset: u64,
+        length: u64,
         _arg5: u64,
         memory_mapping: &mut MemoryMapping,
     ) -> Result<u64, Error> {
         let check_aligned = invoke_context.get_check_aligned();
+        let ComputeBudget {
+            sysvar_base_cost,
+            cpi_bytes_per_unit,
+            mem_op_base_cost,
+            ..
+        } = *invoke_context.get_compute_budget();
+
         consume_compute_meter(
             invoke_context,
-            invoke_context
-                .get_compute_budget()
-                .sysvar_base_cost
-                .saturating_add(length),
+            sysvar_base_cost
+                .saturating_add(32_u64.div_ceil(cpi_bytes_per_unit))
+                .saturating_add(std::cmp::max(
+                    length.div_ceil(cpi_bytes_per_unit),
+                    mem_op_base_cost,
+                )),
         )?;
 
         let sysvar_id = translate_type::<Pubkey>(memory_mapping, sysvar_id_addr, check_aligned)?;

@@ -3474,9 +3474,9 @@ mod tests {
             let result = SyscallGetSysvar::rust(
                 &mut invoke_context,
                 clock_id_va,
-                Clock::size_of() as u64,
-                0,
                 got_clock_buf_va,
+                0,
+                Clock::size_of() as u64,
                 0,
                 &mut memory_mapping,
             );
@@ -3544,9 +3544,9 @@ mod tests {
             let result = SyscallGetSysvar::rust(
                 &mut invoke_context,
                 epochschedule_id_va,
-                EpochSchedule::size_of() as u64,
-                0,
                 got_epochschedule_buf_va,
+                0,
+                EpochSchedule::size_of() as u64,
                 0,
                 &mut memory_mapping,
             );
@@ -3640,9 +3640,9 @@ mod tests {
             let result = SyscallGetSysvar::rust(
                 &mut invoke_context,
                 rent_id_va,
-                Rent::size_of() as u64,
-                0,
                 got_rent_buf_va,
+                0,
+                Rent::size_of() as u64,
                 0,
                 &mut memory_mapping,
             );
@@ -3704,9 +3704,9 @@ mod tests {
             let result = SyscallGetSysvar::rust(
                 &mut invoke_context,
                 rewards_id_va,
-                EpochRewards::size_of() as u64,
-                0,
                 got_rewards_buf_va,
+                0,
+                EpochRewards::size_of() as u64,
                 0,
                 &mut memory_mapping,
             );
@@ -3763,9 +3763,9 @@ mod tests {
             let result = SyscallGetSysvar::rust(
                 &mut invoke_context,
                 restart_id_va,
-                LastRestartSlot::size_of() as u64,
-                0,
                 got_restart_buf_va,
+                0,
+                LastRestartSlot::size_of() as u64,
                 0,
                 &mut memory_mapping,
             );
@@ -3838,9 +3838,9 @@ mod tests {
             let result = SyscallGetSysvar::rust(
                 &mut invoke_context,
                 history_id_va,
-                StakeHistory::size_of() as u64,
-                0,
                 got_history_buf_va,
+                0,
+                StakeHistory::size_of() as u64,
                 0,
                 &mut memory_mapping,
             );
@@ -3903,9 +3903,9 @@ mod tests {
             let result = SyscallGetSysvar::rust(
                 &mut invoke_context,
                 hashes_id_va,
-                SlotHashes::size_of() as u64,
-                0,
                 got_hashes_buf_va,
+                0,
+                SlotHashes::size_of() as u64,
                 0,
                 &mut memory_mapping,
             );
