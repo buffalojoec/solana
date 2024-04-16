@@ -38,8 +38,9 @@ pub(crate) enum CoreBpfMigrationTargetType {
 /// Configuration for migrating a built-in program to Core BPF.
 #[derive(Debug, PartialEq)]
 pub(crate) struct CoreBpfMigrationConfig {
-    /// The program ID of the source program to be used to replace the builtin.
-    pub source_program_id: Pubkey,
+    /// The address of the source buffer account to be used to replace the
+    /// builtin.
+    pub source_buffer_address: Pubkey,
     /// The feature gate to trigger the migration to Core BPF.
     /// Note: This feature gate should never be the same as any builtin's
     /// `enable_feature_id`. It should always be a feature gate that will be
@@ -230,7 +231,7 @@ impl Bank {
 
         let target =
             TargetBuiltin::new_checked(self, builtin_program_id, &config.migration_target)?;
-        let source = SourceUpgradeableBpf::new_checked(self, &config.source_program_id)?;
+        let source = SourceUpgradeableBpf::new_checked(self, &config.source_buffer_address)?;
 
         // Attempt serialization first before modifying the bank.
         let new_target_program_account = self.new_target_program_account(&target, &source)?;
@@ -316,7 +317,7 @@ mod tests {
 
     struct TestContext {
         builtin_id: Pubkey,
-        source_program_id: Pubkey,
+        source_buffer_address: Pubkey,
         upgrade_authority_address: Option<Pubkey>,
         elf: Vec<u8>,
     }
@@ -325,11 +326,11 @@ mod tests {
         // program in the bank.
         fn new(bank: &Bank) -> Self {
             let builtin_id = Pubkey::new_unique();
-            let source_program_id = Pubkey::new_unique();
+            let source_buffer_address = Pubkey::new_unique();
             let upgrade_authority_address = Some(Pubkey::new_unique());
             let elf = TEST_ELF.to_vec();
 
-            let source_program_data_address = get_program_data_address(&source_program_id);
+            let source_program_data_address = get_program_data_address(&source_buffer_address);
 
             let source_program_account = {
                 let data = bincode::serialize(&UpgradeableLoaderState::Program {
@@ -364,7 +365,7 @@ mod tests {
             };
 
             bank.store_account_and_update_capitalization(
-                &source_program_id,
+                &source_buffer_address,
                 &source_program_account,
             );
             bank.store_account_and_update_capitalization(
@@ -374,7 +375,7 @@ mod tests {
 
             Self {
                 builtin_id,
-                source_program_id,
+                source_buffer_address,
                 upgrade_authority_address,
                 elf,
             }
@@ -387,9 +388,9 @@ mod tests {
         fn run_program_checks_post_migration(&self, bank: &Bank) {
             // Verify both the source program account and source program data
             // account have been cleared.
-            assert!(bank.get_account(&self.source_program_id).is_none());
+            assert!(bank.get_account(&self.source_buffer_address).is_none());
             assert!(bank
-                .get_account(&get_program_data_address(&self.source_program_id))
+                .get_account(&get_program_data_address(&self.source_buffer_address))
                 .is_none());
 
             let program_account = bank.get_account(&self.builtin_id).unwrap();
@@ -467,7 +468,7 @@ mod tests {
 
         let TestContext {
             builtin_id,
-            source_program_id,
+            source_buffer_address,
             ..
         } = test_context;
 
@@ -489,7 +490,7 @@ mod tests {
         assert_eq!(&bank.get_account(&builtin_id).unwrap(), &builtin_account);
 
         let core_bpf_migration_config = CoreBpfMigrationConfig {
-            source_program_id,
+            source_buffer_address,
             feature_id: Pubkey::new_unique(),
             migration_target: CoreBpfMigrationTargetType::Builtin,
             datapoint_name: "test_migrate_builtin",
@@ -531,7 +532,7 @@ mod tests {
 
         let TestContext {
             builtin_id,
-            source_program_id,
+            source_buffer_address,
             ..
         } = test_context;
 
@@ -540,7 +541,7 @@ mod tests {
         assert!(bank.get_account(&builtin_id).is_none());
 
         let core_bpf_migration_config = CoreBpfMigrationConfig {
-            source_program_id,
+            source_buffer_address,
             feature_id: Pubkey::new_unique(),
             migration_target: CoreBpfMigrationTargetType::Stateless,
             datapoint_name: "test_migrate_stateless_builtin",
