@@ -48,7 +48,7 @@ impl SourceBuffer {
 #[cfg(test)]
 mod tests {
     use {
-        super::*,
+        super::{super::BUFFER_METADATA_SIZE, *},
         crate::bank::tests::create_simple_test_bank,
         assert_matches::assert_matches,
         solana_sdk::{account::WritableAccount, bpf_loader_upgradeable},
@@ -57,15 +57,14 @@ mod tests {
     fn serialize_buffer_account_data(authority_address: Option<Pubkey>, elf: &[u8]) -> Vec<u8> {
         // BPF Loader always writes ELF bytes after
         // `UpgradeableLoaderState::size_of_buffer_metadata()`.
-        let elf_offset = UpgradeableLoaderState::size_of_buffer_metadata();
-        let data_len = elf_offset + elf.len();
+        let data_len = BUFFER_METADATA_SIZE + elf.len();
         let mut data = vec![0u8; data_len];
         bincode::serialize_into(
-            &mut data[..elf_offset],
+            &mut data[..BUFFER_METADATA_SIZE],
             &UpgradeableLoaderState::Buffer { authority_address },
         )
         .unwrap();
-        data[elf_offset..].copy_from_slice(elf);
+        data[BUFFER_METADATA_SIZE..].copy_from_slice(elf);
         data
     }
 
@@ -115,20 +114,16 @@ mod tests {
 
         // Fail if the buffer account does not have the correct state.
         // This time, valid `UpgradeableLoaderState` but not a buffer account.
-        let data = {
-            let data_len = UpgradeableLoaderState::size_of_programdata_metadata();
-            let mut data = vec![0u8; data_len];
-            bincode::serialize_into(
-                &mut data,
-                &UpgradeableLoaderState::ProgramData {
-                    slot: 0,
-                    upgrade_authority_address: None,
-                },
-            )
-            .unwrap();
-            data
-        };
-        store_account(&bank, &buffer_address, &data, &bpf_loader_upgradeable::id());
+        store_account(
+            &bank,
+            &buffer_address,
+            &bincode::serialize(&UpgradeableLoaderState::ProgramData {
+                slot: 0,
+                upgrade_authority_address: None,
+            })
+            .unwrap(),
+            &bpf_loader_upgradeable::id(),
+        );
         assert_matches!(
             SourceBuffer::new_checked(&bank, &buffer_address).unwrap_err(),
             CoreBpfMigrationError::InvalidBufferAccount(..)
@@ -150,8 +145,7 @@ mod tests {
                 UpgradeableLoaderState::Buffer { authority_address },
             );
             assert_eq!(
-                &source_buffer.buffer_account.data()
-                    [UpgradeableLoaderState::size_of_buffer_metadata()..],
+                &source_buffer.buffer_account.data()[BUFFER_METADATA_SIZE..],
                 elf.as_slice()
             );
         };

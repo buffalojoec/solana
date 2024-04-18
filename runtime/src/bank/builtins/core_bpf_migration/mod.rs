@@ -65,7 +65,8 @@ fn checked_sub<T: CheckedSub>(a: T, b: T) -> Result<T, CoreBpfMigrationError> {
         .ok_or(CoreBpfMigrationError::ArithmeticOverflow)
 }
 
-const BUFFER_DATA_ELF_OFFSET: usize = UpgradeableLoaderState::size_of_buffer_metadata();
+const BUFFER_METADATA_SIZE: usize = UpgradeableLoaderState::size_of_buffer_metadata();
+const PROGRAMDATA_METADATA_SIZE: usize = UpgradeableLoaderState::size_of_programdata_metadata();
 
 impl Bank {
     /// Create an `AccountSharedData` with data initialized to
@@ -94,18 +95,22 @@ impl Bank {
         if let UpgradeableLoaderState::Buffer { authority_address } =
             bincode::deserialize(source.buffer_account.data())?
         {
-            let elf = &source.buffer_account.data()[BUFFER_DATA_ELF_OFFSET..];
+            let elf = &source.buffer_account.data()[BUFFER_METADATA_SIZE..];
 
-            let mut data = bincode::serialize(&UpgradeableLoaderState::ProgramData {
-                slot: self.slot,
-                upgrade_authority_address: authority_address,
-            })?;
-            data.extend_from_slice(elf);
-            let space = data.len();
+            let space = PROGRAMDATA_METADATA_SIZE + elf.len();
             let lamports = self.get_minimum_balance_for_rent_exemption(space);
+
             let mut account =
                 AccountSharedData::new(lamports, space, &bpf_loader_upgradeable::id());
-            account.data_as_mut_slice().copy_from_slice(&data);
+            let account_data = account.data_as_mut_slice();
+            bincode::serialize_into(
+                &mut account_data[..PROGRAMDATA_METADATA_SIZE],
+                &UpgradeableLoaderState::ProgramData {
+                    slot: self.slot,
+                    upgrade_authority_address: authority_address,
+                },
+            )?;
+            account_data[PROGRAMDATA_METADATA_SIZE..].copy_from_slice(elf);
 
             Ok(account)
         } else {
@@ -232,7 +237,7 @@ impl Bank {
         self.directly_invoke_loader_v3_deploy(
             &target.program_address,
             new_target_program_data_account.data().len(),
-            &source.buffer_account.data()[BUFFER_DATA_ELF_OFFSET..],
+            &source.buffer_account.data()[BUFFER_METADATA_SIZE..],
         )?;
 
         // Calculate the lamports to burn.
@@ -319,19 +324,19 @@ mod tests {
             let source_buffer_account = {
                 // BPF Loader always writes ELF bytes after
                 // `UpgradeableLoaderState::size_of_buffer_metadata()`.
-                let space = BUFFER_DATA_ELF_OFFSET + elf.len();
+                let space = BUFFER_METADATA_SIZE + elf.len();
                 let lamports = bank.get_minimum_balance_for_rent_exemption(space);
                 let owner = &bpf_loader_upgradeable::id();
 
                 let mut data = vec![0u8; space];
                 bincode::serialize_into(
-                    &mut data[..BUFFER_DATA_ELF_OFFSET],
+                    &mut data[..BUFFER_METADATA_SIZE],
                     &UpgradeableLoaderState::Buffer {
                         authority_address: upgrade_authority_address,
                     },
                 )
                 .unwrap();
-                data[BUFFER_DATA_ELF_OFFSET..].copy_from_slice(&elf);
+                data[BUFFER_METADATA_SIZE..].copy_from_slice(&elf);
 
                 let mut account = AccountSharedData::new(lamports, space, owner);
                 account.data_as_mut_slice().copy_from_slice(&data);
@@ -349,13 +354,7 @@ mod tests {
                 .unwrap_or((0, 0));
 
             let resulting_program_data_len = UpgradeableLoaderState::size_of_program();
-            let resulting_programdata_data_len =
-                bincode::serialized_size(&UpgradeableLoaderState::ProgramData {
-                    slot: 0, // Default value
-                    upgrade_authority_address,
-                })
-                .unwrap() as usize
-                    + elf.len();
+            let resulting_programdata_data_len = PROGRAMDATA_METADATA_SIZE + elf.len();
 
             let expected_post_migration_capitalization =
                 bank.capitalization() - builtin_lamports - source_buffer_account.lamports()
@@ -409,8 +408,9 @@ mod tests {
             assert_eq!(program_data_account.owner(), &bpf_loader_upgradeable::id());
 
             // Program data account has the correct state.
-            // It should exactly match the original, including upgrade authority
-            // and slot.
+            // It should have the same update authority and ELF as the source
+            // buffer account.
+            // The slot should be the slot it was migrated at.
             let program_data_account_state_metadata: UpgradeableLoaderState =
                 bincode::deserialize(program_data_account.data()).unwrap();
             assert_eq!(
@@ -420,10 +420,8 @@ mod tests {
                     upgrade_authority_address: self.upgrade_authority_address  // Preserved
                 },
             );
-            let program_data_offset =
-                bincode::serialized_size(&program_data_account_state_metadata).unwrap() as usize;
             assert_eq!(
-                &program_data_account.data()[program_data_offset..],
+                &program_data_account.data()[PROGRAMDATA_METADATA_SIZE..],
                 &self.elf,
             );
 
