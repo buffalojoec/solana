@@ -34,39 +34,29 @@ impl SourceBuffer {
         }
 
         // The buffer account should have the correct state.
-        let state: UpgradeableLoaderState = bincode::deserialize(buffer_account.data())?;
-        match state {
-            UpgradeableLoaderState::Buffer { .. } => Ok(Self {
-                buffer_address: *buffer_address,
-                buffer_account,
-            }),
-            _ => Err(CoreBpfMigrationError::InvalidBufferAccount(*buffer_address)),
+        let buffer_metadata_size = UpgradeableLoaderState::size_of_buffer_metadata();
+        if buffer_account.data().len() >= buffer_metadata_size {
+            if let UpgradeableLoaderState::Buffer { .. } =
+                bincode::deserialize(&buffer_account.data()[..buffer_metadata_size])?
+            {
+                return Ok(Self {
+                    buffer_address: *buffer_address,
+                    buffer_account,
+                });
+            }
         }
+        Err(CoreBpfMigrationError::InvalidBufferAccount(*buffer_address))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use {
-        super::{super::BUFFER_METADATA_SIZE, *},
+        super::*,
         crate::bank::tests::create_simple_test_bank,
         assert_matches::assert_matches,
         solana_sdk::{account::WritableAccount, bpf_loader_upgradeable},
     };
-
-    fn serialize_buffer_account_data(authority_address: Option<Pubkey>, elf: &[u8]) -> Vec<u8> {
-        // BPF Loader always writes ELF bytes after
-        // `UpgradeableLoaderState::size_of_buffer_metadata()`.
-        let data_len = BUFFER_METADATA_SIZE + elf.len();
-        let mut data = vec![0u8; data_len];
-        bincode::serialize_into(
-            &mut data[..BUFFER_METADATA_SIZE],
-            &UpgradeableLoaderState::Buffer { authority_address },
-        )
-        .unwrap();
-        data[BUFFER_METADATA_SIZE..].copy_from_slice(elf);
-        data
-    }
 
     fn store_account(bank: &Bank, address: &Pubkey, data: &[u8], owner: &Pubkey) {
         let space = data.len();
@@ -132,7 +122,17 @@ mod tests {
         // Success
         let elf = vec![4u8; 200];
         let test_success = |authority_address: Option<Pubkey>| {
-            let data = serialize_buffer_account_data(authority_address, &elf);
+            // BPF Loader always writes ELF bytes after
+            // `UpgradeableLoaderState::size_of_buffer_metadata()`.
+            let buffer_metadata_size = UpgradeableLoaderState::size_of_buffer_metadata();
+            let data_len = buffer_metadata_size + elf.len();
+            let mut data = vec![0u8; data_len];
+            bincode::serialize_into(
+                &mut data[..buffer_metadata_size],
+                &UpgradeableLoaderState::Buffer { authority_address },
+            )
+            .unwrap();
+            data[buffer_metadata_size..].copy_from_slice(&elf);
 
             store_account(&bank, &buffer_address, &data, &bpf_loader_upgradeable::id());
 
@@ -140,12 +140,14 @@ mod tests {
 
             assert_eq!(source_buffer.buffer_address, buffer_address);
             assert_eq!(
-                bincode::deserialize::<UpgradeableLoaderState>(source_buffer.buffer_account.data())
-                    .unwrap(),
+                bincode::deserialize::<UpgradeableLoaderState>(
+                    &source_buffer.buffer_account.data()[..buffer_metadata_size]
+                )
+                .unwrap(),
                 UpgradeableLoaderState::Buffer { authority_address },
             );
             assert_eq!(
-                &source_buffer.buffer_account.data()[BUFFER_METADATA_SIZE..],
+                &source_buffer.buffer_account.data()[buffer_metadata_size..],
                 elf.as_slice()
             );
         };
