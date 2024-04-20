@@ -3916,6 +3916,175 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_syscall_get_sysvar_errors() {
+        let config = Config::default();
+
+        let mut src_clock = create_filled_type::<Clock>(false);
+        src_clock.slot = 1;
+        src_clock.epoch_start_timestamp = 2;
+        src_clock.epoch = 3;
+        src_clock.leader_schedule_epoch = 4;
+        src_clock.unix_timestamp = 5;
+
+        let clock_id_va = 0x100000000;
+
+        let mut got_clock_buf_rw = vec![0; Clock::size_of()];
+        let got_clock_buf_rw_va = 0x200000000;
+
+        let got_clock_buf_ro = vec![0; Clock::size_of()];
+        let got_clock_buf_ro_va = 0x300000000;
+
+        let mut memory_mapping = MemoryMapping::new(
+            vec![
+                MemoryRegion::new_readonly(&Clock::id().to_bytes(), clock_id_va),
+                MemoryRegion::new_writable(&mut got_clock_buf_rw, got_clock_buf_rw_va),
+                MemoryRegion::new_readonly(&got_clock_buf_ro, got_clock_buf_ro_va),
+            ],
+            &config,
+            &SBPFVersion::V2,
+        )
+        .unwrap();
+
+        let access_violation_err =
+            std::mem::discriminant(&EbpfError::AccessViolation(AccessType::Load, 0, 0, ""));
+
+        let got_clock_empty = vec![0; Clock::size_of()];
+
+        {
+            // start without the clock sysvar because we expect to hit specific errors before loading it
+            with_mock_invoke_context!(invoke_context, transaction_context, vec![]);
+
+            // Abort: "Not all bytes in VM memory range `[sysvar_id, sysvar_id + 32)` are readable."
+            let e = SyscallGetSysvar::rust(
+                &mut invoke_context,
+                clock_id_va + 1,
+                got_clock_buf_rw_va,
+                0,
+                Clock::size_of() as u64,
+                0,
+                &mut memory_mapping,
+            )
+            .unwrap_err();
+
+            assert_eq!(
+                std::mem::discriminant(e.downcast_ref::<EbpfError>().unwrap()),
+                access_violation_err,
+            );
+            assert_eq!(got_clock_buf_rw, got_clock_empty);
+
+            // Abort: "Not all bytes in VM memory range `[var_addr, var_addr + length)` are writable."
+            let e = SyscallGetSysvar::rust(
+                &mut invoke_context,
+                clock_id_va,
+                got_clock_buf_rw_va + 1,
+                0,
+                Clock::size_of() as u64,
+                0,
+                &mut memory_mapping,
+            )
+            .unwrap_err();
+
+            assert_eq!(
+                std::mem::discriminant(e.downcast_ref::<EbpfError>().unwrap()),
+                access_violation_err,
+            );
+            assert_eq!(got_clock_buf_rw, got_clock_empty);
+
+            let e = SyscallGetSysvar::rust(
+                &mut invoke_context,
+                clock_id_va,
+                got_clock_buf_ro_va,
+                0,
+                Clock::size_of() as u64,
+                0,
+                &mut memory_mapping,
+            )
+            .unwrap_err();
+
+            assert_eq!(
+                std::mem::discriminant(e.downcast_ref::<EbpfError>().unwrap()),
+                access_violation_err,
+            );
+            assert_eq!(got_clock_buf_rw, got_clock_empty);
+
+            // Abort: "`offset + length` is not in `[0, 2^64)`."
+            let e = SyscallGetSysvar::rust(
+                &mut invoke_context,
+                clock_id_va,
+                got_clock_buf_rw_va,
+                u64::MAX - Clock::size_of() as u64 / 2,
+                Clock::size_of() as u64,
+                0,
+                &mut memory_mapping,
+            )
+            .unwrap_err();
+
+            assert_eq!(
+                *e.downcast_ref::<InstructionError>().unwrap(),
+                InstructionError::ArithmeticOverflow,
+            );
+            assert_eq!(got_clock_buf_rw, got_clock_empty);
+
+            // "`var_addr + length` is not in `[0, 2^64)`" is theoretically impossible to trigger
+            // because if the sum extended outside u64::MAX then it would not be writable and translate would fail
+
+            // "`2` if the sysvar data is not present in the Sysvar Cache."
+            let result = SyscallGetSysvar::rust(
+                &mut invoke_context,
+                clock_id_va,
+                got_clock_buf_rw_va,
+                0,
+                Clock::size_of() as u64,
+                0,
+                &mut memory_mapping,
+            )
+            .unwrap();
+
+            assert_eq!(result, 2);
+            assert_eq!(got_clock_buf_rw, got_clock_empty);
+        }
+
+        {
+            let transaction_accounts = vec![(
+                sysvar::clock::id(),
+                create_account_shared_data_for_test(&src_clock),
+            )];
+            with_mock_invoke_context!(invoke_context, transaction_context, transaction_accounts);
+
+            // "`1` if `offset + length` is greater than the length of the sysvar data."
+            let result = SyscallGetSysvar::rust(
+                &mut invoke_context,
+                clock_id_va,
+                got_clock_buf_rw_va,
+                1,
+                Clock::size_of() as u64,
+                0,
+                &mut memory_mapping,
+            )
+            .unwrap();
+
+            assert_eq!(result, 1);
+            assert_eq!(got_clock_buf_rw, got_clock_empty);
+
+            // and now lets succeed
+            SyscallGetSysvar::rust(
+                &mut invoke_context,
+                clock_id_va,
+                got_clock_buf_rw_va,
+                0,
+                Clock::size_of() as u64,
+                0,
+                &mut memory_mapping,
+            )
+            .unwrap();
+
+            let clock_from_buf = bincode::deserialize::<Clock>(&got_clock_buf_rw).unwrap();
+
+            assert_eq!(clock_from_buf, src_clock);
+        }
+    }
+
     type BuiltinFunctionRustInterface<'a> = fn(
         &mut InvokeContext<'a>,
         u64,
