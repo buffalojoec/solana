@@ -3386,23 +3386,6 @@ mod tests {
         let mut src_restart = create_filled_type::<LastRestartSlot>(false);
         src_restart.last_restart_slot = 1;
 
-        let mut sysvar_cache = SysvarCache::default();
-        sysvar_cache.fill_missing_entries(|pubkey, callback| {
-            if *pubkey == sysvar::clock::id() {
-                callback(&bincode::serialize(&src_clock.clone()).unwrap())
-            } else if *pubkey == sysvar::epoch_schedule::id() {
-                callback(&bincode::serialize(&src_epochschedule.clone()).unwrap())
-            } else if *pubkey == sysvar::fees::id() {
-                callback(&bincode::serialize(&src_fees.clone()).unwrap())
-            } else if *pubkey == sysvar::rent::id() {
-                callback(&bincode::serialize(&src_rent.clone()).unwrap())
-            } else if *pubkey == sysvar::epoch_rewards::id() {
-                callback(&bincode::serialize(&src_rewards.clone()).unwrap())
-            } else if *pubkey == sysvar::last_restart_slot::id() {
-                callback(&bincode::serialize(&src_restart.clone()).unwrap())
-            }
-        });
-
         let transaction_accounts = vec![
             (
                 sysvar::clock::id(),
@@ -3809,11 +3792,6 @@ mod tests {
         let src_history_ser = bincode::serialize(&src_history).unwrap();
         src_history_buf[..src_history_ser.len()].copy_from_slice(&src_history_ser[..]);
 
-        let mut sysvar_cache = SysvarCache::default();
-        sysvar_cache.fill_missing_entries(|_pubkey, callback| {
-            callback(&bincode::serialize(&src_history.clone()).unwrap())
-        });
-
         let transaction_accounts = vec![(
             sysvar::stake_history::id(),
             create_account_shared_data_for_test(&src_history),
@@ -3873,11 +3851,6 @@ mod tests {
         let mut src_hashes_buf = vec![0; SlotHashes::size_of()];
         let src_hashes_ser = bincode::serialize(&src_hashes).unwrap();
         src_hashes_buf[..src_hashes_ser.len()].copy_from_slice(&src_hashes_ser[..]);
-
-        let mut sysvar_cache = SysvarCache::default();
-        sysvar_cache.fill_missing_entries(|_pubkey, callback| {
-            callback(&bincode::serialize(&src_hashes.clone()).unwrap())
-        });
 
         let transaction_accounts = vec![(
             sysvar::slot_hashes::id(),
