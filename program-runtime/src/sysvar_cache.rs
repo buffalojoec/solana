@@ -49,7 +49,8 @@ pub struct SysvarCache {
 }
 
 impl SysvarCache {
-    fn sysvar_id_to_buffer(&self, sysvar_id: &Pubkey) -> &Option<Vec<u8>> {
+    // this is exposed for SyscallGetSysvar and should not otherwise be used
+    pub fn sysvar_id_to_buffer(&self, sysvar_id: &Pubkey) -> &Option<Vec<u8>> {
         if *sysvar_id == Clock::id() {
             &self.clock
         } else if *sysvar_id == EpochSchedule::id() {
@@ -66,42 +67,6 @@ impl SysvarCache {
             &self.last_restart_slot
         } else {
             &None
-        }
-    }
-
-    pub fn read_sysvar_into(
-        &self,
-        sysvar_id: &Pubkey,
-        length: usize,
-        offset: usize,
-        out_buf: &mut [u8],
-    ) -> Result<(), InstructionError> {
-        if let Some(ref sysvar_buf) = self.sysvar_id_to_buffer(sysvar_id) {
-            if length == 0 {
-                return Err(InstructionError::InvalidInstructionData);
-            }
-
-            match length.checked_add(offset) {
-                Some(limit) if limit <= sysvar_buf.len() => (),
-                _ => return Err(InstructionError::InvalidInstructionData),
-            }
-
-            if length != out_buf.len() {
-                return Err(InstructionError::InvalidInstructionData);
-            }
-
-            if let Some(sysvar_slice) = offset
-                .checked_add(length)
-                .and_then(|limit| sysvar_buf.get(offset..limit))
-            {
-                out_buf.copy_from_slice(sysvar_slice);
-            } else {
-                return Err(InstructionError::InvalidInstructionData);
-            }
-
-            Ok(())
-        } else {
-            Err(InstructionError::UnsupportedSysvar)
         }
     }
 
@@ -372,7 +337,6 @@ mod tests {
         let id = T::id();
         let size = T::size_of().saturating_mul(2);
         let in_buf = vec![0; size];
-        let mut out_buf = vec![0xff; size];
 
         let mut sysvar_cache = SysvarCache::default();
         sysvar_cache.fill_missing_entries(|pubkey, callback| {
@@ -382,9 +346,7 @@ mod tests {
         });
         let sysvar_cache = sysvar_cache;
 
-        sysvar_cache
-            .read_sysvar_into(&id, size, 0, &mut out_buf)
-            .unwrap();
+        let out_buf = sysvar_cache.sysvar_id_to_buffer(&id).clone().unwrap();
 
         assert_eq!(out_buf, in_buf);
     }
