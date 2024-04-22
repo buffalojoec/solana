@@ -6,7 +6,7 @@ use {
         confidential_transfer::*, confidential_transfer_fee::*, cpi_guard::*,
         default_account_state::*, group_member_pointer::*, group_pointer::*,
         interest_bearing_mint::*, memo_transfer::*, metadata_pointer::*, mint_close_authority::*,
-        permanent_delegate::*, reallocate::*, transfer_fee::*, transfer_hook::*,
+        permanent_delegate::*, reallocate::*, token_group::*, transfer_fee::*, transfer_hook::*,
     },
     serde_json::{json, Map, Value},
     solana_account_decoder::parse_token::{token_amount_to_ui_amount, UiAccountState},
@@ -22,6 +22,7 @@ use {
             pubkey::Pubkey,
         },
     },
+    spl_token_group_interface::instruction::TokenGroupInstruction,
 };
 
 mod extension;
@@ -682,6 +683,12 @@ pub fn parse_token(
                 )
             }
         }
+    } else if let Ok(token_group_instruction) = TokenGroupInstruction::unpack(&instruction.data) {
+        parse_token_group_instruction(
+            &token_group_instruction,
+            &instruction.accounts,
+            account_keys,
+        )
     } else {
         Err(ParseInstructionError::InstructionNotParsable(
             ParsableProgram::SplToken,
