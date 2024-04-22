@@ -13,5 +13,6 @@ pub(super) mod mint_close_authority;
 pub(super) mod permanent_delegate;
 pub(super) mod reallocate;
 pub(super) mod token_group;
+pub(super) mod token_metadata;
 pub(super) mod transfer_fee;
 pub(super) mod transfer_hook;

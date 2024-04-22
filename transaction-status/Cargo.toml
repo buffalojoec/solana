@@ -29,6 +29,7 @@ spl-memo = { workspace = true, features = ["no-entrypoint"] }
 spl-token = { workspace = true, features = ["no-entrypoint"] }
 spl-token-2022 = { workspace = true, features = ["no-entrypoint"] }
 spl-token-group-interface = { workspace = true }
+spl-token-metadata-interface = { workspace = true, features = ["serde-traits"] }
 thiserror = { workspace = true }
 
 [package.metadata.docs.rs]
