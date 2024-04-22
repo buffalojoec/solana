@@ -6480,6 +6480,8 @@ dependencies = [
  "spl-memo",
  "spl-token",
  "spl-token-2022",
+ "spl-token-group-interface",
+ "spl-token-metadata-interface",
  "thiserror",
 ]
 
@@ -6766,8 +6768,10 @@ version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85a5db7e4efb1107b0b8e52a13f035437cdcb36ef99c58f6d467f089d9b2915a"
 dependencies = [
+ "base64 0.21.7",
  "borsh 0.10.3",
  "bytemuck",
+ "serde",
  "solana-program",
  "solana-zk-token-sdk",
  "spl-program-error",
@@ -6871,6 +6875,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16aa8f64b6e0eaab3f5034e84d867c8435d8216497b4543a4978a31f4b6e8a8"
 dependencies = [
  "borsh 0.10.3",
+ "serde",
  "solana-program",
  "spl-discriminator",
  "spl-pod",
