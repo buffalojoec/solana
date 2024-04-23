@@ -187,7 +187,6 @@ pub struct InvokeContext<'a> {
     pub transaction_context: &'a mut TransactionContext,
     /// Information about the currently executing runtime.
     pub runtime_context: RuntimeContext<'a>,
-    sysvar_cache: &'a SysvarCache,
     log_collector: Option<Rc<RefCell<LogCollector>>>,
     compute_budget: ComputeBudget,
     current_compute_budget: ComputeBudget,
@@ -209,13 +208,9 @@ impl<'a> InvokeContext<'a> {
         programs_loaded_for_tx_batch: &'a ProgramCacheForTxBatch,
         programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     ) -> Self {
-        // Temporary
-        let sysvar_cache = runtime_context.sysvars;
-        //
         Self {
             transaction_context,
             runtime_context,
-            sysvar_cache,
             log_collector,
             current_compute_budget: compute_budget,
             compute_budget,
@@ -240,7 +235,7 @@ impl<'a> InvokeContext<'a> {
         &self,
         effective_slot: Slot,
     ) -> Result<&ProgramRuntimeEnvironments, InstructionError> {
-        let epoch_schedule = self.sysvar_cache.get_epoch_schedule()?;
+        let epoch_schedule = self.runtime_context.sysvars.get_epoch_schedule()?;
         let epoch = epoch_schedule.get_epoch(effective_slot);
         Ok(self
             .programs_loaded_for_tx_batch
@@ -601,7 +596,7 @@ impl<'a> InvokeContext<'a> {
 
     /// Get cached sysvars
     pub fn get_sysvar_cache(&self) -> &SysvarCache {
-        self.sysvar_cache
+        self.runtime_context.sysvars
     }
 
     // Should alignment be enforced during user pointer translation
