@@ -1,9 +1,21 @@
 use {
     super::*,
-    spl_token_metadata_interface::instruction::{
-        Emit, Initialize, RemoveKey, TokenMetadataInstruction, UpdateAuthority, UpdateField,
+    spl_token_metadata_interface::{
+        instruction::{
+            Emit, Initialize, RemoveKey, TokenMetadataInstruction, UpdateAuthority, UpdateField,
+        },
+        state::Field,
     },
 };
+
+fn token_metadata_field_to_string(field: &Field) -> String {
+    match field {
+        Field::Name => "name".to_string(),
+        Field::Symbol => "symbol".to_string(),
+        Field::Uri => "uri".to_string(),
+        Field::Key(key) => key.clone(),
+    }
+}
 
 pub(in crate::parse_token) fn parse_token_metadata_instruction(
     instruction: &TokenMetadataInstruction,
@@ -34,7 +46,7 @@ pub(in crate::parse_token) fn parse_token_metadata_instruction(
             let value = json!({
                 "metadata": account_keys[account_indexes[0] as usize].to_string(),
                 "updateAuthority": account_keys[account_indexes[1] as usize].to_string(),
-                "field": field,
+                "field": token_metadata_field_to_string(field),
                 "value": value,
             });
             Ok(ParsedInstructionEnum {
@@ -186,9 +198,7 @@ mod test {
                 info: json!({
                     "metadata": metadata.to_string(),
                     "updateAuthority": update_authority.to_string(),
-                    "field": {
-                        "key": "new_field",
-                    },
+                    "field": "new_field",
                     "value": "new_value",
                 })
             }
