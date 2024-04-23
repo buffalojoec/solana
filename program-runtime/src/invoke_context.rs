@@ -196,7 +196,6 @@ pub struct InvokeContext<'a> {
     pub programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     pub feature_set: Arc<FeatureSet>,
     pub timings: ExecuteDetailsTimings,
-    pub blockhash: Hash,
     pub lamports_per_signature: u64,
     pub syscall_context: Vec<Option<SyscallContext>>,
     traces: Vec<Vec<[u64; 12]>>,
@@ -213,7 +212,6 @@ impl<'a> InvokeContext<'a> {
         programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     ) -> Self {
         // Temporary
-        let blockhash = environment_config.blockhash;
         let feature_set = environment_config.feature_set.clone();
         let lamports_per_signature = environment_config.lamports_per_signature;
         let sysvar_cache = environment_config.sysvar_cache;
@@ -230,7 +228,6 @@ impl<'a> InvokeContext<'a> {
             programs_modified_by_tx,
             feature_set,
             timings: ExecuteDetailsTimings::default(),
-            blockhash,
             lamports_per_signature,
             syscall_context: Vec::new(),
             traces: Vec::new(),
