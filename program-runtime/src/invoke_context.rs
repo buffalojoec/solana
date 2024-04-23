@@ -100,12 +100,12 @@ impl<'a> ContextObject for InvokeContext<'a> {
     fn consume(&mut self, amount: u64) {
         // 1 to 1 instruction to compute unit mapping
         // ignore overflow, Ebpf will bail if exceeded
-        let mut compute_meter = self.compute_meter.borrow_mut();
+        let mut compute_meter = self.compute_meter.meter.borrow_mut();
         *compute_meter = compute_meter.saturating_sub(amount);
     }
 
     fn get_remaining(&self) -> u64 {
-        *self.compute_meter.borrow()
+        *self.compute_meter.meter.borrow()
     }
 }
 
@@ -141,6 +141,23 @@ impl BpfAllocator {
             Ok(addr)
         } else {
             Err(AllocErr)
+        }
+    }
+}
+
+pub struct ComputeMeter {
+    budget: ComputeBudget,
+    current_budget: ComputeBudget,
+    meter: RefCell<u64>,
+}
+impl ComputeMeter {
+    pub fn new(budget: ComputeBudget) -> Self {
+        let current_budget = budget;
+        let meter = RefCell::new(budget.compute_unit_limit);
+        Self {
+            budget,
+            current_budget,
+            meter,
         }
     }
 }
@@ -203,10 +220,9 @@ pub struct InvokeContext<'a> {
     pub runtime_context: RuntimeContext<'a>,
     /// Details about any provisioned VMs.
     pub vm_context: VmContext,
+    /// Program execution compute meter.
+    pub compute_meter: ComputeMeter,
     log_collector: Option<Rc<RefCell<LogCollector>>>,
-    compute_budget: ComputeBudget,
-    current_compute_budget: ComputeBudget,
-    compute_meter: RefCell<u64>,
     pub programs_loaded_for_tx_batch: &'a ProgramCacheForTxBatch,
     pub programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     pub timings: ExecuteDetailsTimings,
@@ -226,10 +242,8 @@ impl<'a> InvokeContext<'a> {
             transaction_context,
             runtime_context,
             vm_context: VmContext::new(),
+            compute_meter: ComputeMeter::new(compute_budget),
             log_collector,
-            current_compute_budget: compute_budget,
-            compute_budget,
-            compute_meter: RefCell::new(compute_budget.compute_unit_limit),
             programs_loaded_for_tx_batch,
             programs_modified_by_tx,
             timings: ExecuteDetailsTimings::default(),
@@ -270,7 +284,7 @@ impl<'a> InvokeContext<'a> {
             .get_instruction_context_stack_height()
             == 0
         {
-            self.current_compute_budget = self.compute_budget;
+            self.compute_meter.current_budget = self.compute_meter.budget;
         } else {
             let contains = (0..self
                 .transaction_context
@@ -586,7 +600,7 @@ impl<'a> InvokeContext<'a> {
 
     /// Consume compute units
     pub fn consume_checked(&self, amount: u64) -> Result<(), Box<dyn std::error::Error>> {
-        let mut compute_meter = self.compute_meter.borrow_mut();
+        let mut compute_meter = self.compute_meter.meter.borrow_mut();
         let exceeded = *compute_meter < amount;
         *compute_meter = compute_meter.saturating_sub(amount);
         if exceeded {
@@ -599,12 +613,12 @@ impl<'a> InvokeContext<'a> {
     ///
     /// Only use for tests and benchmarks
     pub fn mock_set_remaining(&self, remaining: u64) {
-        *self.compute_meter.borrow_mut() = remaining;
+        *self.compute_meter.meter.borrow_mut() = remaining;
     }
 
     /// Get this invocation's compute budget
     pub fn get_compute_budget(&self) -> &ComputeBudget {
-        &self.current_compute_budget
+        &self.compute_meter.current_budget
     }
 
     /// Get cached sysvars
@@ -1135,7 +1149,7 @@ mod tests {
             vec![(solana_sdk::pubkey::new_rand(), AccountSharedData::default())];
 
         with_mock_invoke_context!(invoke_context, transaction_context, transaction_accounts);
-        invoke_context.compute_budget = ComputeBudget::new(
+        invoke_context.compute_meter.budget = ComputeBudget::new(
             compute_budget_processor::DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT as u64,
         );
 
