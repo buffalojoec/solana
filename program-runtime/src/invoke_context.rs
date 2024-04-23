@@ -181,7 +181,6 @@ pub struct SerializedAccountMetadata {
     pub vm_owner_addr: u64,
 }
 
-#[allow(dead_code)]
 pub struct VmContext {
     pub syscall_context: Vec<Option<SyscallContext>>,
     traces: Vec<Vec<[u64; 12]>>,
@@ -211,7 +210,6 @@ pub struct InvokeContext<'a> {
     pub programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     pub timings: ExecuteDetailsTimings,
     pub syscall_context: Vec<Option<SyscallContext>>,
-    traces: Vec<Vec<[u64; 12]>>,
 }
 
 impl<'a> InvokeContext<'a> {
@@ -236,7 +234,6 @@ impl<'a> InvokeContext<'a> {
             programs_modified_by_tx,
             timings: ExecuteDetailsTimings::default(),
             syscall_context: Vec::new(),
-            traces: Vec::new(),
         }
     }
 
@@ -310,7 +307,7 @@ impl<'a> InvokeContext<'a> {
     /// Pop a stack frame from the invocation stack
     pub fn pop(&mut self) -> Result<(), InstructionError> {
         if let Some(Some(syscall_context)) = self.syscall_context.pop() {
-            self.traces.push(syscall_context.trace_log);
+            self.vm_context.traces.push(syscall_context.trace_log);
         }
         self.transaction_context.pop()
     }
@@ -660,7 +657,7 @@ impl<'a> InvokeContext<'a> {
 
     /// Return a references to traces
     pub fn get_traces(&self) -> &Vec<Vec<[u64; 12]>> {
-        &self.traces
+        &self.vm_context.traces
     }
 }
 
