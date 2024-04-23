@@ -58,11 +58,9 @@ use {
             VersionedTransaction,
         },
     },
-    solana_svm::{
-        transaction_processor::ExecutionRecordingConfig,
-        transaction_results::{
-            TransactionExecutionDetails, TransactionExecutionResult, TransactionResults,
-        },
+    solana_svm::transaction_processor::ExecutionRecordingConfig,
+    solana_svm_interface::results::{
+        TransactionExecutionDetails, TransactionExecutionResult, TransactionResults,
     },
     solana_transaction_status::token_balances::TransactionTokenBalancesSet,
     solana_vote::{vote_account::VoteAccountsHashMap, vote_sender_types::ReplayVoteSender},
@@ -2155,6 +2153,7 @@ pub mod tests {
             transaction::{Transaction, TransactionError},
         },
         solana_svm::transaction_processor::ExecutionRecordingConfig,
+        solana_svm_interface::results::TransactionResults,
         solana_vote::vote_account::VoteAccount,
         solana_vote_program::{
             self,

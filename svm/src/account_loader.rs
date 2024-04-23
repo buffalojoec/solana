@@ -28,25 +28,16 @@ use {
         saturating_add_assign,
         sysvar::{self, instructions::construct_instructions_data},
         transaction::{self, Result, SanitizedTransaction, TransactionError},
-        transaction_context::{IndexOfAccount, TransactionAccount},
+        transaction_context::IndexOfAccount,
+    },
+    solana_svm_interface::load_results::{
+        LoadedTransaction, TransactionLoadResult, TransactionRent,
     },
     solana_system_program::{get_system_account_kind, SystemAccountKind},
     std::num::NonZeroUsize,
 };
 
-// for the load instructions
-pub(crate) type TransactionRent = u64;
-pub(crate) type TransactionProgramIndices = Vec<Vec<IndexOfAccount>>;
 pub type TransactionCheckResult = (transaction::Result<()>, Option<NoncePartial>, Option<u64>);
-pub type TransactionLoadResult = (Result<LoadedTransaction>, Option<NonceFull>);
-
-#[derive(PartialEq, Eq, Debug, Clone)]
-pub struct LoadedTransaction {
-    pub accounts: Vec<TransactionAccount>,
-    pub program_indices: TransactionProgramIndices,
-    pub rent: TransactionRent,
-    pub rent_debits: RentDebits,
-}
 
 /// Check whether the payer_account is capable of paying the fee. The
 /// side effect is to subtract the fee amount from the payer_account

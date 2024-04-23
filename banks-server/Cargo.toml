@@ -19,6 +19,7 @@ solana-runtime = { workspace = true }
 solana-sdk = { workspace = true }
 solana-send-transaction-service = { workspace = true }
 solana-svm = { workspace = true }
+solana-svm-interface = { workspace = true }
 tarpc = { workspace = true, features = ["full"] }
 tokio = { workspace = true, features = ["full"] }
 tokio-serde = { workspace = true, features = ["bincode"] }

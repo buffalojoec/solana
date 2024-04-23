@@ -12,9 +12,9 @@ use {
         transaction_batch::TransactionBatch,
     },
     solana_sdk::{hash::Hash, pubkey::Pubkey, saturating_add_assign},
-    solana_svm::{
-        account_loader::TransactionLoadResult,
-        transaction_results::{TransactionExecutionResult, TransactionResults},
+    solana_svm_interface::{
+        load_results::TransactionLoadResult,
+        results::{TransactionExecutionResult, TransactionResults},
     },
     solana_transaction_status::{
         token_balances::TransactionTokenBalancesSet, TransactionTokenBalance,

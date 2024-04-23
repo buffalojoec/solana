@@ -21,6 +21,7 @@ solana-measure = { workspace = true }
 solana-metrics = { workspace = true }
 solana-program-runtime = { workspace = true }
 solana-sdk = { workspace = true }
+solana-svm-interface = { workspace = true }
 solana-system-program = { workspace = true }
 
 [lib]

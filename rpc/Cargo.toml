@@ -50,6 +50,7 @@ solana-stake-program = { workspace = true }
 solana-storage-bigtable = { workspace = true }
 solana-streamer = { workspace = true }
 solana-svm = { workspace = true }
+solana-svm-interface = { workspace = true }
 solana-tpu-client = { workspace = true }
 solana-transaction-status = { workspace = true }
 solana-version = { workspace = true }

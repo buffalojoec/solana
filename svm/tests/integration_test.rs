@@ -35,8 +35,13 @@ use {
         runtime_config::RuntimeConfig,
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_processing_callback::TransactionProcessingCallback,
-        transaction_processor::{ExecutionRecordingConfig, TransactionBatchProcessor},
-        transaction_results::TransactionExecutionResult,
+        transaction_processor::{
+            Context, ExecutionRecordingConfig, TransactionBatchProcessor,
+            TransactionProcessingCallback,
+        },
+    },
+    solana_svm_interface::{
+        results::TransactionExecutionResult, TransactionBatchProcessorInterface,
     },
     std::{
         cmp::Ordering,
@@ -454,17 +459,19 @@ fn svm_integration() {
     };
     let mut timings = ExecuteTimings::default();
 
-    let result = batch_processor.load_and_execute_sanitized_transactions(
-        &mock_bank,
-        &transactions,
-        check_results.as_mut_slice(),
-        &mut error_counter,
+    let batch_processor_context = Context {
+        callbacks: &mock_bank,
+        check_results: check_results.as_mut_slice(),
+        error_counters: &mut error_counter,
         recording_config,
-        &mut timings,
-        None,
-        None,
-        false,
-    );
+        timings: &mut timings,
+        account_overrides: None,
+        log_messages_bytes_limit: None,
+        limit_to_load_programs: false,
+    };
+
+    let result = batch_processor
+        .load_and_execute_sanitized_transactions(&transactions, batch_processor_context);
 
     assert_eq!(result.execution_results.len(), 5);
     assert!(result.execution_results[0]

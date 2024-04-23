@@ -6,7 +6,7 @@ use {
         blockstore::Blockstore,
         blockstore_processor::{TransactionStatusBatch, TransactionStatusMessage},
     },
-    solana_svm::transaction_results::{DurableNonceFee, TransactionExecutionDetails},
+    solana_svm_interface::results::{DurableNonceFee, TransactionExecutionDetails},
     solana_transaction_status::{
         extract_and_fmt_memos, map_inner_instructions, Reward, TransactionStatusMeta,
     },

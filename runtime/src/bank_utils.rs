@@ -8,7 +8,7 @@ use {
 };
 use {
     solana_sdk::transaction::SanitizedTransaction,
-    solana_svm::transaction_results::TransactionResults,
+    solana_svm_interface::results::TransactionResults,
     solana_vote::{vote_parser, vote_sender_types::ReplayVoteSender},
 };
 

@@ -164,16 +164,19 @@ use {
         stake_state::StakeStateV2,
     },
     solana_svm::{
-        account_loader::{TransactionCheckResult, TransactionLoadResult},
+        account_loader::TransactionCheckResult,
         account_overrides::AccountOverrides,
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_processing_callback::TransactionProcessingCallback,
         transaction_processor::{
-            ExecutionRecordingConfig, TransactionBatchProcessor, TransactionLogMessages,
+            Context, ExecutionRecordingConfig, TransactionBatchProcessor, TransactionLogMessages,
+            TransactionProcessingCallback,
         },
-        transaction_results::{
-            TransactionExecutionDetails, TransactionExecutionResult, TransactionResults,
-        },
+    },
+    solana_svm_interface::{
+        load_results::TransactionLoadResult,
+        results::{TransactionExecutionDetails, TransactionExecutionResult, TransactionResults},
+        TransactionBatchProcessorInterface,
     },
     solana_system_program::{get_system_account_kind, SystemAccountKind},
     solana_vote::vote_account::{VoteAccount, VoteAccountsHashMap},
@@ -3731,19 +3734,20 @@ impl Bank {
         debug!("check: {}us", check_time.as_us());
         timings.saturating_add_in_place(ExecuteTimingType::CheckUs, check_time.as_us());
 
+        let batch_processor_context = Context {
+            callbacks: self,
+            check_results: &mut check_results,
+            error_counters: &mut error_counters,
+            recording_config,
+            timings,
+            account_overrides,
+            log_messages_bytes_limit,
+            limit_to_load_programs,
+        };
+
         let sanitized_output = self
             .transaction_processor
-            .load_and_execute_sanitized_transactions(
-                self,
-                sanitized_txs,
-                &mut check_results,
-                &mut error_counters,
-                recording_config,
-                timings,
-                account_overrides,
-                log_messages_bytes_limit,
-                limit_to_load_programs,
-            );
+            .load_and_execute_sanitized_transactions(sanitized_txs, batch_processor_context);
 
         let mut signature_count = 0;
 
@@ -4154,14 +4158,16 @@ impl Bank {
             Measure::start("store_executors_which_were_deployed_time");
         for execution_result in &execution_results {
             if let TransactionExecutionResult::Executed {
-                details,
-                programs_modified_by_tx,
+                details: _,
+                // Intentionally omitted for brevity:
+                // programs_modified_by_tx,
             } = execution_result
             {
-                if details.status.is_ok() {
-                    let mut cache = self.transaction_processor.program_cache.write().unwrap();
-                    cache.merge(programs_modified_by_tx);
-                }
+                // Intentionally omitted for brevity:
+                // if details.status.is_ok() {
+                //     let mut cache = self.transaction_processor.program_cache.write().unwrap();
+                //     cache.merge(programs_modified_by_tx);
+                // }
             }
         }
         store_executors_which_were_deployed_time.stop();

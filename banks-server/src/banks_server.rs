@@ -29,7 +29,7 @@ use {
         send_transaction_service::{SendTransactionService, TransactionInfo},
         tpu_info::NullTpuInfo,
     },
-    solana_svm::transaction_results::TransactionExecutionResult,
+    solana_svm_interface::results::TransactionExecutionResult,
     std::{
         io,
         net::{Ipv4Addr, SocketAddr},

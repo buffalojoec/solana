@@ -26,15 +26,12 @@ use {
         transaction::{Result, SanitizedTransaction, TransactionAccountLocks, TransactionError},
         transaction_context::TransactionAccount,
     },
-    solana_svm::{
-        account_loader::TransactionLoadResult, transaction_results::TransactionExecutionResult,
+    solana_svm_interface::{
+        load_results::TransactionLoadResult, results::TransactionExecutionResult,
     },
     std::{
         cmp::Reverse,
-        collections::{
-            hash_map::{self},
-            BinaryHeap, HashMap, HashSet,
-        },
+        collections::{hash_map, BinaryHeap, HashMap, HashSet},
         ops::RangeBounds,
         sync::{
             atomic::{AtomicUsize, Ordering},
@@ -816,7 +813,6 @@ mod tests {
     use {
         super::*,
         assert_matches::assert_matches,
-        solana_program_runtime::loaded_programs::ProgramCacheForTxBatch,
         solana_sdk::{
             account::{AccountSharedData, WritableAccount},
             address_lookup_table::state::LookupTableMeta,
@@ -829,9 +825,9 @@ mod tests {
             system_instruction, system_program,
             transaction::{Transaction, MAX_TX_ACCOUNT_LOCKS},
         },
-        solana_svm::{
-            account_loader::LoadedTransaction,
-            transaction_results::{DurableNonceFee, TransactionExecutionDetails},
+        solana_svm_interface::{
+            load_results::LoadedTransaction,
+            results::{DurableNonceFee, TransactionExecutionDetails},
         },
         std::{
             borrow::Cow,
@@ -867,7 +863,8 @@ mod tests {
                 executed_units: 0,
                 accounts_data_len_delta: 0,
             },
-            programs_modified_by_tx: Box::<ProgramCacheForTxBatch>::default(),
+            // Intentionally omitted for brevity:
+            // programs_modified_by_tx: Box::<ProgramCacheForTxBatch>::default(),
         }
     }
 
