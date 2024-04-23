@@ -148,6 +148,7 @@ mod tests {
         solana_program_runtime::{
             compute_budget::ComputeBudget,
             declare_process_instruction,
+            invoke_context::EnvironmentConfig,
             loaded_programs::{ProgramCacheEntry, ProgramCacheForTxBatch},
             sysvar_cache::SysvarCache,
         },
@@ -272,16 +273,19 @@ mod tests {
         ));
         let sysvar_cache = SysvarCache::default();
         let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
+        let environment_config = EnvironmentConfig::new(
+            Hash::default(),
+            Arc::new(FeatureSet::all_enabled()),
+            0,
+            &sysvar_cache,
+        );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &sysvar_cache,
+            environment_config,
             None,
             ComputeBudget::default(),
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
-            Arc::new(FeatureSet::all_enabled()),
-            Hash::default(),
-            0,
         );
         let result = MessageProcessor::process_message(
             &message,
@@ -323,16 +327,19 @@ mod tests {
             ]),
         ));
         let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
+        let environment_config = EnvironmentConfig::new(
+            Hash::default(),
+            Arc::new(FeatureSet::all_enabled()),
+            0,
+            &sysvar_cache,
+        );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &sysvar_cache,
+            environment_config,
             None,
             ComputeBudget::default(),
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
-            Arc::new(FeatureSet::all_enabled()),
-            Hash::default(),
-            0,
         );
         let result = MessageProcessor::process_message(
             &message,
@@ -364,16 +371,19 @@ mod tests {
             ]),
         ));
         let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
+        let environment_config = EnvironmentConfig::new(
+            Hash::default(),
+            Arc::new(FeatureSet::all_enabled()),
+            0,
+            &sysvar_cache,
+        );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &sysvar_cache,
+            environment_config,
             None,
             ComputeBudget::default(),
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
-            Arc::new(FeatureSet::all_enabled()),
-            Hash::default(),
-            0,
         );
         let result = MessageProcessor::process_message(
             &message,
@@ -496,16 +506,19 @@ mod tests {
         ));
         let sysvar_cache = SysvarCache::default();
         let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
+        let environment_config = EnvironmentConfig::new(
+            Hash::default(),
+            Arc::new(FeatureSet::all_enabled()),
+            0,
+            &sysvar_cache,
+        );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &sysvar_cache,
+            environment_config,
             None,
             ComputeBudget::default(),
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
-            Arc::new(FeatureSet::all_enabled()),
-            Hash::default(),
-            0,
         );
         let result = MessageProcessor::process_message(
             &message,
@@ -532,16 +545,19 @@ mod tests {
             Some(transaction_context.get_key_of_account_at_index(0).unwrap()),
         ));
         let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
+        let environment_config = EnvironmentConfig::new(
+            Hash::default(),
+            Arc::new(FeatureSet::all_enabled()),
+            0,
+            &sysvar_cache,
+        );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &sysvar_cache,
+            environment_config,
             None,
             ComputeBudget::default(),
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
-            Arc::new(FeatureSet::all_enabled()),
-            Hash::default(),
-            0,
         );
         let result = MessageProcessor::process_message(
             &message,
@@ -565,16 +581,19 @@ mod tests {
             Some(transaction_context.get_key_of_account_at_index(0).unwrap()),
         ));
         let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
+        let environment_config = EnvironmentConfig::new(
+            Hash::default(),
+            Arc::new(FeatureSet::all_enabled()),
+            0,
+            &sysvar_cache,
+        );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &sysvar_cache,
+            environment_config,
             None,
             ComputeBudget::default(),
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
-            Arc::new(FeatureSet::all_enabled()),
-            Hash::default(),
-            0,
         );
         let result = MessageProcessor::process_message(
             &message,
@@ -659,16 +678,19 @@ mod tests {
             Arc::new(ProgramCacheEntry::new_builtin(0, 0, MockBuiltin::vm)),
         );
         let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
+        let environment_config = EnvironmentConfig::new(
+            Hash::default(),
+            Arc::new(FeatureSet::all_enabled()),
+            0,
+            &sysvar_cache,
+        );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &sysvar_cache,
+            environment_config,
             None,
             ComputeBudget::default(),
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
-            Arc::new(FeatureSet::all_enabled()),
-            Hash::default(),
-            0,
         );
         let result = MessageProcessor::process_message(
             &message,
