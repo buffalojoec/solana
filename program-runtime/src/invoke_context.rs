@@ -87,7 +87,8 @@ macro_rules! declare_process_instruction {
 
 impl<'a> ContextObject for InvokeContext<'a> {
     fn trace(&mut self, state: [u64; 12]) {
-        self.syscall_context
+        self.vm_context
+            .syscall_context
             .last_mut()
             .unwrap()
             .as_mut()
@@ -209,7 +210,6 @@ pub struct InvokeContext<'a> {
     pub programs_loaded_for_tx_batch: &'a ProgramCacheForTxBatch,
     pub programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     pub timings: ExecuteDetailsTimings,
-    pub syscall_context: Vec<Option<SyscallContext>>,
 }
 
 impl<'a> InvokeContext<'a> {
@@ -233,7 +233,6 @@ impl<'a> InvokeContext<'a> {
             programs_loaded_for_tx_batch,
             programs_modified_by_tx,
             timings: ExecuteDetailsTimings::default(),
-            syscall_context: Vec::new(),
         }
     }
 
@@ -300,13 +299,13 @@ impl<'a> InvokeContext<'a> {
             }
         }
 
-        self.syscall_context.push(None);
+        self.vm_context.syscall_context.push(None);
         self.transaction_context.push()
     }
 
     /// Pop a stack frame from the invocation stack
     pub fn pop(&mut self) -> Result<(), InstructionError> {
-        if let Some(Some(syscall_context)) = self.syscall_context.pop() {
+        if let Some(Some(syscall_context)) = self.vm_context.syscall_context.pop() {
             self.vm_context.traces.push(syscall_context.trace_log);
         }
         self.transaction_context.pop()
@@ -633,6 +632,7 @@ impl<'a> InvokeContext<'a> {
         syscall_context: SyscallContext,
     ) -> Result<(), InstructionError> {
         *self
+            .vm_context
             .syscall_context
             .last_mut()
             .ok_or(InstructionError::CallDepth)? = Some(syscall_context);
@@ -641,7 +641,8 @@ impl<'a> InvokeContext<'a> {
 
     // Get this instruction's SyscallContext
     pub fn get_syscall_context(&self) -> Result<&SyscallContext, InstructionError> {
-        self.syscall_context
+        self.vm_context
+            .syscall_context
             .last()
             .and_then(std::option::Option::as_ref)
             .ok_or(InstructionError::CallDepth)
@@ -649,7 +650,8 @@ impl<'a> InvokeContext<'a> {
 
     // Get this instruction's SyscallContext
     pub fn get_syscall_context_mut(&mut self) -> Result<&mut SyscallContext, InstructionError> {
-        self.syscall_context
+        self.vm_context
+            .syscall_context
             .last_mut()
             .and_then(|syscall_context| syscall_context.as_mut())
             .ok_or(InstructionError::CallDepth)

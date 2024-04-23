@@ -572,7 +572,9 @@ pub fn program(ledger_path: &Path, matches: &ArgMatches<'_>) {
     let duration = Instant::now() - start_time;
     if matches.occurrences_of("trace") > 0 {
         // top level trace is stored in syscall_context
-        if let Some(Some(syscall_context)) = vm.context_object_pointer.syscall_context.last() {
+        if let Some(Some(syscall_context)) =
+            vm.context_object_pointer.vm_context.syscall_context.last()
+        {
             let trace = syscall_context.trace_log.as_slice();
             output_trace(matches, trace, 0, &mut analysis);
         }
