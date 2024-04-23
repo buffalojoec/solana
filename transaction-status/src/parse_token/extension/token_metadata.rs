@@ -59,14 +59,11 @@ pub(in crate::parse_token) fn parse_token_metadata_instruction(
         TokenMetadataInstruction::UpdateAuthority(update) => {
             check_num_token_accounts(account_indexes, 2)?;
             let UpdateAuthority { new_authority } = update;
-            let mut value = json!({
+            let value = json!({
                 "metadata": account_keys[account_indexes[0] as usize].to_string(),
                 "updateAuthority": account_keys[account_indexes[1] as usize].to_string(),
+                "newAuthority": Option::<Pubkey>::from(*new_authority).map(|v| v.to_string()),
             });
-            let map = value.as_object_mut().unwrap();
-            if let Some(new_authority) = Option::<Pubkey>::from(*new_authority) {
-                map.insert("newAuthority".to_string(), json!(new_authority.to_string()));
-            }
             Ok(ParsedInstructionEnum {
                 instruction_type: "updateTokenMetadataAuthority".to_string(),
                 info: value,
@@ -225,6 +222,7 @@ mod test {
         );
 
         // UpdateAuthority
+        // Update authority to a new authority.
         let new_authority = Pubkey::new_unique();
         let ix = spl_token_metadata_interface::instruction::update_authority(
             &spl_token_2022::id(),
@@ -246,6 +244,30 @@ mod test {
                     "metadata": metadata.to_string(),
                     "updateAuthority": update_authority.to_string(),
                     "newAuthority": new_authority.to_string(),
+                })
+            }
+        );
+        // Update authority to None.
+        let ix = spl_token_metadata_interface::instruction::update_authority(
+            &spl_token_2022::id(),
+            &metadata,
+            &update_authority,
+            Option::<Pubkey>::None.try_into().unwrap(),
+        );
+        let mut message = Message::new(&[ix], None);
+        let compiled_instruction = &mut message.instructions[0];
+        assert_eq!(
+            parse_token(
+                compiled_instruction,
+                &AccountKeys::new(&message.account_keys, None)
+            )
+            .unwrap(),
+            ParsedInstructionEnum {
+                instruction_type: "updateTokenMetadataAuthority".to_string(),
+                info: json!({
+                    "metadata": metadata.to_string(),
+                    "updateAuthority": update_authority.to_string(),
+                    "newAuthority": null,
                 })
             }
         );
