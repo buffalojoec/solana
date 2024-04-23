@@ -51,6 +51,7 @@ where
     // if instruction data is exactly 5 bytes, then read proof from an account
     let context_data = if instruction_data.len() == INSTRUCTION_DATA_LENGTH_WITH_PROOF_ACCOUNT {
         if !invoke_context
+            .runtime_context
             .feature_set
             .is_active(&feature_set::enable_zk_proof_from_account::id())
         {
@@ -184,6 +185,7 @@ fn process_close_proof_context(invoke_context: &mut InvokeContext) -> Result<(),
 
 declare_process_instruction!(Entrypoint, 0, |invoke_context| {
     let enable_zk_transfer_with_fee = invoke_context
+        .runtime_context
         .feature_set
         .is_active(&feature_set::enable_zk_transfer_with_fee::id());
 

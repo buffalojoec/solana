@@ -194,7 +194,6 @@ pub struct InvokeContext<'a> {
     compute_meter: RefCell<u64>,
     pub programs_loaded_for_tx_batch: &'a ProgramCacheForTxBatch,
     pub programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
-    pub feature_set: Arc<FeatureSet>,
     pub timings: ExecuteDetailsTimings,
     pub syscall_context: Vec<Option<SyscallContext>>,
     traces: Vec<Vec<[u64; 12]>>,
@@ -211,7 +210,6 @@ impl<'a> InvokeContext<'a> {
         programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     ) -> Self {
         // Temporary
-        let feature_set = runtime_context.feature_set.clone();
         let sysvar_cache = runtime_context.sysvars;
         //
         Self {
@@ -224,7 +222,6 @@ impl<'a> InvokeContext<'a> {
             compute_meter: RefCell::new(compute_budget.compute_unit_limit),
             programs_loaded_for_tx_batch,
             programs_modified_by_tx,
-            feature_set,
             timings: ExecuteDetailsTimings::default(),
             syscall_context: Vec::new(),
             traces: Vec::new(),

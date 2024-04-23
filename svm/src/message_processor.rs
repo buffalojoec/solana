@@ -47,8 +47,9 @@ impl MessageProcessor {
             .zip(program_indices.iter())
             .enumerate()
         {
-            let is_precompile =
-                is_precompile(program_id, |id| invoke_context.feature_set.is_active(id));
+            let is_precompile = is_precompile(program_id, |id| {
+                invoke_context.runtime_context.feature_set.is_active(id)
+            });
 
             // Fixup the special instructions key if present
             // before the account pre-values are taken care of

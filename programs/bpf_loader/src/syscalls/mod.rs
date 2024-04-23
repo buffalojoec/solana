@@ -1141,6 +1141,7 @@ declare_builtin_function!(
         };
 
         let restrict_msm_length = invoke_context
+            .runtime_context
             .feature_set
             .is_active(&feature_set::curve25519_restrict_msm_length::id());
         #[allow(clippy::collapsible_if)]
@@ -1574,6 +1575,7 @@ declare_builtin_function!(
         };
 
         let simplify_alt_bn128_syscall_error_codes = invoke_context
+            .runtime_context
             .feature_set
             .is_active(&feature_set::simplify_alt_bn128_syscall_error_codes::id());
 
@@ -1732,6 +1734,7 @@ declare_builtin_function!(
             .collect::<Result<Vec<_>, Error>>()?;
 
         let simplify_alt_bn128_syscall_error_codes = invoke_context
+            .runtime_context
             .feature_set
             .is_active(&feature_set::simplify_alt_bn128_syscall_error_codes::id());
 
@@ -1827,6 +1830,7 @@ declare_builtin_function!(
         )?;
 
         let simplify_alt_bn128_syscall_error_codes = invoke_context
+            .runtime_context
             .feature_set
             .is_active(&feature_set::simplify_alt_bn128_syscall_error_codes::id());
 
@@ -2445,7 +2449,7 @@ mod tests {
         // many small unaligned allocs
         {
             prepare_mockup!(invoke_context, program_id, bpf_loader::id());
-            invoke_context.feature_set = Arc::new(FeatureSet::default());
+            invoke_context.runtime_context.feature_set = Arc::new(FeatureSet::default());
             mock_create_vm!(vm, Vec::new(), Vec::new(), &mut invoke_context);
             let mut vm = vm.unwrap();
             let invoke_context = &mut vm.context_object_pointer;
