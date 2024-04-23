@@ -3789,8 +3789,7 @@ mod tests {
         let src_history = src_history;
 
         let mut src_history_buf = vec![0; StakeHistory::size_of()];
-        let src_history_ser = bincode::serialize(&src_history).unwrap();
-        src_history_buf[..src_history_ser.len()].copy_from_slice(&src_history_ser[..]);
+        bincode::serialize_into(&mut src_history_buf, &src_history).unwrap();
 
         let transaction_accounts = vec![(
             sysvar::stake_history::id(),
@@ -3849,8 +3848,7 @@ mod tests {
         let src_hashes = src_hashes;
 
         let mut src_hashes_buf = vec![0; SlotHashes::size_of()];
-        let src_hashes_ser = bincode::serialize(&src_hashes).unwrap();
-        src_hashes_buf[..src_hashes_ser.len()].copy_from_slice(&src_hashes_ser[..]);
+        bincode::serialize_into(&mut src_hashes_buf, &src_hashes).unwrap();
 
         let transaction_accounts = vec![(
             sysvar::slot_hashes::id(),
