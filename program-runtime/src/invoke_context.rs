@@ -181,12 +181,28 @@ pub struct SerializedAccountMetadata {
     pub vm_owner_addr: u64,
 }
 
+#[allow(dead_code)]
+pub struct VmContext {
+    pub syscall_context: Vec<Option<SyscallContext>>,
+    traces: Vec<Vec<[u64; 12]>>,
+}
+impl VmContext {
+    fn new() -> Self {
+        Self {
+            syscall_context: Vec::new(),
+            traces: Vec::new(),
+        }
+    }
+}
+
 /// Main pipeline from runtime to program execution.
 pub struct InvokeContext<'a> {
     /// Information about the currently executing transaction.
     pub transaction_context: &'a mut TransactionContext,
     /// Information about the currently executing runtime.
     pub runtime_context: RuntimeContext<'a>,
+    /// Details about any provisioned VMs.
+    pub vm_context: VmContext,
     log_collector: Option<Rc<RefCell<LogCollector>>>,
     compute_budget: ComputeBudget,
     current_compute_budget: ComputeBudget,
@@ -211,6 +227,7 @@ impl<'a> InvokeContext<'a> {
         Self {
             transaction_context,
             runtime_context,
+            vm_context: VmContext::new(),
             log_collector,
             current_compute_budget: compute_budget,
             compute_budget,
