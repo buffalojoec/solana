@@ -1578,7 +1578,7 @@ mod tests {
             Ok(()),
             Entrypoint::vm,
             |invoke_context: &mut InvokeContext| {
-                invoke_context.blockhash = hash(&serialize(&0).unwrap());
+                invoke_context.runtime_context.blockhash = hash(&serialize(&0).unwrap());
             },
             |_invoke_context| {},
         );
@@ -1925,7 +1925,7 @@ mod tests {
             Err(SystemError::NonceNoRecentBlockhashes.into()),
             Entrypoint::vm,
             |invoke_context: &mut InvokeContext| {
-                invoke_context.blockhash = hash(&serialize(&0).unwrap());
+                invoke_context.runtime_context.blockhash = hash(&serialize(&0).unwrap());
             },
             |_invoke_context| {},
         );
