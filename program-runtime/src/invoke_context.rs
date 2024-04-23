@@ -162,6 +162,19 @@ impl ComputeMeter {
     }
 }
 
+pub struct ExecutionRecording {
+    log_collector: Option<Rc<RefCell<LogCollector>>>,
+    pub timings: ExecuteDetailsTimings,
+}
+impl ExecutionRecording {
+    pub fn new(log_collector: Option<Rc<RefCell<LogCollector>>>) -> Self {
+        Self {
+            log_collector,
+            timings: ExecuteDetailsTimings::default(),
+        }
+    }
+}
+
 pub struct RuntimeContext<'a> {
     pub blockhash: Hash,
     pub feature_set: Arc<FeatureSet>,
@@ -222,10 +235,10 @@ pub struct InvokeContext<'a> {
     pub vm_context: VmContext,
     /// Program execution compute meter.
     pub compute_meter: ComputeMeter,
-    log_collector: Option<Rc<RefCell<LogCollector>>>,
+    /// Program execution recording.
+    pub recording: ExecutionRecording,
     pub programs_loaded_for_tx_batch: &'a ProgramCacheForTxBatch,
     pub programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
-    pub timings: ExecuteDetailsTimings,
 }
 
 impl<'a> InvokeContext<'a> {
@@ -233,8 +246,8 @@ impl<'a> InvokeContext<'a> {
     pub fn new(
         transaction_context: &'a mut TransactionContext,
         runtime_context: RuntimeContext<'a>,
-        log_collector: Option<Rc<RefCell<LogCollector>>>,
         compute_budget: ComputeBudget,
+        log_collector: Option<Rc<RefCell<LogCollector>>>,
         programs_loaded_for_tx_batch: &'a ProgramCacheForTxBatch,
         programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     ) -> Self {
@@ -243,10 +256,9 @@ impl<'a> InvokeContext<'a> {
             runtime_context,
             vm_context: VmContext::new(),
             compute_meter: ComputeMeter::new(compute_budget),
-            log_collector,
+            recording: ExecutionRecording::new(log_collector),
             programs_loaded_for_tx_batch,
             programs_modified_by_tx,
-            timings: ExecuteDetailsTimings::default(),
         }
     }
 
@@ -595,7 +607,7 @@ impl<'a> InvokeContext<'a> {
 
     /// Get this invocation's LogCollector
     pub fn get_log_collector(&self) -> Option<Rc<RefCell<LogCollector>>> {
-        self.log_collector.clone()
+        self.recording.log_collector.clone()
     }
 
     /// Consume compute units
@@ -734,8 +746,8 @@ macro_rules! with_mock_invoke_context {
         let mut $invoke_context = InvokeContext::new(
             &mut $transaction_context,
             runtime_context,
-            Some(LogCollector::new_ref()),
             compute_budget,
+            Some(LogCollector::new_ref()),
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
         );

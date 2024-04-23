@@ -164,7 +164,7 @@ macro_rules! deploy_program {
         }
         $drop
         load_program_metrics.program_id = $program_id.to_string();
-        load_program_metrics.submit_datapoint(&mut $invoke_context.timings);
+        load_program_metrics.submit_datapoint(&mut $invoke_context.recording.timings);
         $invoke_context.programs_modified_by_tx.replenish($program_id, Arc::new(executor));
     }};
 }
@@ -445,7 +445,7 @@ pub fn process_instruction_inner(
     drop(program_account);
     get_or_create_executor_time.stop();
     saturating_add_assign!(
-        invoke_context.timings.get_or_create_executor_us,
+        invoke_context.recording.timings.get_or_create_executor_us,
         get_or_create_executor_time.as_us()
     );
 
@@ -1487,7 +1487,7 @@ fn execute<'a, 'b: 'a>(
     deserialize_time.stop();
 
     // Update the timings
-    let timings = &mut invoke_context.timings;
+    let timings = &mut invoke_context.recording.timings;
     timings.serialize_us = timings.serialize_us.saturating_add(serialize_time.as_us());
     timings.create_vm_us = timings.create_vm_us.saturating_add(create_vm_time.as_us());
     timings.execute_us = timings.execute_us.saturating_add(execute_time.as_us());

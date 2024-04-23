@@ -124,8 +124,10 @@ impl MessageProcessor {
                     compute_units_consumed,
                     result.is_err(),
                 );
-                invoke_context.timings = {
-                    timings.details.accumulate(&invoke_context.timings);
+                invoke_context.recording.timings = {
+                    timings
+                        .details
+                        .accumulate(&invoke_context.recording.timings);
                     ExecuteDetailsTimings::default()
                 };
                 saturating_add_assign!(
@@ -283,8 +285,8 @@ mod tests {
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
             runtime_context,
-            None,
             ComputeBudget::default(),
+            None,
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
         );
@@ -337,8 +339,8 @@ mod tests {
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
             runtime_context,
-            None,
             ComputeBudget::default(),
+            None,
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
         );
@@ -381,8 +383,8 @@ mod tests {
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
             runtime_context,
-            None,
             ComputeBudget::default(),
+            None,
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
         );
@@ -516,8 +518,8 @@ mod tests {
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
             runtime_context,
-            None,
             ComputeBudget::default(),
+            None,
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
         );
@@ -555,8 +557,8 @@ mod tests {
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
             runtime_context,
-            None,
             ComputeBudget::default(),
+            None,
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
         );
@@ -591,8 +593,8 @@ mod tests {
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
             runtime_context,
-            None,
             ComputeBudget::default(),
+            None,
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
         );
@@ -688,8 +690,8 @@ mod tests {
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
             runtime_context,
-            None,
             ComputeBudget::default(),
+            None,
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
         );

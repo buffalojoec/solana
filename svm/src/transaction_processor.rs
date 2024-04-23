@@ -692,8 +692,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 lamports_per_signature,
                 sysvar_cache,
             ),
-            log_collector.clone(),
             compute_budget,
+            log_collector.clone(),
             programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
         );

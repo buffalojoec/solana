@@ -176,7 +176,7 @@ fn execute<'a, 'b: 'a>(
     );
     execute_time.stop();
 
-    let timings = &mut invoke_context.timings;
+    let timings = &mut invoke_context.recording.timings;
     timings.create_vm_us = timings.create_vm_us.saturating_add(create_vm_time.as_us());
     timings.execute_us = timings.execute_us.saturating_add(execute_time.as_us());
 
@@ -431,7 +431,7 @@ pub fn process_instruction_deploy(
         ic_logger_msg!(log_collector, "{}", err);
         InstructionError::InvalidAccountData
     })?;
-    load_program_metrics.submit_datapoint(&mut invoke_context.timings);
+    load_program_metrics.submit_datapoint(&mut invoke_context.recording.timings);
     if let Some(mut source_program) = source_program {
         let rent = invoke_context.get_sysvar_cache().get_rent()?;
         let required_lamports = rent.minimum_balance(source_program.get_data().len());
@@ -595,7 +595,7 @@ pub fn process_instruction_inner(
             })?;
         get_or_create_executor_time.stop();
         saturating_add_assign!(
-            invoke_context.timings.get_or_create_executor_us,
+            invoke_context.recording.timings.get_or_create_executor_us,
             get_or_create_executor_time.as_us()
         );
         drop(program);
