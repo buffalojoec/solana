@@ -795,9 +795,11 @@ pub mod deprecate_unused_legacy_vote_plumbing {
 
 pub mod reward_full_priority_fee {
     solana_sdk::declare_id!("3opE3EzAKnUftUDURkzMgwpNgimBAypW1mNDYH4x4Zg7");
+}
 
 pub mod get_sysvar_syscall_enabled {
     solana_sdk::declare_id!("CLCoTADvV64PSrnR6QXty6Fwrt9Xc6EdxSJE4wLRePjq");
+}
 
 lazy_static! {
     /// Map of feature identifiers to user-visible description
