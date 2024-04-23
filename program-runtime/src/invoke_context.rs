@@ -144,6 +144,28 @@ impl BpfAllocator {
     }
 }
 
+pub struct RuntimeContext<'a> {
+    pub blockhash: Hash,
+    pub feature_set: Arc<FeatureSet>,
+    pub lamports_per_signature: u64,
+    sysvars: &'a SysvarCache,
+}
+impl<'a> RuntimeContext<'a> {
+    pub fn new(
+        blockhash: Hash,
+        feature_set: Arc<FeatureSet>,
+        lamports_per_signature: u64,
+        sysvars: &'a SysvarCache,
+    ) -> Self {
+        Self {
+            blockhash,
+            feature_set,
+            lamports_per_signature,
+            sysvars,
+        }
+    }
+}
+
 pub struct SyscallContext {
     pub allocator: BpfAllocator,
     pub accounts_metadata: Vec<SerializedAccountMetadata>,
@@ -159,8 +181,12 @@ pub struct SerializedAccountMetadata {
     pub vm_owner_addr: u64,
 }
 
+/// Main pipeline from runtime to program execution.
 pub struct InvokeContext<'a> {
+    /// Information about the currently executing transaction.
     pub transaction_context: &'a mut TransactionContext,
+    /// Information about the currently executing runtime.
+    pub runtime_context: RuntimeContext<'a>,
     sysvar_cache: &'a SysvarCache,
     log_collector: Option<Rc<RefCell<LogCollector>>>,
     compute_budget: ComputeBudget,
@@ -180,17 +206,21 @@ impl<'a> InvokeContext<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         transaction_context: &'a mut TransactionContext,
-        sysvar_cache: &'a SysvarCache,
+        runtime_context: RuntimeContext<'a>,
         log_collector: Option<Rc<RefCell<LogCollector>>>,
         compute_budget: ComputeBudget,
         programs_loaded_for_tx_batch: &'a ProgramCacheForTxBatch,
         programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
-        feature_set: Arc<FeatureSet>,
-        blockhash: Hash,
-        lamports_per_signature: u64,
     ) -> Self {
+        // Temporary
+        let blockhash = runtime_context.blockhash;
+        let feature_set = runtime_context.feature_set.clone();
+        let lamports_per_signature = runtime_context.lamports_per_signature;
+        let sysvar_cache = runtime_context.sysvars;
+        //
         Self {
             transaction_context,
+            runtime_context,
             sysvar_cache,
             log_collector,
             current_compute_budget: compute_budget,
@@ -645,8 +675,10 @@ macro_rules! with_mock_invoke_context {
             },
             std::sync::Arc,
             $crate::{
-                compute_budget::ComputeBudget, invoke_context::InvokeContext,
-                loaded_programs::ProgramCacheForTxBatch, log_collector::LogCollector,
+                compute_budget::ComputeBudget,
+                invoke_context::{InvokeContext, RuntimeContext},
+                loaded_programs::ProgramCacheForTxBatch,
+                log_collector::LogCollector,
                 sysvar_cache::SysvarCache,
             },
         };
@@ -675,18 +707,21 @@ macro_rules! with_mock_invoke_context {
                 }
             }
         });
+        let runtime_context = RuntimeContext::new(
+            Hash::default(),
+            Arc::new(FeatureSet::all_enabled()),
+            0,
+            &sysvar_cache,
+        );
         let programs_loaded_for_tx_batch = ProgramCacheForTxBatch::default();
         let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
         let mut $invoke_context = InvokeContext::new(
             &mut $transaction_context,
-            &sysvar_cache,
+            runtime_context,
             Some(LogCollector::new_ref()),
             compute_budget,
             &programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
-            Arc::new(FeatureSet::all_enabled()),
-            Hash::default(),
-            0,
         );
     };
 }
