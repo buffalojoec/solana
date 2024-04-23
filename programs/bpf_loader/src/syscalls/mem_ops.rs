@@ -69,6 +69,7 @@ declare_builtin_function!(
         mem_op_consume(invoke_context, n)?;
 
         if invoke_context
+            .environment_config
             .feature_set
             .is_active(&feature_set::bpf_account_data_direct_mapping::id())
         {
@@ -125,6 +126,7 @@ declare_builtin_function!(
         mem_op_consume(invoke_context, n)?;
 
         if invoke_context
+            .environment_config
             .feature_set
             .is_active(&feature_set::bpf_account_data_direct_mapping::id())
         {
@@ -150,6 +152,7 @@ fn memmove(
     memory_mapping: &MemoryMapping,
 ) -> Result<u64, Error> {
     if invoke_context
+        .environment_config
         .feature_set
         .is_active(&feature_set::bpf_account_data_direct_mapping::id())
     {
