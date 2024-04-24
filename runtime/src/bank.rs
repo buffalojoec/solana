@@ -172,7 +172,8 @@ use {
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_processing_callback::TransactionProcessingCallback,
         transaction_processor::{
-            ExecutionRecordingConfig, TransactionBatchProcessor, TransactionLogMessages,
+            load_program_with_pubkey, ExecutionRecordingConfig, TransactionBatchProcessor,
+            TransactionLogMessages,
         },
         transaction_results::{
             TransactionExecutionDetails, TransactionExecutionResult, TransactionResults,
@@ -6723,8 +6724,7 @@ impl Bank {
         effective_epoch: Epoch,
     ) -> Option<Arc<ProgramCacheEntry>> {
         let program_cache = self.transaction_processor.program_cache.read().unwrap();
-
-        TransactionBatchProcessor::load_program_with_pubkey(
+        load_program_with_pubkey(
             self,
             &program_cache,
             pubkey,

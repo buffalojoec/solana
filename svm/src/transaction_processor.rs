@@ -374,132 +374,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         result
     }
 
-    /// Loads the program with the given pubkey.
-    ///
-    /// If the account doesn't exist it returns `None`. If the account does exist, it must be a program
-    /// account (belong to one of the program loaders). Returns `Some(InvalidAccountData)` if the program
-    /// account is `Closed`, contains invalid data or any of the programdata accounts are invalid.
-    pub fn load_program_with_pubkey<CB: TransactionProcessingCallback>(
-        callbacks: &CB,
-        program_cache: &ProgramCache<FG>,
-        pubkey: &Pubkey,
-        slot: Slot,
-        effective_epoch: Epoch,
-        epoch_schedule: &EpochSchedule,
-        reload: bool,
-    ) -> Option<Arc<ProgramCacheEntry>> {
-        let environments = program_cache.get_environments_for_epoch(effective_epoch);
-        let mut load_program_metrics = LoadProgramMetrics {
-            program_id: pubkey.to_string(),
-            ..LoadProgramMetrics::default()
-        };
-
-        let mut loaded_program = match load_program_accounts(callbacks, pubkey)? {
-            ProgramAccountLoadResult::InvalidAccountData(owner) => Ok(
-                ProgramCacheEntry::new_tombstone(slot, owner, ProgramCacheEntryType::Closed),
-            ),
-
-            ProgramAccountLoadResult::ProgramOfLoaderV1(program_account) => {
-                load_program_from_bytes(
-                    &mut load_program_metrics,
-                    program_account.data(),
-                    program_account.owner(),
-                    program_account.data().len(),
-                    0,
-                    environments.program_runtime_v1.clone(),
-                    reload,
-                )
-                .map_err(|_| (0, ProgramCacheEntryOwner::LoaderV1))
-            }
-
-            ProgramAccountLoadResult::ProgramOfLoaderV2(program_account) => {
-                load_program_from_bytes(
-                    &mut load_program_metrics,
-                    program_account.data(),
-                    program_account.owner(),
-                    program_account.data().len(),
-                    0,
-                    environments.program_runtime_v1.clone(),
-                    reload,
-                )
-                .map_err(|_| (0, ProgramCacheEntryOwner::LoaderV2))
-            }
-
-            ProgramAccountLoadResult::ProgramOfLoaderV3(
-                program_account,
-                programdata_account,
-                slot,
-            ) => programdata_account
-                .data()
-                .get(UpgradeableLoaderState::size_of_programdata_metadata()..)
-                .ok_or(Box::new(InstructionError::InvalidAccountData).into())
-                .and_then(|programdata| {
-                    load_program_from_bytes(
-                        &mut load_program_metrics,
-                        programdata,
-                        program_account.owner(),
-                        program_account
-                            .data()
-                            .len()
-                            .saturating_add(programdata_account.data().len()),
-                        slot,
-                        environments.program_runtime_v1.clone(),
-                        reload,
-                    )
-                })
-                .map_err(|_| (slot, ProgramCacheEntryOwner::LoaderV3)),
-
-            ProgramAccountLoadResult::ProgramOfLoaderV4(program_account, slot) => program_account
-                .data()
-                .get(LoaderV4State::program_data_offset()..)
-                .ok_or(Box::new(InstructionError::InvalidAccountData).into())
-                .and_then(|elf_bytes| {
-                    load_program_from_bytes(
-                        &mut load_program_metrics,
-                        elf_bytes,
-                        &loader_v4::id(),
-                        program_account.data().len(),
-                        slot,
-                        environments.program_runtime_v2.clone(),
-                        reload,
-                    )
-                })
-                .map_err(|_| (slot, ProgramCacheEntryOwner::LoaderV4)),
-        }
-        .unwrap_or_else(|(slot, owner)| {
-            let env = if let ProgramCacheEntryOwner::LoaderV4 = &owner {
-                environments.program_runtime_v2.clone()
-            } else {
-                environments.program_runtime_v1.clone()
-            };
-            ProgramCacheEntry::new_tombstone(
-                slot,
-                owner,
-                ProgramCacheEntryType::FailedVerification(env),
-            )
-        });
-
-        let mut timings = ExecuteDetailsTimings::default();
-        load_program_metrics.submit_datapoint(&mut timings);
-        if !Arc::ptr_eq(
-            &environments.program_runtime_v1,
-            &program_cache.environments.program_runtime_v1,
-        ) || !Arc::ptr_eq(
-            &environments.program_runtime_v2,
-            &program_cache.environments.program_runtime_v2,
-        ) {
-            // There can be two entries per program when the environment changes.
-            // One for the old environment before the epoch boundary and one for the new environment after the epoch boundary.
-            // These two entries have the same deployment slot, so they must differ in their effective slot instead.
-            // This is done by setting the effective slot of the entry for the new environment to the epoch boundary.
-            loaded_program.effective_slot = loaded_program
-                .effective_slot
-                .max(epoch_schedule.get_first_slot_in_epoch(effective_epoch));
-        }
-        loaded_program.update_access_slot(slot);
-        Some(Arc::new(loaded_program))
-    }
-
     fn replenish_program_cache<CB: TransactionProcessingCallback>(
         &self,
         callback: &CB,
@@ -562,7 +436,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
             if let Some((key, count)) = program_to_load {
                 // Load, verify and compile one program.
-                let program = Self::load_program_with_pubkey(
+                let program = load_program_with_pubkey(
                     callback,
                     &self.program_cache.read().unwrap(),
                     &key,
@@ -870,6 +744,126 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             .assign_program(program_id, Arc::new(builtin));
         debug!("Added program {} under {:?}", name, program_id);
     }
+}
+
+/// Loads the program with the given pubkey.
+///
+/// If the account doesn't exist it returns `None`. If the account does exist, it must be a program
+/// account (belong to one of the program loaders). Returns `Some(InvalidAccountData)` if the program
+/// account is `Closed`, contains invalid data or any of the programdata accounts are invalid.
+pub fn load_program_with_pubkey<CB: TransactionProcessingCallback, FG: ForkGraph>(
+    callbacks: &CB,
+    program_cache: &ProgramCache<FG>,
+    pubkey: &Pubkey,
+    slot: Slot,
+    effective_epoch: Epoch,
+    epoch_schedule: &EpochSchedule,
+    reload: bool,
+) -> Option<Arc<ProgramCacheEntry>> {
+    let environments = program_cache.get_environments_for_epoch(effective_epoch);
+    let mut load_program_metrics = LoadProgramMetrics {
+        program_id: pubkey.to_string(),
+        ..LoadProgramMetrics::default()
+    };
+
+    let mut loaded_program = match load_program_accounts(callbacks, pubkey)? {
+        ProgramAccountLoadResult::InvalidAccountData(owner) => Ok(
+            ProgramCacheEntry::new_tombstone(slot, owner, ProgramCacheEntryType::Closed),
+        ),
+
+        ProgramAccountLoadResult::ProgramOfLoaderV1(program_account) => load_program_from_bytes(
+            &mut load_program_metrics,
+            program_account.data(),
+            program_account.owner(),
+            program_account.data().len(),
+            0,
+            environments.program_runtime_v1.clone(),
+            reload,
+        )
+        .map_err(|_| (0, ProgramCacheEntryOwner::LoaderV1)),
+
+        ProgramAccountLoadResult::ProgramOfLoaderV2(program_account) => load_program_from_bytes(
+            &mut load_program_metrics,
+            program_account.data(),
+            program_account.owner(),
+            program_account.data().len(),
+            0,
+            environments.program_runtime_v1.clone(),
+            reload,
+        )
+        .map_err(|_| (0, ProgramCacheEntryOwner::LoaderV2)),
+
+        ProgramAccountLoadResult::ProgramOfLoaderV3(program_account, programdata_account, slot) => {
+            programdata_account
+                .data()
+                .get(UpgradeableLoaderState::size_of_programdata_metadata()..)
+                .ok_or(Box::new(InstructionError::InvalidAccountData).into())
+                .and_then(|programdata| {
+                    load_program_from_bytes(
+                        &mut load_program_metrics,
+                        programdata,
+                        program_account.owner(),
+                        program_account
+                            .data()
+                            .len()
+                            .saturating_add(programdata_account.data().len()),
+                        slot,
+                        environments.program_runtime_v1.clone(),
+                        reload,
+                    )
+                })
+                .map_err(|_| (slot, ProgramCacheEntryOwner::LoaderV3))
+        }
+
+        ProgramAccountLoadResult::ProgramOfLoaderV4(program_account, slot) => program_account
+            .data()
+            .get(LoaderV4State::program_data_offset()..)
+            .ok_or(Box::new(InstructionError::InvalidAccountData).into())
+            .and_then(|elf_bytes| {
+                load_program_from_bytes(
+                    &mut load_program_metrics,
+                    elf_bytes,
+                    &loader_v4::id(),
+                    program_account.data().len(),
+                    slot,
+                    environments.program_runtime_v2.clone(),
+                    reload,
+                )
+            })
+            .map_err(|_| (slot, ProgramCacheEntryOwner::LoaderV4)),
+    }
+    .unwrap_or_else(|(slot, owner)| {
+        let env = if let ProgramCacheEntryOwner::LoaderV4 = &owner {
+            environments.program_runtime_v2.clone()
+        } else {
+            environments.program_runtime_v1.clone()
+        };
+        ProgramCacheEntry::new_tombstone(
+            slot,
+            owner,
+            ProgramCacheEntryType::FailedVerification(env),
+        )
+    });
+
+    let mut timings = ExecuteDetailsTimings::default();
+    load_program_metrics.submit_datapoint(&mut timings);
+    if !Arc::ptr_eq(
+        &environments.program_runtime_v1,
+        &program_cache.environments.program_runtime_v1,
+    ) || !Arc::ptr_eq(
+        &environments.program_runtime_v2,
+        &program_cache.environments.program_runtime_v2,
+    ) {
+        // There can be two entries per program when the environment changes.
+        // One for the old environment before the epoch boundary and one for the new environment after the epoch boundary.
+        // These two entries have the same deployment slot, so they must differ in their effective slot instead.
+        // This is done by setting the effective slot of the entry for the new environment to the epoch boundary.
+        loaded_program.effective_slot = loaded_program
+            .effective_slot
+            .max(epoch_schedule.get_first_slot_in_epoch(effective_epoch));
+    }
+    loaded_program.update_access_slot(slot);
+    Some(Arc::new(loaded_program))
 }
 
 fn load_program_from_bytes(
@@ -1309,7 +1303,7 @@ mod tests {
         let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
         let program_cache = batch_processor.program_cache.read().unwrap();
 
-        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+        let result = load_program_with_pubkey(
             &mock_bank,
             &program_cache,
             &key,
@@ -1335,7 +1329,7 @@ mod tests {
 
         let program_cache = batch_processor.program_cache.read().unwrap();
 
-        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+        let result = load_program_with_pubkey(
             &mock_bank,
             &program_cache,
             &key,
@@ -1376,7 +1370,7 @@ mod tests {
         let program_cache = batch_processor.program_cache.read().unwrap();
 
         // This should return an error
-        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+        let result = load_program_with_pubkey(
             &mock_bank,
             &program_cache,
             &key,
@@ -1409,7 +1403,7 @@ mod tests {
             .borrow_mut()
             .insert(key, account_data.clone());
 
-        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+        let result = load_program_with_pubkey(
             &mock_bank,
             &program_cache,
             &key,
@@ -1466,7 +1460,7 @@ mod tests {
         let program_cache = batch_processor.program_cache.read().unwrap();
 
         // This should return an error
-        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+        let result = load_program_with_pubkey(
             &mock_bank,
             &program_cache,
             &key1,
@@ -1508,7 +1502,7 @@ mod tests {
             .borrow_mut()
             .insert(key2, account_data.clone());
 
-        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+        let result = load_program_with_pubkey(
             &mock_bank,
             &program_cache,
             &key1,
@@ -1561,7 +1555,7 @@ mod tests {
 
         let program_cache = batch_processor.program_cache.read().unwrap();
 
-        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+        let result = load_program_with_pubkey(
             &mock_bank,
             &program_cache,
             &key,
@@ -1601,7 +1595,7 @@ mod tests {
 
         let program_cache = batch_processor.program_cache.read().unwrap();
 
-        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+        let result = load_program_with_pubkey(
             &mock_bank,
             &program_cache,
             &key,
@@ -1651,7 +1645,7 @@ mod tests {
 
         let program_cache = batch_processor.program_cache.read().unwrap();
 
-        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+        let result = load_program_with_pubkey(
             &mock_bank,
             &program_cache,
             &key,
