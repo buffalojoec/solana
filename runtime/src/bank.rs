@@ -169,11 +169,11 @@ use {
     solana_svm::{
         account_loader::{TransactionCheckResult, TransactionLoadResult},
         account_overrides::AccountOverrides,
+        program_loader::load_program_with_pubkey,
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_processing_callback::TransactionProcessingCallback,
         transaction_processor::{
-            load_program_with_pubkey, ExecutionRecordingConfig, TransactionBatchProcessor,
-            TransactionLogMessages,
+            ExecutionRecordingConfig, TransactionBatchProcessor, TransactionLogMessages,
         },
         transaction_results::{
             TransactionExecutionDetails, TransactionExecutionResult, TransactionResults,
