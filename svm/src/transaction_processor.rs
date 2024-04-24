@@ -393,7 +393,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             ..LoadProgramMetrics::default()
         };
 
-        let mut loaded_program = match self.load_program_accounts(callbacks, pubkey)? {
+        let mut loaded_program = match load_program_accounts(callbacks, pubkey)? {
             ProgramAccountLoadResult::InvalidAccountData(owner) => Ok(
                 ProgramCacheEntry::new_tombstone(self.slot, owner, ProgramCacheEntryType::Closed),
             ),
@@ -807,60 +807,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         }
     }
 
-    fn load_program_accounts<CB: TransactionProcessingCallback>(
-        &self,
-        callbacks: &CB,
-        pubkey: &Pubkey,
-    ) -> Option<ProgramAccountLoadResult> {
-        let program_account = callbacks.get_account_shared_data(pubkey)?;
-
-        if loader_v4::check_id(program_account.owner()) {
-            return Some(
-                solana_loader_v4_program::get_state(program_account.data())
-                    .ok()
-                    .and_then(|state| {
-                        (!matches!(state.status, LoaderV4Status::Retracted)).then_some(state.slot)
-                    })
-                    .map(|slot| ProgramAccountLoadResult::ProgramOfLoaderV4(program_account, slot))
-                    .unwrap_or(ProgramAccountLoadResult::InvalidAccountData(
-                        ProgramCacheEntryOwner::LoaderV4,
-                    )),
-            );
-        }
-
-        if bpf_loader_deprecated::check_id(program_account.owner()) {
-            return Some(ProgramAccountLoadResult::ProgramOfLoaderV1(program_account));
-        }
-
-        if bpf_loader::check_id(program_account.owner()) {
-            return Some(ProgramAccountLoadResult::ProgramOfLoaderV2(program_account));
-        }
-
-        if let Ok(UpgradeableLoaderState::Program {
-            programdata_address,
-        }) = program_account.state()
-        {
-            if let Some(programdata_account) =
-                callbacks.get_account_shared_data(&programdata_address)
-            {
-                if let Ok(UpgradeableLoaderState::ProgramData {
-                    slot,
-                    upgrade_authority_address: _,
-                }) = programdata_account.state()
-                {
-                    return Some(ProgramAccountLoadResult::ProgramOfLoaderV3(
-                        program_account,
-                        programdata_account,
-                        slot,
-                    ));
-                }
-            }
-        }
-        Some(ProgramAccountLoadResult::InvalidAccountData(
-            ProgramCacheEntryOwner::LoaderV3,
-        ))
-    }
-
     /// Extract the InnerInstructionsList from a TransactionContext
     fn inner_instructions_list_from_instruction_trace(
         transaction_context: &TransactionContext,
@@ -951,6 +897,57 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             .assign_program(program_id, Arc::new(builtin));
         debug!("Added program {} under {:?}", name, program_id);
     }
+}
+
+fn load_program_accounts<CB: TransactionProcessingCallback>(
+    callbacks: &CB,
+    pubkey: &Pubkey,
+) -> Option<ProgramAccountLoadResult> {
+    let program_account = callbacks.get_account_shared_data(pubkey)?;
+
+    if loader_v4::check_id(program_account.owner()) {
+        return Some(
+            solana_loader_v4_program::get_state(program_account.data())
+                .ok()
+                .and_then(|state| {
+                    (!matches!(state.status, LoaderV4Status::Retracted)).then_some(state.slot)
+                })
+                .map(|slot| ProgramAccountLoadResult::ProgramOfLoaderV4(program_account, slot))
+                .unwrap_or(ProgramAccountLoadResult::InvalidAccountData(
+                    ProgramCacheEntryOwner::LoaderV4,
+                )),
+        );
+    }
+
+    if bpf_loader_deprecated::check_id(program_account.owner()) {
+        return Some(ProgramAccountLoadResult::ProgramOfLoaderV1(program_account));
+    }
+
+    if bpf_loader::check_id(program_account.owner()) {
+        return Some(ProgramAccountLoadResult::ProgramOfLoaderV2(program_account));
+    }
+
+    if let Ok(UpgradeableLoaderState::Program {
+        programdata_address,
+    }) = program_account.state()
+    {
+        if let Some(programdata_account) = callbacks.get_account_shared_data(&programdata_address) {
+            if let Ok(UpgradeableLoaderState::ProgramData {
+                slot,
+                upgrade_authority_address: _,
+            }) = programdata_account.state()
+            {
+                return Some(ProgramAccountLoadResult::ProgramOfLoaderV3(
+                    program_account,
+                    programdata_account,
+                    slot,
+                ));
+            }
+        }
+    }
+    Some(ProgramAccountLoadResult::InvalidAccountData(
+        ProgramCacheEntryOwner::LoaderV3,
+    ))
 }
 
 #[cfg(test)]
@@ -1095,9 +1092,8 @@ mod tests {
     fn test_load_program_accounts_account_not_found() {
         let mock_bank = MockBankCallback::default();
         let key = Pubkey::new_unique();
-        let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
 
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
+        let result = load_program_accounts(&mock_bank, &key);
         assert!(result.is_none());
 
         let mut account_data = AccountSharedData::default();
@@ -1111,7 +1107,7 @@ mod tests {
             .borrow_mut()
             .insert(key, account_data.clone());
 
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
+        let result = load_program_accounts(&mock_bank, &key);
         assert!(matches!(
             result,
             Some(ProgramAccountLoadResult::InvalidAccountData(_))
@@ -1123,7 +1119,7 @@ mod tests {
             .borrow_mut()
             .insert(key, account_data);
 
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
+        let result = load_program_accounts(&mock_bank, &key);
 
         assert!(matches!(
             result,
@@ -1137,13 +1133,12 @@ mod tests {
         let mock_bank = MockBankCallback::default();
         let mut account_data = AccountSharedData::default();
         account_data.set_owner(loader_v4::id());
-        let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
         mock_bank
             .account_shared_data
             .borrow_mut()
             .insert(key, account_data.clone());
 
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
+        let result = load_program_accounts(&mock_bank, &key);
         assert!(matches!(
             result,
             Some(ProgramAccountLoadResult::InvalidAccountData(_))
@@ -1154,7 +1149,7 @@ mod tests {
             .account_shared_data
             .borrow_mut()
             .insert(key, account_data.clone());
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
+        let result = load_program_accounts(&mock_bank, &key);
         assert!(matches!(
             result,
             Some(ProgramAccountLoadResult::InvalidAccountData(_))
@@ -1176,7 +1171,7 @@ mod tests {
             .borrow_mut()
             .insert(key, account_data.clone());
 
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
+        let result = load_program_accounts(&mock_bank, &key);
 
         match result {
             Some(ProgramAccountLoadResult::ProgramOfLoaderV4(data, slot)) => {
@@ -1194,13 +1189,12 @@ mod tests {
         let mock_bank = MockBankCallback::default();
         let mut account_data = AccountSharedData::default();
         account_data.set_owner(bpf_loader::id());
-        let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
         mock_bank
             .account_shared_data
             .borrow_mut()
             .insert(key, account_data.clone());
 
-        let result = batch_processor.load_program_accounts(&mock_bank, &key);
+        let result = load_program_accounts(&mock_bank, &key);
         match result {
             Some(ProgramAccountLoadResult::ProgramOfLoaderV1(data))
             | Some(ProgramAccountLoadResult::ProgramOfLoaderV2(data)) => {
@@ -1215,7 +1209,6 @@ mod tests {
         let key1 = Pubkey::new_unique();
         let key2 = Pubkey::new_unique();
         let mock_bank = MockBankCallback::default();
-        let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
 
         let mut account_data = AccountSharedData::default();
         account_data.set_owner(bpf_loader_upgradeable::id());
@@ -1240,7 +1233,7 @@ mod tests {
             .borrow_mut()
             .insert(key2, account_data2.clone());
 
-        let result = batch_processor.load_program_accounts(&mock_bank, &key1);
+        let result = load_program_accounts(&mock_bank, &key1);
 
         match result {
             Some(ProgramAccountLoadResult::ProgramOfLoaderV3(data1, data2, slot)) => {
