@@ -51,19 +51,19 @@ pub struct SysvarCache {
 impl SysvarCache {
     // this is exposed for SyscallGetSysvar and should not otherwise be used
     pub fn sysvar_id_to_buffer(&self, sysvar_id: &Pubkey) -> &Option<Vec<u8>> {
-        if *sysvar_id == Clock::id() {
+        if Clock::check_id(sysvar_id) {
             &self.clock
-        } else if *sysvar_id == EpochSchedule::id() {
+        } else if EpochSchedule::check_id(sysvar_id) {
             &self.epoch_schedule
-        } else if *sysvar_id == EpochRewards::id() {
+        } else if EpochRewards::check_id(sysvar_id) {
             &self.epoch_rewards
-        } else if *sysvar_id == Rent::id() {
+        } else if Rent::check_id(sysvar_id) {
             &self.rent
-        } else if *sysvar_id == SlotHashes::id() {
+        } else if SlotHashes::check_id(sysvar_id) {
             &self.slot_hashes
-        } else if *sysvar_id == StakeHistory::id() {
+        } else if StakeHistory::check_id(sysvar_id) {
             &self.stake_history
-        } else if *sysvar_id == LastRestartSlot::id() {
+        } else if LastRestartSlot::check_id(sysvar_id) {
             &self.last_restart_slot
         } else {
             &None
