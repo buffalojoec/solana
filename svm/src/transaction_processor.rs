@@ -399,7 +399,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             ),
 
             ProgramAccountLoadResult::ProgramOfLoaderV1(program_account) => {
-                Self::load_program_from_bytes(
+                load_program_from_bytes(
                     &mut load_program_metrics,
                     program_account.data(),
                     program_account.owner(),
@@ -412,7 +412,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             }
 
             ProgramAccountLoadResult::ProgramOfLoaderV2(program_account) => {
-                Self::load_program_from_bytes(
+                load_program_from_bytes(
                     &mut load_program_metrics,
                     program_account.data(),
                     program_account.owner(),
@@ -433,7 +433,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 .get(UpgradeableLoaderState::size_of_programdata_metadata()..)
                 .ok_or(Box::new(InstructionError::InvalidAccountData).into())
                 .and_then(|programdata| {
-                    Self::load_program_from_bytes(
+                    load_program_from_bytes(
                         &mut load_program_metrics,
                         programdata,
                         program_account.owner(),
@@ -453,7 +453,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 .get(LoaderV4State::program_data_offset()..)
                 .ok_or(Box::new(InstructionError::InvalidAccountData).into())
                 .and_then(|elf_bytes| {
-                    Self::load_program_from_bytes(
+                    load_program_from_bytes(
                         &mut load_program_metrics,
                         elf_bytes,
                         &loader_v4::id(),
@@ -772,41 +772,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         }
     }
 
-    fn load_program_from_bytes(
-        load_program_metrics: &mut LoadProgramMetrics,
-        programdata: &[u8],
-        loader_key: &Pubkey,
-        account_size: usize,
-        deployment_slot: Slot,
-        program_runtime_environment: ProgramRuntimeEnvironment,
-        reloading: bool,
-    ) -> std::result::Result<ProgramCacheEntry, Box<dyn std::error::Error>> {
-        if reloading {
-            // Safety: this is safe because the program is being reloaded in the cache.
-            unsafe {
-                ProgramCacheEntry::reload(
-                    loader_key,
-                    program_runtime_environment.clone(),
-                    deployment_slot,
-                    deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
-                    programdata,
-                    account_size,
-                    load_program_metrics,
-                )
-            }
-        } else {
-            ProgramCacheEntry::new(
-                loader_key,
-                program_runtime_environment.clone(),
-                deployment_slot,
-                deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
-                programdata,
-                account_size,
-                load_program_metrics,
-            )
-        }
-    }
-
     /// Extract the InnerInstructionsList from a TransactionContext
     fn inner_instructions_list_from_instruction_trace(
         transaction_context: &TransactionContext,
@@ -896,6 +861,41 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             .unwrap()
             .assign_program(program_id, Arc::new(builtin));
         debug!("Added program {} under {:?}", name, program_id);
+    }
+}
+
+fn load_program_from_bytes(
+    load_program_metrics: &mut LoadProgramMetrics,
+    programdata: &[u8],
+    loader_key: &Pubkey,
+    account_size: usize,
+    deployment_slot: Slot,
+    program_runtime_environment: ProgramRuntimeEnvironment,
+    reloading: bool,
+) -> std::result::Result<ProgramCacheEntry, Box<dyn std::error::Error>> {
+    if reloading {
+        // Safety: this is safe because the program is being reloaded in the cache.
+        unsafe {
+            ProgramCacheEntry::reload(
+                loader_key,
+                program_runtime_environment.clone(),
+                deployment_slot,
+                deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
+                programdata,
+                account_size,
+                load_program_metrics,
+            )
+        }
+    } else {
+        ProgramCacheEntry::new(
+            loader_key,
+            program_runtime_environment.clone(),
+            deployment_slot,
+            deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
+            programdata,
+            account_size,
+            load_program_metrics,
+        )
     }
 }
 
@@ -1269,7 +1269,7 @@ mod tests {
         let slot = 2;
         let environment = ProgramRuntimeEnvironment::new(BuiltinProgram::new_mock());
 
-        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_from_bytes(
+        let result = load_program_from_bytes(
             &mut metrics,
             &buffer,
             &loader,
@@ -1281,7 +1281,7 @@ mod tests {
 
         assert!(result.is_ok());
 
-        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_from_bytes(
+        let result = load_program_from_bytes(
             &mut metrics,
             &buffer,
             &loader,
@@ -1374,7 +1374,7 @@ mod tests {
         let result = batch_processor.load_program_with_pubkey(&mock_bank, &key, false, 20);
 
         let environments = ProgramRuntimeEnvironments::default();
-        let expected = TransactionBatchProcessor::<TestForkGraph>::load_program_from_bytes(
+        let expected = load_program_from_bytes(
             &mut LoadProgramMetrics::default(),
             account_data.data(),
             account_data.owner(),
@@ -1459,7 +1459,7 @@ mod tests {
             .set_data(data[UpgradeableLoaderState::size_of_programdata_metadata()..].to_vec());
 
         let environments = ProgramRuntimeEnvironments::default();
-        let expected = TransactionBatchProcessor::<TestForkGraph>::load_program_from_bytes(
+        let expected = load_program_from_bytes(
             &mut LoadProgramMetrics::default(),
             account_data.data(),
             account_data.owner(),
@@ -1535,7 +1535,7 @@ mod tests {
             .insert(key, account_data.clone());
 
         let environments = ProgramRuntimeEnvironments::default();
-        let expected = TransactionBatchProcessor::<TestForkGraph>::load_program_from_bytes(
+        let expected = load_program_from_bytes(
             &mut LoadProgramMetrics::default(),
             account_data.data(),
             account_data.owner(),
