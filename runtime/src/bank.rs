@@ -6745,7 +6745,7 @@ impl Bank {
     /// Returns an error if the program's account state can not be found or parsed.
     fn program_modification_slot(&self, pubkey: &Pubkey) -> transaction::Result<Slot> {
         let program = self
-            .get_account_with_fixed_root(pubkey)
+            .get_account(pubkey)
             .ok_or(TransactionError::ProgramAccountNotFound)?;
         if bpf_loader_upgradeable::check_id(program.owner()) {
             if let Ok(UpgradeableLoaderState::Program {
@@ -6753,7 +6753,7 @@ impl Bank {
             }) = program.state()
             {
                 let programdata = self
-                    .get_account_with_fixed_root(&programdata_address)
+                    .get_account(&programdata_address)
                     .ok_or(TransactionError::ProgramAccountNotFound)?;
                 if let Ok(UpgradeableLoaderState::ProgramData {
                     slot,
