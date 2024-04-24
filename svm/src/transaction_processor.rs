@@ -380,13 +380,14 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     /// account (belong to one of the program loaders). Returns `Some(InvalidAccountData)` if the program
     /// account is `Closed`, contains invalid data or any of the programdata accounts are invalid.
     pub fn load_program_with_pubkey<CB: TransactionProcessingCallback>(
-        &self,
         callbacks: &CB,
+        program_cache: &ProgramCache<FG>,
         pubkey: &Pubkey,
-        reload: bool,
+        slot: Slot,
         effective_epoch: Epoch,
+        epoch_schedule: &EpochSchedule,
+        reload: bool,
     ) -> Option<Arc<ProgramCacheEntry>> {
-        let program_cache = self.program_cache.read().unwrap();
         let environments = program_cache.get_environments_for_epoch(effective_epoch);
         let mut load_program_metrics = LoadProgramMetrics {
             program_id: pubkey.to_string(),
@@ -395,7 +396,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut loaded_program = match load_program_accounts(callbacks, pubkey)? {
             ProgramAccountLoadResult::InvalidAccountData(owner) => Ok(
-                ProgramCacheEntry::new_tombstone(self.slot, owner, ProgramCacheEntryType::Closed),
+                ProgramCacheEntry::new_tombstone(slot, owner, ProgramCacheEntryType::Closed),
             ),
 
             ProgramAccountLoadResult::ProgramOfLoaderV1(program_account) => {
@@ -493,9 +494,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             // This is done by setting the effective slot of the entry for the new environment to the epoch boundary.
             loaded_program.effective_slot = loaded_program
                 .effective_slot
-                .max(self.epoch_schedule.get_first_slot_in_epoch(effective_epoch));
+                .max(epoch_schedule.get_first_slot_in_epoch(effective_epoch));
         }
-        loaded_program.update_access_slot(self.slot);
+        loaded_program.update_access_slot(slot);
         Some(Arc::new(loaded_program))
     }
 
@@ -561,9 +562,16 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
             if let Some((key, count)) = program_to_load {
                 // Load, verify and compile one program.
-                let program = self
-                    .load_program_with_pubkey(callback, &key, false, self.epoch)
-                    .expect("called load_program_with_pubkey() with nonexistent account");
+                let program = Self::load_program_with_pubkey(
+                    callback,
+                    &self.program_cache.read().unwrap(),
+                    &key,
+                    self.slot,
+                    self.epoch,
+                    &self.epoch_schedule,
+                    false,
+                )
+                .expect("called load_program_with_pubkey() with nonexistent account");
                 program.tx_usage_counter.store(count, Ordering::Relaxed);
                 program_to_store = Some((key, program));
             } else if missing_programs.is_empty() {
@@ -1299,8 +1307,17 @@ mod tests {
         let mock_bank = MockBankCallback::default();
         let key = Pubkey::new_unique();
         let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
+        let program_cache = batch_processor.program_cache.read().unwrap();
 
-        let result = batch_processor.load_program_with_pubkey(&mock_bank, &key, false, 50);
+        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+            &mock_bank,
+            &program_cache,
+            &key,
+            500,
+            50,
+            &batch_processor.epoch_schedule,
+            false,
+        );
         assert!(result.is_none());
     }
 
@@ -1316,10 +1333,20 @@ mod tests {
             .borrow_mut()
             .insert(key, account_data.clone());
 
-        let result = batch_processor.load_program_with_pubkey(&mock_bank, &key, false, 20);
+        let program_cache = batch_processor.program_cache.read().unwrap();
+
+        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+            &mock_bank,
+            &program_cache,
+            &key,
+            0, // Slot 0
+            20,
+            &batch_processor.epoch_schedule,
+            false,
+        );
 
         let loaded_program = ProgramCacheEntry::new_tombstone(
-            0,
+            0, // Slot 0
             ProgramCacheEntryOwner::LoaderV4,
             ProgramCacheEntryType::FailedVerification(
                 batch_processor
@@ -1346,8 +1373,19 @@ mod tests {
             .borrow_mut()
             .insert(key, account_data.clone());
 
+        let program_cache = batch_processor.program_cache.read().unwrap();
+
         // This should return an error
-        let result = batch_processor.load_program_with_pubkey(&mock_bank, &key, false, 20);
+        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+            &mock_bank,
+            &program_cache,
+            &key,
+            200,
+            20,
+            &batch_processor.epoch_schedule,
+            false,
+        );
+
         let loaded_program = ProgramCacheEntry::new_tombstone(
             0,
             ProgramCacheEntryOwner::LoaderV2,
@@ -1371,7 +1409,15 @@ mod tests {
             .borrow_mut()
             .insert(key, account_data.clone());
 
-        let result = batch_processor.load_program_with_pubkey(&mock_bank, &key, false, 20);
+        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+            &mock_bank,
+            &program_cache,
+            &key,
+            500,
+            50,
+            &batch_processor.epoch_schedule,
+            false,
+        );
 
         let environments = ProgramRuntimeEnvironments::default();
         let expected = load_program_from_bytes(
@@ -1417,8 +1463,18 @@ mod tests {
             .borrow_mut()
             .insert(key2, account_data2.clone());
 
+        let program_cache = batch_processor.program_cache.read().unwrap();
+
         // This should return an error
-        let result = batch_processor.load_program_with_pubkey(&mock_bank, &key1, false, 0);
+        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+            &mock_bank,
+            &program_cache,
+            &key1,
+            0,
+            0,
+            &batch_processor.epoch_schedule,
+            false,
+        );
         let loaded_program = ProgramCacheEntry::new_tombstone(
             0,
             ProgramCacheEntryOwner::LoaderV3,
@@ -1452,7 +1508,15 @@ mod tests {
             .borrow_mut()
             .insert(key2, account_data.clone());
 
-        let result = batch_processor.load_program_with_pubkey(&mock_bank, &key1, false, 20);
+        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+            &mock_bank,
+            &program_cache,
+            &key1,
+            200,
+            20,
+            &batch_processor.epoch_schedule,
+            false,
+        );
 
         let data = account_data.data();
         account_data
@@ -1495,7 +1559,17 @@ mod tests {
             .borrow_mut()
             .insert(key, account_data.clone());
 
-        let result = batch_processor.load_program_with_pubkey(&mock_bank, &key, false, 0);
+        let program_cache = batch_processor.program_cache.read().unwrap();
+
+        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+            &mock_bank,
+            &program_cache,
+            &key,
+            0,
+            0,
+            &batch_processor.epoch_schedule,
+            false,
+        );
         let loaded_program = ProgramCacheEntry::new_tombstone(
             0,
             ProgramCacheEntryOwner::LoaderV4,
@@ -1525,7 +1599,17 @@ mod tests {
             .borrow_mut()
             .insert(key, account_data.clone());
 
-        let result = batch_processor.load_program_with_pubkey(&mock_bank, &key, false, 20);
+        let program_cache = batch_processor.program_cache.read().unwrap();
+
+        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+            &mock_bank,
+            &program_cache,
+            &key,
+            200,
+            20,
+            &batch_processor.epoch_schedule,
+            false,
+        );
 
         let data = account_data.data()[LoaderV4State::program_data_offset()..].to_vec();
         account_data.set_data(data);
@@ -1565,7 +1649,17 @@ mod tests {
             .borrow_mut()
             .insert(key, account_data.clone());
 
-        let result = batch_processor.load_program_with_pubkey(&mock_bank, &key, false, 20);
+        let program_cache = batch_processor.program_cache.read().unwrap();
+
+        let result = TransactionBatchProcessor::<TestForkGraph>::load_program_with_pubkey(
+            &mock_bank,
+            &program_cache,
+            &key,
+            200,
+            20,
+            &batch_processor.epoch_schedule,
+            false,
+        );
 
         let slot = batch_processor.epoch_schedule.get_first_slot_in_epoch(20);
         assert_eq!(result.unwrap().effective_slot, slot);

@@ -6722,8 +6722,17 @@ impl Bank {
         reload: bool,
         effective_epoch: Epoch,
     ) -> Option<Arc<ProgramCacheEntry>> {
-        self.transaction_processor
-            .load_program_with_pubkey(self, pubkey, reload, effective_epoch)
+        let program_cache = self.transaction_processor.program_cache.read().unwrap();
+
+        TransactionBatchProcessor::load_program_with_pubkey(
+            self,
+            &program_cache,
+            pubkey,
+            self.slot(),
+            effective_epoch,
+            self.epoch_schedule(),
+            reload,
+        )
     }
 
     pub fn fee_structure(&self) -> &FeeStructure {
