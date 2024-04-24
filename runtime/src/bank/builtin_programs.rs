@@ -88,12 +88,18 @@ mod tests_core_bpf_migration {
             signature::Signer,
             transaction::Transaction,
         },
-        std::sync::Arc,
+        std::{fs::File, io::Read, sync::Arc},
         test_case::test_case,
     };
 
-    const TEST_ELF: &[u8] =
-        include_bytes!("../../../programs/bpf_loader/test_elfs/out/noop_aligned.so");
+    fn test_elf() -> Vec<u8> {
+        let mut elf = Vec::new();
+        File::open("../programs/bpf_loader/test_elfs/out/noop_aligned.so")
+            .unwrap()
+            .read_to_end(&mut elf)
+            .unwrap();
+        elf
+    }
 
     enum TestPrototype<'a> {
         Builtin(&'a BuiltinPrototype),
@@ -390,7 +396,7 @@ mod tests_core_bpf_migration {
         let feature_id = &config.feature_id;
 
         let upgrade_authority_address = Some(Pubkey::new_unique());
-        let elf = TEST_ELF;
+        let elf = test_elf();
         let program_data_metadata_size = UpgradeableLoaderState::size_of_programdata_metadata();
         let program_data_size = program_data_metadata_size + elf.len();
 
@@ -415,7 +421,7 @@ mod tests_core_bpf_migration {
         )
         .unwrap();
         builtin_program_data_account.data_as_mut_slice()[program_data_metadata_size..]
-            .copy_from_slice(elf);
+            .copy_from_slice(&elf);
         genesis_config
             .accounts
             .insert(*builtin_id, builtin_program_account.into());

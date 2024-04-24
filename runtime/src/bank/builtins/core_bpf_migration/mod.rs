@@ -299,11 +299,18 @@ pub(crate) mod tests {
             clock::Slot,
             native_loader,
         },
+        std::{fs::File, io::Read},
         test_case::test_case,
     };
 
-    const TEST_ELF: &[u8] =
-        include_bytes!("../../../../../programs/bpf_loader/test_elfs/out/noop_aligned.so");
+    fn test_elf() -> Vec<u8> {
+        let mut elf = Vec::new();
+        File::open("../programs/bpf_loader/test_elfs/out/noop_aligned.so")
+            .unwrap()
+            .read_to_end(&mut elf)
+            .unwrap();
+        elf
+    }
 
     pub(crate) struct TestContext {
         builtin_id: Pubkey,
@@ -320,7 +327,7 @@ pub(crate) mod tests {
             source_buffer_address: &Pubkey,
             upgrade_authority_address: Option<Pubkey>,
         ) -> Self {
-            let elf = TEST_ELF.to_vec();
+            let elf = test_elf();
 
             let source_buffer_account = {
                 // BPF Loader always writes ELF bytes after
