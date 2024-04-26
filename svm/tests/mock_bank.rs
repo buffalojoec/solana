@@ -1,20 +1,18 @@
 use {
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount},
-        feature_set::FeatureSet,
         hash::Hash,
         native_loader,
         pubkey::Pubkey,
         rent_collector::RentCollector,
     },
     solana_svm::transaction_processing_callback::TransactionProcessingCallback,
-    std::{cell::RefCell, collections::HashMap, sync::Arc},
+    std::{cell::RefCell, collections::HashMap},
 };
 
 #[derive(Default)]
 pub struct MockBankCallback {
     rent_collector: RentCollector,
-    feature_set: Arc<FeatureSet>,
     pub account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
 }
 
@@ -42,10 +40,6 @@ impl TransactionProcessingCallback for MockBankCallback {
 
     fn get_rent_collector(&self) -> &RentCollector {
         &self.rent_collector
-    }
-
-    fn get_feature_set(&self) -> Arc<FeatureSet> {
-        self.feature_set.clone()
     }
 
     fn add_builtin_account(&self, name: &str, program_id: &Pubkey) {

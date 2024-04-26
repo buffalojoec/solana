@@ -14,7 +14,7 @@ use {
         account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
         feature_set::{
             self, include_loaded_accounts_data_size_in_fee_calculation,
-            remove_rounding_in_fee_calculation,
+            remove_rounding_in_fee_calculation, FeatureSet,
         },
         fee::FeeStructure,
         message::SanitizedMessage,
@@ -112,11 +112,11 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
     txs: &[SanitizedTransaction],
     check_results: &[TransactionCheckResult],
     error_counters: &mut TransactionErrorMetrics,
+    feature_set: &FeatureSet,
     fee_structure: &FeeStructure,
     account_overrides: Option<&AccountOverrides>,
     loaded_programs: &ProgramCacheForTxBatch,
 ) -> Vec<TransactionLoadResult> {
-    let feature_set = callbacks.get_feature_set();
     txs.iter()
         .zip(check_results)
         .map(|etx| match etx {
@@ -141,6 +141,7 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
                 let loaded_transaction = match load_transaction_accounts(
                     callbacks,
                     message,
+                    feature_set,
                     fee,
                     error_counters,
                     account_overrides,
@@ -177,13 +178,12 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
 fn load_transaction_accounts<CB: TransactionProcessingCallback>(
     callbacks: &CB,
     message: &SanitizedMessage,
+    feature_set: &FeatureSet,
     fee: u64,
     error_counters: &mut TransactionErrorMetrics,
     account_overrides: Option<&AccountOverrides>,
     loaded_programs: &ProgramCacheForTxBatch,
 ) -> Result<LoadedTransaction> {
-    let feature_set = callbacks.get_feature_set();
-
     // There is no way to predict what program will execute without an error
     // If a fee can pay for execution then the program will be scheduled
     let mut validated_fee_payer = false;
@@ -498,7 +498,6 @@ mod tests {
     struct TestCallbacks {
         accounts_map: HashMap<Pubkey, AccountSharedData>,
         rent_collector: RentCollector,
-        feature_set: Arc<FeatureSet>,
     }
 
     impl TransactionProcessingCallback for TestCallbacks {
@@ -517,10 +516,6 @@ mod tests {
         fn get_rent_collector(&self) -> &RentCollector {
             &self.rent_collector
         }
-
-        fn get_feature_set(&self) -> Arc<FeatureSet> {
-            self.feature_set.clone()
-        }
     }
 
     fn load_accounts_with_fee_and_rent(
@@ -538,16 +533,17 @@ mod tests {
         for (pubkey, account) in ka {
             accounts_map.insert(*pubkey, account.clone());
         }
+        let feature_set = Arc::new(feature_set.clone());
         let callbacks = TestCallbacks {
             accounts_map,
             rent_collector: rent_collector.clone(),
-            feature_set: Arc::new(feature_set.clone()),
         };
         load_accounts(
             &callbacks,
             &[sanitized_tx],
             &[(Ok(()), None, Some(lamports_per_signature))],
             error_counters,
+            &feature_set,
             fee_structure,
             None,
             &ProgramCacheForTxBatch::default(),
@@ -1029,13 +1025,14 @@ mod tests {
         let callbacks = TestCallbacks {
             accounts_map,
             rent_collector: RentCollector::default(),
-            feature_set: Arc::new(FeatureSet::all_enabled()),
         };
+        let feature_set = Arc::new(FeatureSet::all_enabled());
         load_accounts(
             &callbacks,
             &[tx],
             &[(Ok(()), None, Some(10))],
             &mut error_counters,
+            &feature_set,
             &FeeStructure::default(),
             account_overrides,
             &ProgramCacheForTxBatch::default(),
@@ -1439,6 +1436,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mock_bank,
             sanitized_transaction.message(),
+            &FeatureSet::all_enabled(),
             32,
             &mut error_counter,
             None,
@@ -1482,6 +1480,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mock_bank,
             sanitized_transaction.message(),
+            &FeatureSet::all_enabled(),
             32,
             &mut error_counter,
             None,
@@ -1547,6 +1546,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mock_bank,
             sanitized_transaction.message(),
+            &FeatureSet::all_enabled(),
             32,
             &mut error_counter,
             None,
@@ -1589,6 +1589,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mock_bank,
             sanitized_transaction.message(),
+            &FeatureSet::all_enabled(),
             32,
             &mut error_counter,
             None,
@@ -1631,6 +1632,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mock_bank,
             sanitized_transaction.message(),
+            &FeatureSet::all_enabled(),
             32,
             &mut error_counter,
             None,
@@ -1680,6 +1682,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mock_bank,
             sanitized_transaction.message(),
+            &FeatureSet::all_enabled(),
             32,
             &mut error_counter,
             None,
@@ -1747,6 +1750,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mock_bank,
             sanitized_transaction.message(),
+            &FeatureSet::all_enabled(),
             32,
             &mut error_counter,
             None,
@@ -1803,6 +1807,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mock_bank,
             sanitized_transaction.message(),
+            &FeatureSet::all_enabled(),
             32,
             &mut error_counter,
             None,
@@ -1864,6 +1869,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mock_bank,
             sanitized_transaction.message(),
+            &FeatureSet::all_enabled(),
             32,
             &mut error_counter,
             None,
@@ -1951,6 +1957,7 @@ mod tests {
         let result = load_transaction_accounts(
             &mock_bank,
             sanitized_transaction.message(),
+            &FeatureSet::all_enabled(),
             32,
             &mut error_counter,
             None,
@@ -2023,6 +2030,7 @@ mod tests {
             &[sanitized_tx.clone()],
             &[(Ok(()), None, Some(0))],
             &mut error_counters,
+            &FeatureSet::all_enabled(),
             &FeeStructure::default(),
             None,
             &ProgramCacheForTxBatch::default(),
@@ -2106,6 +2114,7 @@ mod tests {
             &[sanitized_transaction],
             &[check_result],
             &mut error_counter,
+            &FeatureSet::all_enabled(),
             &FeeStructure::default(),
             None,
             &loaded_programs,
@@ -2173,12 +2182,14 @@ mod tests {
 
         let check_result = (Ok(()), Some(NoncePartial::default()), None) as TransactionCheckResult;
         let fee_structure = FeeStructure::default();
+        let feature_set = Arc::new(FeatureSet::all_enabled());
 
         let result = load_accounts(
             &mock_bank,
             &[sanitized_transaction.clone()],
             &[check_result],
             &mut TransactionErrorMetrics::default(),
+            &feature_set,
             &fee_structure,
             None,
             &ProgramCacheForTxBatch::default(),
@@ -2197,6 +2208,7 @@ mod tests {
             &[sanitized_transaction.clone()],
             &[check_result.clone()],
             &mut TransactionErrorMetrics::default(),
+            &feature_set,
             &fee_structure,
             None,
             &ProgramCacheForTxBatch::default(),
@@ -2215,6 +2227,7 @@ mod tests {
             &[sanitized_transaction.clone()],
             &[check_result],
             &mut TransactionErrorMetrics::default(),
+            &feature_set,
             &fee_structure,
             None,
             &ProgramCacheForTxBatch::default(),

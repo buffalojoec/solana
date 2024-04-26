@@ -1108,12 +1108,12 @@ impl Bank {
 
         let (epoch_stakes, epoch_stakes_time_us) = measure_us!(parent.epoch_stakes.clone());
 
+        let (rewards_pool_pubkeys, rewards_pool_pubkeys_time_us) =
+            measure_us!(parent.rewards_pool_pubkeys.clone());
+
         let (transaction_processor, builtin_program_ids_time_us) = measure_us!(
             TransactionBatchProcessor::new_from(&parent.transaction_processor, slot, epoch)
         );
-
-        let (rewards_pool_pubkeys, rewards_pool_pubkeys_time_us) =
-            measure_us!(parent.rewards_pool_pubkeys.clone());
 
         let (transaction_debug_keys, transaction_debug_keys_time_us) =
             measure_us!(parent.transaction_debug_keys.clone());
@@ -3740,6 +3740,7 @@ impl Bank {
             .load_and_execute_sanitized_transactions(
                 self,
                 sanitized_txs,
+                &self.feature_set,
                 &mut check_results,
                 &mut error_counters,
                 recording_config,
@@ -6806,10 +6807,6 @@ impl TransactionProcessingCallback for Bank {
 
     fn get_rent_collector(&self) -> &RentCollector {
         &self.rent_collector
-    }
-
-    fn get_feature_set(&self) -> Arc<FeatureSet> {
-        self.feature_set.clone()
     }
 
     fn get_program_match_criteria(&self, program: &Pubkey) -> ProgramCacheMatchCriteria {

@@ -23,6 +23,7 @@ use {
         bpf_loader_upgradeable::{self, UpgradeableLoaderState},
         clock::{Clock, Epoch, Slot, UnixTimestamp},
         epoch_schedule::EpochSchedule,
+        feature_set::FeatureSet,
         hash::Hash,
         instruction::AccountMeta,
         pubkey::Pubkey,
@@ -457,6 +458,7 @@ fn svm_integration() {
     let result = batch_processor.load_and_execute_sanitized_transactions(
         &mock_bank,
         &transactions,
+        &FeatureSet::default(),
         check_results.as_mut_slice(),
         &mut error_counter,
         recording_config,

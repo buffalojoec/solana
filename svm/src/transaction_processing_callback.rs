@@ -2,10 +2,9 @@ use {
     crate::transaction_error_metrics::TransactionErrorMetrics,
     solana_program_runtime::loaded_programs::ProgramCacheMatchCriteria,
     solana_sdk::{
-        account::AccountSharedData, feature_set::FeatureSet, hash::Hash, message::SanitizedMessage,
-        pubkey::Pubkey, rent_collector::RentCollector, transaction,
+        account::AccountSharedData, hash::Hash, message::SanitizedMessage, pubkey::Pubkey,
+        rent_collector::RentCollector, transaction,
     },
-    std::sync::Arc,
 };
 
 /// Runtime callbacks for transaction processing.
@@ -17,8 +16,6 @@ pub trait TransactionProcessingCallback {
     fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64);
 
     fn get_rent_collector(&self) -> &RentCollector;
-
-    fn get_feature_set(&self) -> Arc<FeatureSet>;
 
     fn check_account_access(
         &self,

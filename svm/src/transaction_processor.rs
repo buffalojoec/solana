@@ -32,6 +32,7 @@ use {
         account::{AccountSharedData, ReadableAccount, PROGRAM_OWNERS},
         clock::{Epoch, Slot},
         epoch_schedule::EpochSchedule,
+        feature_set::FeatureSet,
         fee::FeeStructure,
         inner_instruction::{InnerInstruction, InnerInstructionsList},
         instruction::{CompiledInstruction, TRANSACTION_LEVEL_STACK_HEIGHT},
@@ -179,6 +180,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         &self,
         callbacks: &CB,
         sanitized_txs: &[SanitizedTransaction],
+        feature_set: &FeatureSet,
         check_results: &mut [TransactionCheckResult],
         error_counters: &mut TransactionErrorMetrics,
         recording_config: ExecutionRecordingConfig,
@@ -222,6 +224,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             sanitized_txs,
             check_results,
             error_counters,
+            feature_set,
             &self.fee_structure,
             account_overrides,
             &programs_loaded_for_tx_batch.borrow(),
@@ -262,6 +265,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         callbacks,
                         tx,
                         loaded_transaction,
+                        feature_set,
                         compute_budget,
                         nonce.as_ref().map(DurableNonceFee::from),
                         recording_config,
@@ -460,6 +464,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         callback: &CB,
         tx: &SanitizedTransaction,
         loaded_transaction: &mut LoadedTransaction,
+        feature_set: &FeatureSet,
         compute_budget: ComputeBudget,
         durable_nonce_fee: Option<DurableNonceFee>,
         recording_config: ExecutionRecordingConfig,
@@ -521,6 +526,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             programs_loaded_for_tx_batch.upcoming_environments.clone(),
             programs_loaded_for_tx_batch.latest_root_epoch,
         );
+        let feature_set = feature_set.clone();
         let sysvar_cache = &self.sysvar_cache.read().unwrap();
 
         let mut invoke_context = InvokeContext::new(
@@ -530,7 +536,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             compute_budget,
             programs_loaded_for_tx_batch,
             &mut programs_modified_by_tx,
-            callback.get_feature_set(),
+            Arc::new(feature_set),
             blockhash,
             lamports_per_signature,
         );
@@ -741,7 +747,6 @@ mod tests {
         solana_sdk::{
             account::{create_account_shared_data_for_test, WritableAccount},
             bpf_loader,
-            feature_set::FeatureSet,
             fee_calculator::FeeCalculator,
             hash::Hash,
             message::{LegacyMessage, Message, MessageHeader},
@@ -773,7 +778,6 @@ mod tests {
     #[derive(Default, Clone)]
     pub struct MockBankCallback {
         rent_collector: RentCollector,
-        feature_set: Arc<FeatureSet>,
         pub account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
     }
 
@@ -800,10 +804,6 @@ mod tests {
 
         fn get_rent_collector(&self) -> &RentCollector {
             &self.rent_collector
-        }
-
-        fn get_feature_set(&self) -> Arc<FeatureSet> {
-            self.feature_set.clone()
         }
 
         fn add_builtin_account(&self, name: &str, program_id: &Pubkey) {
@@ -883,6 +883,7 @@ mod tests {
         let loaded_programs = ProgramCacheForTxBatch::default();
         let mock_bank = MockBankCallback::default();
         let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
+        let feature_set = FeatureSet::default();
 
         let sanitized_transaction = SanitizedTransaction::new_for_tests(
             sanitized_message,
@@ -907,6 +908,7 @@ mod tests {
             &mock_bank,
             &sanitized_transaction,
             &mut loaded_transaction,
+            &feature_set,
             ComputeBudget::default(),
             None,
             record_config,
@@ -929,6 +931,7 @@ mod tests {
             &mock_bank,
             &sanitized_transaction,
             &mut loaded_transaction,
+            &feature_set,
             ComputeBudget::default(),
             None,
             record_config,
@@ -960,6 +963,7 @@ mod tests {
             &mock_bank,
             &sanitized_transaction,
             &mut loaded_transaction,
+            &feature_set,
             ComputeBudget::default(),
             None,
             record_config,
@@ -1033,6 +1037,7 @@ mod tests {
             &mock_bank,
             &sanitized_transaction,
             &mut loaded_transaction,
+            &FeatureSet::default(),
             ComputeBudget::default(),
             None,
             record_config,

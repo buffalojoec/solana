@@ -80,7 +80,7 @@ Validator and in third-party applications.
 
 The interface to SVM is represented by the
 `transaction_processor::TransactionBatchProcessor` struct.  To create
-a `TransactionBatchProcessor` object the client need to specify the
+a `TransactionBatchProcessor` object the client needs to specify the
 `slot`, `epoch`, `epoch_schedule`, `fee_structure`, `runtime_config`,
 and `program_cache`.
 
@@ -138,6 +138,9 @@ following arguments
         - a Hash of the message
         - a boolean flag `is_simple_vote_tx` -- explain
         - a vector of `Signature`  -- explain which signatures are in this vector
+    - `feature_set: &FeatureSet` The current runtime feature set, used to
+      determine conditional feature-gated SVM functionality to enable based on
+      the cluster's feature set.
     - `check_results` is a mutable slice of `TransactionCheckResult`
     - `error_counters` is a mutable reference to `TransactionErrorMetrics`
     - `recording_config` is a value of `ExecutionRecordingConfig` configuration parameters
