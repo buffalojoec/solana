@@ -85,6 +85,7 @@
 pub use sysvar_ids::ALL_IDS;
 use {
     crate::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey},
+    serde::de::DeserializeOwned,
     std::alloc::{alloc, Layout},
 };
 
@@ -227,6 +228,50 @@ pub trait Sysvar:
     /// [`ProgramError::UnsupportedSysvar`].
     fn get() -> Result<Self, ProgramError> {
         Err(ProgramError::UnsupportedSysvar)
+    }
+}
+
+/// Trait for retreiving entries from a list-based sysvar.
+pub trait SysvarEntries<T>: Sysvar
+where
+    T: DeserializeOwned,
+{
+    /// The size of the sysvar data's leading discriminator, such as a length.
+    const DISCRIMINATOR_SIZE: usize;
+    /// The size of an entry in the list-based sysvar.
+    const ENTRY_SIZE: usize;
+
+    /// Returns a slice of entries from the sysvar.
+    fn get_entries(start_index: usize, count: usize) -> Result<Vec<T>, ProgramError> {
+        let offset = start_index
+            .checked_mul(Self::ENTRY_SIZE)
+            .and_then(|p| p.checked_add(Self::DISCRIMINATOR_SIZE))
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        let length = count
+            .checked_mul(Self::ENTRY_SIZE)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+
+        let data = get_sysvar(&Self::id(), offset as u64, length as u64)?;
+
+        let mut result = Vec::with_capacity(count);
+        let mut start = 0;
+        let end = |start: usize| {
+            start
+                .checked_add(Self::ENTRY_SIZE)
+                .ok_or(ProgramError::ArithmeticOverflow)
+        };
+
+        for _ in 0..count {
+            let slice = data
+                .get(start..end(start)?)
+                .ok_or(ProgramError::InvalidArgument)?;
+            let entry =
+                bincode::deserialize::<T>(slice).map_err(|_| ProgramError::InvalidArgument)?;
+            result.push(entry);
+            start = end(start)?;
+        }
+
+        Ok(result)
     }
 }
 
