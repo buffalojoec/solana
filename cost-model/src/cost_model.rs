@@ -8,12 +8,9 @@
 use {
     crate::{block_cost_limits::*, transaction_cost::*},
     log::*,
-    solana_program_runtime::{
-        compute_budget::DEFAULT_HEAP_COST,
-        compute_budget_processor::{
-            process_compute_budget_instructions, DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT,
-            MAX_COMPUTE_UNIT_LIMIT,
-        },
+    solana_program_runtime::compute_budget_processor::{
+        process_compute_budget_instructions, DEFAULT_HEAP_COST,
+        DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT, MAX_COMPUTE_UNIT_LIMIT,
     },
     solana_sdk::{
         borsh1::try_from_slice_unchecked,
