@@ -81,9 +81,12 @@
 //!
 //! [sysvardoc]: https://docs.solanalabs.com/runtime/sysvars
 
-use crate::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
 #[allow(deprecated)]
 pub use sysvar_ids::ALL_IDS;
+use {
+    crate::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey},
+    std::alloc::{alloc, Layout},
+};
 
 pub mod clock;
 pub mod epoch_rewards;
@@ -249,12 +252,44 @@ macro_rules! impl_sysvar_get {
     };
 }
 
+/// Handler for retrieving a slice of sysvar data from the `sol_get_sysvar`
+/// syscall.
+fn get_sysvar<'a>(sysvar_id: &Pubkey, offset: u64, length: u64) -> Result<&'a [u8], ProgramError> {
+    let sysvar_id = sysvar_id as *const _ as *const u8;
+
+    // Allocate the memory region for the sysvar data to be written to.
+    let var = unsafe {
+        let length = length as usize;
+        let layout = Layout::from_size_align(length, std::mem::align_of::<u8>())
+            .map_err(|_| ProgramError::InvalidArgument)?;
+        let ptr = alloc(layout);
+        if ptr.is_null() {
+            return Err(ProgramError::InvalidArgument);
+        }
+        std::slice::from_raw_parts_mut(ptr, length)
+    };
+
+    let var_addr = var as *mut _ as *mut u8;
+
+    #[cfg(target_os = "solana")]
+    let result = unsafe { crate::syscalls::sol_get_sysvar(sysvar_id, var_addr, offset, length) };
+
+    #[cfg(not(target_os = "solana"))]
+    let result = crate::program_stubs::sol_get_sysvar(sysvar_id, var_addr, offset, length);
+
+    match result {
+        crate::entrypoint::SUCCESS => Ok(var),
+        e => Err(e.into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use {
         super::*,
         crate::{clock::Epoch, program_error::ProgramError, pubkey::Pubkey},
         std::{cell::RefCell, rc::Rc},
+        test_case::test_case,
     };
 
     #[repr(C)]
@@ -306,5 +341,32 @@ mod tests {
         let mut small_data = vec![];
         account_info.data = Rc::new(RefCell::new(&mut small_data));
         assert_eq!(test_sysvar.to_account_info(&mut account_info), None);
+    }
+
+    // As long as we use a test sysvar ID and we're _not_ testing from a BPF
+    // context, the `sol_get_sysvar` syscall will always return
+    // `ProgramError::UnsupportedSysvar`, since the ID will not match any
+    // sysvars in the Sysvar Cache.
+    // Under this condition, we can test the pointer allocation by keying on
+    // `ProgramError::InvalidArgument`.
+    // Also, `offset` is only used in the syscall, _not_ the pointer
+    // allocation.
+    #[test_case(0)]
+    #[test_case(2)]
+    #[test_case(64)]
+    #[test_case(99)]
+    #[test_case(1024)]
+    #[test_case(1234)]
+    #[test_case(65_536)]
+    #[test_case(70_000)]
+    #[test_case(70_001)]
+    #[test_case(4_294_967_296)]
+    #[test_case(8_000_000_000)]
+    #[test_case(8_000_000_001)]
+    fn test_get_sysvar_alloc(length: u64) {
+        assert_eq!(
+            get_sysvar(&crate::sysvar::tests::id(), 0, length).unwrap_err(),
+            ProgramError::UnsupportedSysvar,
+        );
     }
 }
