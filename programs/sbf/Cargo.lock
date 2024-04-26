@@ -4848,6 +4848,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-compute-budget"
+version = "2.0.0"
+
+[[package]]
 name = "solana-compute-budget-program"
 version = "2.0.0"
 dependencies = [
@@ -5380,6 +5384,7 @@ dependencies = [
  "rand 0.8.5",
  "rustc_version",
  "serde",
+ "solana-compute-budget",
  "solana-measure",
  "solana-metrics",
  "solana-sdk",
