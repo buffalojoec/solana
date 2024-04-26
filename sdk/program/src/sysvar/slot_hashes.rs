@@ -46,7 +46,12 @@
 //! ```
 
 pub use crate::slot_hashes::SlotHashes;
-use crate::{account_info::AccountInfo, program_error::ProgramError, sysvar::Sysvar};
+use crate::{
+    account_info::AccountInfo,
+    program_error::ProgramError,
+    slot_hashes::SlotHash,
+    sysvar::{Sysvar, SysvarEntries},
+};
 
 crate::declare_sysvar_id!("SysvarS1otHashes111111111111111111111111111", SlotHashes);
 
@@ -60,6 +65,13 @@ impl Sysvar for SlotHashes {
         // This sysvar is too large to bincode::deserialize in-program
         Err(ProgramError::UnsupportedSysvar)
     }
+}
+
+impl SysvarEntries<SlotHash> for SlotHashes {
+    // Rust's `serde::Serialize` will serialize a `usize` as a `u64` on 64-bit
+    // systems for vector length prefixes.
+    const DISCRIMINATOR_SIZE: usize = 8;
+    const ENTRY_SIZE: usize = std::mem::size_of::<SlotHash>();
 }
 
 #[cfg(test)]
