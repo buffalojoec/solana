@@ -458,11 +458,13 @@ mod tests {
             transaction_processing_callback::TransactionProcessingCallback,
         },
         nonce::state::Versions as NonceVersions,
+        solana_compute_budget::prioritization_fee::{
+            PrioritizationFeeDetails, PrioritizationFeeType,
+        },
         solana_program_runtime::{
             compute_budget::ComputeBudget,
             compute_budget_processor,
             loaded_programs::{ProgramCacheEntry, ProgramCacheForTxBatch},
-            prioritization_fee::{PrioritizationFeeDetails, PrioritizationFeeType},
         },
         solana_sdk::{
             account::{AccountSharedData, ReadableAccount, WritableAccount},
