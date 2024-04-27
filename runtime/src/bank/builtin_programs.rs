@@ -78,6 +78,7 @@ mod tests_core_bpf_migration {
         solana_sdk::{
             account::{AccountSharedData, ReadableAccount, WritableAccount},
             bpf_loader_upgradeable::{self, get_program_data_address, UpgradeableLoaderState},
+            epoch_schedule::EpochSchedule,
             feature::{self, Feature},
             feature_set::FeatureSet,
             instruction::Instruction,
@@ -135,7 +136,12 @@ mod tests_core_bpf_migration {
     #[test_case(TestPrototype::Builtin(&BUILTINS[8]); "address_lookup_table")]
     #[test_case(TestPrototype::Stateless(&STATELESS_BUILTINS[0]); "feature_gate")]
     fn test_core_bpf_migration(prototype: TestPrototype) {
-        let (genesis_config, mint_keypair) = create_genesis_config(1_000_000 * LAMPORTS_PER_SOL);
+        let (mut genesis_config, mint_keypair) =
+            create_genesis_config(1_000_000 * LAMPORTS_PER_SOL);
+        let slots_per_epoch = 32;
+        genesis_config.epoch_schedule =
+            EpochSchedule::custom(slots_per_epoch, slots_per_epoch, false);
+
         let mut root_bank = Bank::new_for_tests(&genesis_config);
 
         let (builtin_id, config) = prototype.deconstruct();
@@ -159,7 +165,13 @@ mod tests_core_bpf_migration {
         let (bank, bank_forks) = root_bank.wrap_with_bank_forks_for_tests();
 
         // Advance to the next epoch without activating the feature.
-        let bank = new_bank_from_parent_with_bank_forks(&bank_forks, bank, &Pubkey::default(), 33);
+        let mut first_slot_in_next_epoch = slots_per_epoch + 1;
+        let bank = new_bank_from_parent_with_bank_forks(
+            &bank_forks,
+            bank,
+            &Pubkey::default(),
+            first_slot_in_next_epoch,
+        );
 
         // Assert the feature was not activated and the program was not
         // migrated.
@@ -175,11 +187,18 @@ mod tests_core_bpf_migration {
         // Advance the bank to cross the epoch boundary and activate the
         // feature.
         goto_end_of_slot(bank.clone());
-        let bank = new_bank_from_parent_with_bank_forks(&bank_forks, bank, &Pubkey::default(), 96);
+        first_slot_in_next_epoch += slots_per_epoch;
+        let migration_slot = first_slot_in_next_epoch;
+        let bank = new_bank_from_parent_with_bank_forks(
+            &bank_forks,
+            bank,
+            &Pubkey::default(),
+            first_slot_in_next_epoch,
+        );
 
         // Run the post-migration program checks.
         assert!(bank.feature_set.is_active(feature_id));
-        test_context.run_program_checks_post_migration(&bank, 96);
+        test_context.run_program_checks_post_migration(&bank, migration_slot);
 
         // Advance one slot so that the new BPF builtin program becomes
         // effective in the program cache.
@@ -201,11 +220,17 @@ mod tests_core_bpf_migration {
 
         // Simulate crossing another epoch boundary for a new bank.
         goto_end_of_slot(bank.clone());
-        let bank = new_bank_from_parent_with_bank_forks(&bank_forks, bank, &Pubkey::default(), 224);
+        first_slot_in_next_epoch += slots_per_epoch;
+        let bank = new_bank_from_parent_with_bank_forks(
+            &bank_forks,
+            bank,
+            &Pubkey::default(),
+            first_slot_in_next_epoch,
+        );
 
         // Run the post-migration program checks again.
         assert!(bank.feature_set.is_active(feature_id));
-        test_context.run_program_checks_post_migration(&bank, 96);
+        test_context.run_program_checks_post_migration(&bank, migration_slot);
 
         // Again, successfully invoke the new BPF builtin program.
         bank.process_transaction(&Transaction::new(
