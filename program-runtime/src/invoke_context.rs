@@ -1,6 +1,7 @@
 use {
     crate::{
         compute_budget::ComputeBudget,
+        compute_meter::ComputeMeter,
         ic_msg,
         loaded_programs::{
             ProgramCacheEntry, ProgramCacheEntryType, ProgramCacheForTxBatch,
@@ -97,14 +98,11 @@ impl<'a> ContextObject for InvokeContext<'a> {
     }
 
     fn consume(&mut self, amount: u64) {
-        // 1 to 1 instruction to compute unit mapping
-        // ignore overflow, Ebpf will bail if exceeded
-        let mut compute_meter = self.compute_meter.borrow_mut();
-        *compute_meter = compute_meter.saturating_sub(amount);
+        self.compute_meter.consume(amount)
     }
 
     fn get_remaining(&self) -> u64 {
-        *self.compute_meter.borrow()
+        self.compute_meter.get_remaining()
     }
 }
 
@@ -189,10 +187,12 @@ pub struct InvokeContext<'a> {
     pub program_cache_for_tx_batch: &'a ProgramCacheForTxBatch,
     /// Runtime configurations used to provision the invocation environment.
     pub environment_config: EnvironmentConfig<'a>,
+    /// Instruction compute meter, for tracking compute units consumed against
+    /// some designated budget during program execution.
+    compute_meter: ComputeMeter,
     log_collector: Option<Rc<RefCell<LogCollector>>>,
     compute_budget: ComputeBudget,
     current_compute_budget: ComputeBudget,
-    compute_meter: RefCell<u64>,
     pub programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     pub timings: ExecuteDetailsTimings,
     pub syscall_context: Vec<Option<SyscallContext>>,
@@ -213,10 +213,10 @@ impl<'a> InvokeContext<'a> {
             transaction_context,
             program_cache_for_tx_batch,
             environment_config,
+            compute_meter: ComputeMeter::new(compute_budget),
             log_collector,
             current_compute_budget: compute_budget,
             compute_budget,
-            compute_meter: RefCell::new(compute_budget.compute_unit_limit),
             programs_modified_by_tx,
             timings: ExecuteDetailsTimings::default(),
             syscall_context: Vec::new(),
@@ -574,20 +574,14 @@ impl<'a> InvokeContext<'a> {
 
     /// Consume compute units
     pub fn consume_checked(&self, amount: u64) -> Result<(), Box<dyn std::error::Error>> {
-        let mut compute_meter = self.compute_meter.borrow_mut();
-        let exceeded = *compute_meter < amount;
-        *compute_meter = compute_meter.saturating_sub(amount);
-        if exceeded {
-            return Err(Box::new(InstructionError::ComputationalBudgetExceeded));
-        }
-        Ok(())
+        self.compute_meter.consume_checked(amount)
     }
 
     /// Set compute units
     ///
     /// Only use for tests and benchmarks
     pub fn mock_set_remaining(&self, remaining: u64) {
-        *self.compute_meter.borrow_mut() = remaining;
+        self.compute_meter.mock_set_remaining(remaining)
     }
 
     /// Get this invocation's compute budget
