@@ -192,7 +192,6 @@ pub struct InvokeContext<'a> {
     compute_meter: ComputeMeter,
     log_collector: Option<Rc<RefCell<LogCollector>>>,
     compute_budget: ComputeBudget,
-    current_compute_budget: ComputeBudget,
     pub programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     pub timings: ExecuteDetailsTimings,
     pub syscall_context: Vec<Option<SyscallContext>>,
@@ -215,7 +214,6 @@ impl<'a> InvokeContext<'a> {
             environment_config,
             compute_meter: ComputeMeter::new(compute_budget),
             log_collector,
-            current_compute_budget: compute_budget,
             compute_budget,
             programs_modified_by_tx,
             timings: ExecuteDetailsTimings::default(),
@@ -258,7 +256,8 @@ impl<'a> InvokeContext<'a> {
             .get_instruction_context_stack_height()
             == 0
         {
-            self.current_compute_budget = self.compute_budget;
+            self.compute_meter
+                .update_current_budget(self.compute_budget);
         } else {
             let contains = (0..self
                 .transaction_context
@@ -586,7 +585,7 @@ impl<'a> InvokeContext<'a> {
 
     /// Get this invocation's compute budget
     pub fn get_compute_budget(&self) -> &ComputeBudget {
-        &self.current_compute_budget
+        self.compute_meter.get_current_budget()
     }
 
     /// Get the current feature set.

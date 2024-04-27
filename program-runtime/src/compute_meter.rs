@@ -42,4 +42,12 @@ impl ComputeMeter {
     pub(crate) fn mock_set_remaining(&self, remaining: u64) {
         *self.meter.borrow_mut() = remaining;
     }
+
+    pub(crate) fn get_current_budget(&self) -> &ComputeBudget {
+        &self.current_budget
+    }
+
+    pub(crate) fn update_current_budget(&mut self, budget: ComputeBudget) {
+        self.current_budget = budget;
+    }
 }
