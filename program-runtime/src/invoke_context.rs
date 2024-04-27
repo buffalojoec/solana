@@ -191,7 +191,6 @@ pub struct InvokeContext<'a> {
     /// some designated budget during program execution.
     compute_meter: ComputeMeter,
     log_collector: Option<Rc<RefCell<LogCollector>>>,
-    compute_budget: ComputeBudget,
     pub programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     pub timings: ExecuteDetailsTimings,
     pub syscall_context: Vec<Option<SyscallContext>>,
@@ -214,7 +213,6 @@ impl<'a> InvokeContext<'a> {
             environment_config,
             compute_meter: ComputeMeter::new(compute_budget),
             log_collector,
-            compute_budget,
             programs_modified_by_tx,
             timings: ExecuteDetailsTimings::default(),
             syscall_context: Vec::new(),
@@ -256,8 +254,7 @@ impl<'a> InvokeContext<'a> {
             .get_instruction_context_stack_height()
             == 0
         {
-            self.compute_meter
-                .update_current_budget(self.compute_budget);
+            self.compute_meter.update_current_budget();
         } else {
             let contains = (0..self
                 .transaction_context
@@ -1125,9 +1122,11 @@ mod tests {
             vec![(solana_sdk::pubkey::new_rand(), AccountSharedData::default())];
 
         with_mock_invoke_context!(invoke_context, transaction_context, transaction_accounts);
-        invoke_context.compute_budget = ComputeBudget::new(
-            compute_budget_processor::DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT as u64,
-        );
+        invoke_context
+            .compute_meter
+            .set_budget_for_tests(ComputeBudget::new(
+                compute_budget_processor::DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT as u64,
+            ));
 
         invoke_context
             .transaction_context

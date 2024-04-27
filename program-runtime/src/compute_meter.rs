@@ -47,7 +47,12 @@ impl ComputeMeter {
         &self.current_budget
     }
 
-    pub(crate) fn update_current_budget(&mut self, budget: ComputeBudget) {
-        self.current_budget = budget;
+    pub(crate) fn update_current_budget(&mut self) {
+        self.current_budget = self.budget;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_budget_for_tests(&mut self, budget: ComputeBudget) {
+        self.budget = budget
     }
 }
