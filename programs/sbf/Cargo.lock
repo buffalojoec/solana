@@ -4850,6 +4850,9 @@ dependencies = [
 [[package]]
 name = "solana-compute-budget"
 version = "2.0.0"
+dependencies = [
+ "solana-sdk",
+]
 
 [[package]]
 name = "solana-compute-budget-program"
@@ -4926,6 +4929,7 @@ dependencies = [
  "solana-accounts-db",
  "solana-bloom",
  "solana-client",
+ "solana-compute-budget",
  "solana-cost-model",
  "solana-entry",
  "solana-geyser-plugin-manager",
@@ -4974,11 +4978,11 @@ dependencies = [
  "rustc_version",
  "solana-address-lookup-table-program",
  "solana-bpf-loader-program",
+ "solana-compute-budget",
  "solana-compute-budget-program",
  "solana-config-program",
  "solana-loader-v4-program",
  "solana-metrics",
- "solana-program-runtime",
  "solana-sdk",
  "solana-stake-program",
  "solana-system-program",
@@ -5653,6 +5657,7 @@ dependencies = [
  "solana-address-lookup-table-program",
  "solana-bpf-loader-program",
  "solana-bucket-map",
+ "solana-compute-budget",
  "solana-compute-budget-program",
  "solana-config-program",
  "solana-cost-model",
@@ -6289,6 +6294,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "solana-bpf-loader-program",
+ "solana-compute-budget",
  "solana-loader-v4-program",
  "solana-measure",
  "solana-metrics",
