@@ -5,7 +5,6 @@ use {
 
 pub(crate) struct ComputeMeter {
     budget: ComputeBudget,
-    current_budget: ComputeBudget,
     meter: RefCell<u64>,
 }
 
@@ -13,7 +12,6 @@ impl ComputeMeter {
     pub(crate) fn new(budget: ComputeBudget) -> Self {
         Self {
             budget,
-            current_budget: budget,
             meter: RefCell::new(budget.compute_unit_limit),
         }
     }
@@ -43,12 +41,8 @@ impl ComputeMeter {
         *self.meter.borrow_mut() = remaining;
     }
 
-    pub(crate) fn get_current_budget(&self) -> &ComputeBudget {
-        &self.current_budget
-    }
-
-    pub(crate) fn update_current_budget(&mut self) {
-        self.current_budget = self.budget;
+    pub(crate) fn get_budget(&self) -> &ComputeBudget {
+        &self.budget
     }
 
     #[cfg(test)]

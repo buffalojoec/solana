@@ -254,7 +254,6 @@ impl<'a> InvokeContext<'a> {
             .get_instruction_context_stack_height()
             == 0
         {
-            self.compute_meter.update_current_budget();
         } else {
             let contains = (0..self
                 .transaction_context
@@ -582,7 +581,7 @@ impl<'a> InvokeContext<'a> {
 
     /// Get this invocation's compute budget
     pub fn get_compute_budget(&self) -> &ComputeBudget {
-        self.compute_meter.get_current_budget()
+        self.compute_meter.get_budget()
     }
 
     /// Get the current feature set.
