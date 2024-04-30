@@ -48,7 +48,7 @@ impl MessageProcessor {
             .enumerate()
         {
             let is_precompile = is_precompile(program_id, |id| {
-                invoke_context.environment_config.feature_set.is_active(id)
+                invoke_context.get_feature_set().is_active(id)
             });
 
             // Fixup the special instructions key if present

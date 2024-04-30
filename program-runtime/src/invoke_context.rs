@@ -594,6 +594,18 @@ impl<'a> InvokeContext<'a> {
         &self.current_compute_budget
     }
 
+    /// Get the current feature set.
+    pub fn get_feature_set(&self) -> &FeatureSet {
+        &self.environment_config.feature_set
+    }
+
+    /// Set feature set.
+    ///
+    /// Only use for tests and benchmarks.
+    pub fn mock_set_feature_set(&mut self, feature_set: Arc<FeatureSet>) {
+        self.environment_config.feature_set = feature_set;
+    }
+
     /// Get cached sysvars
     pub fn get_sysvar_cache(&self) -> &SysvarCache {
         self.environment_config.sysvar_cache
