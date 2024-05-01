@@ -38,8 +38,9 @@ use {
             disable_deploy_of_alloc_free_syscall, disable_fees_sysvar,
             enable_alt_bn128_compression_syscall, enable_alt_bn128_syscall,
             enable_big_mod_exp_syscall, enable_partitioned_epoch_reward, enable_poseidon_syscall,
-            error_on_syscall_bpf_function_hash_collisions, last_restart_slot_sysvar,
-            reject_callx_r10, remaining_compute_units_syscall_enabled, switch_to_new_elf_parser,
+            enable_syscall_get_epoch_stake, error_on_syscall_bpf_function_hash_collisions,
+            last_restart_slot_sysvar, reject_callx_r10, remaining_compute_units_syscall_enabled,
+            switch_to_new_elf_parser,
         },
         hash::{Hash, Hasher},
         instruction::{AccountMeta, InstructionError, ProcessedSiblingInstruction},
@@ -278,6 +279,8 @@ pub fn create_program_runtime_environment_v1<'a>(
     let enable_poseidon_syscall = feature_set.is_active(&enable_poseidon_syscall::id());
     let remaining_compute_units_syscall_enabled =
         feature_set.is_active(&remaining_compute_units_syscall_enabled::id());
+    let enable_syscall_get_epoch_stake =
+        feature_set.is_active(&enable_syscall_get_epoch_stake::id());
     // !!! ATTENTION !!!
     // When adding new features for RBPF here,
     // also add them to `Bank::apply_builtin_program_feature_transitions()`.
@@ -462,6 +465,14 @@ pub fn create_program_runtime_environment_v1<'a>(
         enable_alt_bn128_compression_syscall,
         *b"sol_alt_bn128_compression",
         SyscallAltBn128Compression::vm,
+    )?;
+
+    // Get Epoch Stake
+    register_feature_gated_function!(
+        result,
+        enable_syscall_get_epoch_stake,
+        *b"sol_syscall_get_epoch_stake",
+        SyscallGetEpochStake::vm,
     )?;
 
     // Log data
@@ -1993,6 +2004,37 @@ declare_builtin_function!(
             }
         }
         hash_result.copy_from_slice(hasher.result().as_ref());
+        Ok(0)
+    }
+);
+
+declare_builtin_function!(
+    // Get Epoch Stake Syscall
+    SyscallGetEpochStake,
+    fn rust(
+        invoke_context: &mut InvokeContext,
+        var_addr: u64,
+        vote_address: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        memory_mapping: &mut MemoryMapping,
+    ) -> Result<u64, Error> {
+        let compute_budget = invoke_context.get_compute_budget();
+        let div_by_cpi = |n: u64| -> u64 {
+            n.checked_div(compute_budget.cpi_bytes_per_unit)
+                .unwrap_or(u64::MAX)
+        };
+        consume_compute_meter(invoke_context, div_by_cpi(32).saturating_add(div_by_cpi(8)))?;
+
+        let check_aligned = invoke_context.get_check_aligned();
+
+        let vote_address = translate_type::<Pubkey>(memory_mapping, vote_address, check_aligned)?;
+
+        let var = translate_type_mut::<u64>(memory_mapping, var_addr, check_aligned)?;
+
+        *var = (invoke_context.get_epoch_stake_callback)(vote_address);
+
         Ok(0)
     }
 );
