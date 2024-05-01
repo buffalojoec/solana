@@ -1,6 +1,8 @@
 pub(crate) mod error;
 mod source_buffer;
 mod target_builtin;
+#[allow(unused)] // Removed in later commit.
+mod target_core_bpf;
 
 use {
     crate::bank::Bank,
