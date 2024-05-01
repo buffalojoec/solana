@@ -39,7 +39,8 @@ use {
             self, abort_on_invalid_curve, blake3_syscall_enabled, curve25519_syscall_enabled,
             disable_deploy_of_alloc_free_syscall, disable_fees_sysvar,
             enable_alt_bn128_compression_syscall, enable_alt_bn128_syscall,
-            enable_big_mod_exp_syscall, enable_partitioned_epoch_reward, enable_poseidon_syscall,
+            enable_big_mod_exp_syscall, enable_get_epoch_stake_syscall,
+            enable_partitioned_epoch_reward, enable_poseidon_syscall,
             error_on_syscall_bpf_function_hash_collisions, get_sysvar_syscall_enabled,
             last_restart_slot_sysvar, reject_callx_r10, remaining_compute_units_syscall_enabled,
             switch_to_new_elf_parser,
@@ -50,7 +51,7 @@ use {
         precompiles::is_precompile,
         program::MAX_RETURN_DATA,
         program_stubs::is_nonoverlapping,
-        pubkey::{Pubkey, PubkeyError, MAX_SEEDS, MAX_SEED_LEN},
+        pubkey::{Pubkey, PubkeyError, MAX_SEEDS, MAX_SEED_LEN, PUBKEY_BYTES},
         secp256k1_recover::{
             Secp256k1RecoverError, SECP256K1_PUBLIC_KEY_LENGTH, SECP256K1_SIGNATURE_LENGTH,
         },
@@ -282,6 +283,8 @@ pub fn create_program_runtime_environment_v1<'a>(
     let remaining_compute_units_syscall_enabled =
         feature_set.is_active(&remaining_compute_units_syscall_enabled::id());
     let get_sysvar_syscall_enabled = feature_set.is_active(&get_sysvar_syscall_enabled::id());
+    let enable_get_epoch_stake_syscall =
+        feature_set.is_active(&enable_get_epoch_stake_syscall::id());
     // !!! ATTENTION !!!
     // When adding new features for RBPF here,
     // also add them to `Bank::apply_builtin_program_feature_transitions()`.
@@ -474,6 +477,14 @@ pub fn create_program_runtime_environment_v1<'a>(
         get_sysvar_syscall_enabled,
         *b"sol_get_sysvar",
         SyscallGetSysvar::vm,
+    )?;
+
+    // Get Epoch Stake
+    register_feature_gated_function!(
+        result,
+        enable_get_epoch_stake_syscall,
+        *b"sol_get_epoch_stake",
+        SyscallGetEpochStake::vm,
     )?;
 
     // Log data
@@ -2006,6 +2017,59 @@ declare_builtin_function!(
         }
         hash_result.copy_from_slice(hasher.result().as_ref());
         Ok(0)
+    }
+);
+
+declare_builtin_function!(
+    // Get Epoch Stake Syscall
+    SyscallGetEpochStake,
+    fn rust(
+        invoke_context: &mut InvokeContext,
+        vote_address: u64,
+        _arg2: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        memory_mapping: &mut MemoryMapping,
+    ) -> Result<u64, Error> {
+        // Compute units, as specified by SIMD-0133.
+        // cu = syscall_base_cost
+        //     + floor(32/cpi_bytes_per_unit)
+        //     + mem_op_base_cost
+        let compute_budget = invoke_context.get_compute_budget();
+        let compute_units = compute_budget
+            .syscall_base_cost
+            .saturating_add(
+                (PUBKEY_BYTES as u64)
+                    .checked_div(compute_budget.cpi_bytes_per_unit)
+                    .unwrap_or(u64::MAX),
+            )
+            .saturating_add(compute_budget.mem_op_base_cost);
+
+        consume_compute_meter(invoke_context, compute_units)?;
+
+        // Control flow, as specified by SIMD-0133.
+        // * The syscall aborts the virtual machine if not all bytes in VM
+        //   memory range `[vote_addr, vote_addr + 32)` are readable.
+        // * Otherwise, the syscall returns a `u64` integer representing the
+        //   total active stake delegated to the vote account at the provided
+        //   address.
+        //   * If the provided vote address corresponds to an account that is
+        //     not a vote account or does not exist, the syscall will return
+        //     `0` for active stake.
+        let check_aligned = invoke_context.get_check_aligned();
+        let vote_address = translate_type::<Pubkey>(memory_mapping, vote_address, check_aligned)?;
+
+        Ok(
+            if let Some(vote_accounts) = invoke_context.get_vote_accounts() {
+                vote_accounts
+                    .get(vote_address)
+                    .map(|(stake, _)| *stake)
+                    .unwrap_or(0)
+            } else {
+                0
+            },
+        )
     }
 );
 
