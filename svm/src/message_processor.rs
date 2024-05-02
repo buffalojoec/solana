@@ -278,6 +278,7 @@ mod tests {
             Hash::default(),
             Arc::new(FeatureSet::all_enabled()),
             0,
+            None,
             &sysvar_cache,
         );
         let mut invoke_context = InvokeContext::new(
@@ -332,6 +333,7 @@ mod tests {
             Hash::default(),
             Arc::new(FeatureSet::all_enabled()),
             0,
+            None,
             &sysvar_cache,
         );
         let mut invoke_context = InvokeContext::new(
@@ -376,6 +378,7 @@ mod tests {
             Hash::default(),
             Arc::new(FeatureSet::all_enabled()),
             0,
+            None,
             &sysvar_cache,
         );
         let mut invoke_context = InvokeContext::new(
@@ -511,6 +514,7 @@ mod tests {
             Hash::default(),
             Arc::new(FeatureSet::all_enabled()),
             0,
+            None,
             &sysvar_cache,
         );
         let mut invoke_context = InvokeContext::new(
@@ -550,6 +554,7 @@ mod tests {
             Hash::default(),
             Arc::new(FeatureSet::all_enabled()),
             0,
+            None,
             &sysvar_cache,
         );
         let mut invoke_context = InvokeContext::new(
@@ -586,6 +591,7 @@ mod tests {
             Hash::default(),
             Arc::new(FeatureSet::all_enabled()),
             0,
+            None,
             &sysvar_cache,
         );
         let mut invoke_context = InvokeContext::new(
@@ -683,6 +689,7 @@ mod tests {
             Hash::default(),
             Arc::new(FeatureSet::all_enabled()),
             0,
+            None,
             &sysvar_cache,
         );
         let mut invoke_context = InvokeContext::new(

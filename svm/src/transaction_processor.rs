@@ -538,6 +538,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 blockhash,
                 callback.get_feature_set(),
                 lamports_per_signature,
+                callback.get_vote_accounts(),
                 sysvar_cache,
             ),
             log_collector.clone(),

@@ -175,7 +175,13 @@ impl Bank {
 
             let mut dummy_invoke_context = InvokeContext::new(
                 &mut dummy_transaction_context,
-                EnvironmentConfig::new(Hash::default(), self.feature_set.clone(), 0, &sysvar_cache),
+                EnvironmentConfig::new(
+                    Hash::default(),
+                    self.feature_set.clone(),
+                    0,
+                    None,
+                    &sysvar_cache,
+                ),
                 None,
                 compute_budget,
                 &programs_loaded,
