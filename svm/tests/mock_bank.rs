@@ -8,6 +8,7 @@ use {
         rent_collector::RentCollector,
     },
     solana_svm::transaction_processing_callback::TransactionProcessingCallback,
+    solana_vote::vote_account::VoteAccountsHashMap,
     std::{cell::RefCell, collections::HashMap, sync::Arc},
 };
 
@@ -46,6 +47,10 @@ impl TransactionProcessingCallback for MockBankCallback {
 
     fn get_feature_set(&self) -> Arc<FeatureSet> {
         self.feature_set.clone()
+    }
+
+    fn get_vote_accounts(&self) -> Option<&VoteAccountsHashMap> {
+        None
     }
 
     fn add_builtin_account(&self, name: &str, program_id: &Pubkey) {

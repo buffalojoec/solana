@@ -4,6 +4,7 @@ use {
         account::AccountSharedData, feature_set::FeatureSet, hash::Hash, pubkey::Pubkey,
         rent_collector::RentCollector,
     },
+    solana_vote::vote_account::VoteAccountsHashMap,
     std::sync::Arc,
 };
 
@@ -18,6 +19,8 @@ pub trait TransactionProcessingCallback {
     fn get_rent_collector(&self) -> &RentCollector;
 
     fn get_feature_set(&self) -> Arc<FeatureSet>;
+
+    fn get_vote_accounts(&self) -> Option<&VoteAccountsHashMap>;
 
     fn get_program_match_criteria(&self, _program: &Pubkey) -> ProgramCacheMatchCriteria {
         ProgramCacheMatchCriteria::NoCriteria

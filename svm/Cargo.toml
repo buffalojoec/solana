@@ -22,6 +22,7 @@ solana-metrics = { workspace = true }
 solana-program-runtime = { workspace = true }
 solana-sdk = { workspace = true }
 solana-system-program = { workspace = true }
+solana-vote = { workspace = true }
 
 [lib]
 crate-type = ["lib"]
