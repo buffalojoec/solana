@@ -36,6 +36,7 @@ use {
             IndexOfAccount, InstructionAccount, TransactionAccount, TransactionContext,
         },
     },
+    solana_vote::vote_account::VoteAccountsHashMap,
     std::{
         alloc::Layout,
         cell::RefCell,
@@ -148,6 +149,7 @@ pub struct EnvironmentConfig<'a> {
     pub blockhash: Hash,
     pub feature_set: Arc<FeatureSet>,
     pub lamports_per_signature: u64,
+    vote_accounts: Option<&'a VoteAccountsHashMap>,
     sysvar_cache: &'a SysvarCache,
 }
 impl<'a> EnvironmentConfig<'a> {
@@ -155,12 +157,14 @@ impl<'a> EnvironmentConfig<'a> {
         blockhash: Hash,
         feature_set: Arc<FeatureSet>,
         lamports_per_signature: u64,
+        vote_accounts: Option<&'a VoteAccountsHashMap>,
         sysvar_cache: &'a SysvarCache,
     ) -> Self {
         Self {
             blockhash,
             feature_set,
             lamports_per_signature,
+            vote_accounts,
             sysvar_cache,
         }
     }
@@ -614,6 +618,11 @@ impl<'a> InvokeContext<'a> {
         self.environment_config.sysvar_cache
     }
 
+    /// Get cached vote accounts.
+    pub fn get_vote_accounts(&self) -> Option<&VoteAccountsHashMap> {
+        self.environment_config.vote_accounts
+    }
+
     // Should alignment be enforced during user pointer translation
     pub fn get_check_aligned(&self) -> bool {
         self.transaction_context
@@ -712,6 +721,7 @@ macro_rules! with_mock_invoke_context {
             Hash::default(),
             Arc::new(FeatureSet::all_enabled()),
             0,
+            /* vote_accounts */ None,
             &sysvar_cache,
         );
         let program_cache_for_tx_batch = ProgramCacheForTxBatch::default();

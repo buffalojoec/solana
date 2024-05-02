@@ -467,6 +467,7 @@ fn execute_fixture_as_instr(
         mock_bank.blockhash,
         mock_bank.feature_set.clone(),
         mock_bank.lamports_per_sginature,
+        None,
         sysvar_cache,
     );
 
