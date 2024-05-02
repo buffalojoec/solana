@@ -6838,6 +6838,10 @@ impl TransactionProcessingCallback for Bank {
         self.feature_set.clone()
     }
 
+    fn get_vote_accounts(&self) -> Option<&VoteAccountsHashMap> {
+        self.epoch_vote_accounts(self.epoch())
+    }
+
     fn get_program_match_criteria(&self, program: &Pubkey) -> ProgramCacheMatchCriteria {
         if self.check_program_modification_slot {
             self.program_modification_slot(program)
