@@ -2088,7 +2088,8 @@ mod tests {
                 self, clock::Clock, epoch_rewards::EpochRewards, epoch_schedule::EpochSchedule,
             },
         },
-        std::{mem, str::FromStr},
+        solana_vote::vote_account::VoteAccount,
+        std::{collections::HashMap, mem, str::FromStr},
     };
 
     macro_rules! assert_access_violation {
@@ -4257,6 +4258,160 @@ mod tests {
             assert_matches!(
                 result,
                 Result::Err(error) if error.downcast_ref::<SyscallError>().unwrap() == &SyscallError::InvalidLength
+            );
+        }
+    }
+
+    #[test]
+    fn test_syscall_get_epoch_stake() {
+        let config = Config::default();
+        let compute_budget = ComputeBudget::default();
+        let sysvar_cache = Arc::<SysvarCache>::default();
+
+        let expected_epoch_stake = 55_000_000_000u64;
+        let expected_cus = compute_budget.syscall_base_cost
+            + 32 / compute_budget.cpi_bytes_per_unit
+            + compute_budget.mem_op_base_cost;
+
+        let vote_address = Pubkey::new_unique();
+        let mut vote_accounts_map = HashMap::new();
+        vote_accounts_map.insert(
+            vote_address,
+            (
+                expected_epoch_stake,
+                VoteAccount::try_from(AccountSharedData::new(
+                    0,
+                    0,
+                    &solana_sdk::vote::program::id(),
+                ))
+                .unwrap(),
+            ),
+        );
+
+        with_mock_invoke_context!(invoke_context, transaction_context, vec![]);
+        invoke_context.environment_config = EnvironmentConfig::new(
+            Hash::default(),
+            Arc::<FeatureSet>::default(),
+            0,
+            Some(&vote_accounts_map),
+            &sysvar_cache,
+        );
+
+        {
+            // The syscall aborts the virtual machine if not all bytes in VM
+            // memory range `[vote_addr, vote_addr + 32)` are readable.
+            let vote_address_var = 0x100000000;
+
+            let mut memory_mapping = MemoryMapping::new(
+                vec![
+                    // Invalid read-only memory region.
+                    MemoryRegion::new_readonly(&[2; 31], vote_address_var),
+                ],
+                &config,
+                &SBPFVersion::V2,
+            )
+            .unwrap();
+
+            let result = SyscallGetEpochStake::rust(
+                &mut invoke_context,
+                vote_address_var,
+                0,
+                0,
+                0,
+                0,
+                &mut memory_mapping,
+            );
+
+            assert_access_violation!(result, vote_address_var, 32);
+
+            // Compute units, as specified by SIMD-0133.
+            // cu = syscall_base_cost
+            //     + floor(32/cpi_bytes_per_unit)
+            //     + mem_op_base_cost
+            assert_eq!(
+                invoke_context.get_compute_meter().to_owned(),
+                compute_budget.compute_unit_limit - expected_cus
+            );
+        }
+
+        invoke_context.mock_set_remaining(compute_budget.compute_unit_limit);
+        {
+            // Otherwise, the syscall returns a `u64` integer representing the
+            // total active stake delegated to the vote account at the provided
+            // address.
+            let vote_address_var = 0x100000000;
+
+            let mut memory_mapping = MemoryMapping::new(
+                vec![MemoryRegion::new_readonly(
+                    bytes_of(&vote_address),
+                    vote_address_var,
+                )],
+                &config,
+                &SBPFVersion::V2,
+            )
+            .unwrap();
+
+            let result = SyscallGetEpochStake::rust(
+                &mut invoke_context,
+                vote_address_var,
+                0,
+                0,
+                0,
+                0,
+                &mut memory_mapping,
+            )
+            .unwrap();
+
+            assert_eq!(result, expected_epoch_stake);
+
+            // Compute units, as specified by SIMD-0133.
+            // cu = syscall_base_cost
+            //     + floor(32/cpi_bytes_per_unit)
+            //     + mem_op_base_cost
+            assert_eq!(
+                invoke_context.get_compute_meter().to_owned(),
+                compute_budget.compute_unit_limit - expected_cus
+            );
+        }
+
+        invoke_context.mock_set_remaining(compute_budget.compute_unit_limit);
+        {
+            // If the provided vote address corresponds to an account that is
+            // not a vote account or does not exist, the syscall will write
+            // `0` for active stake.
+            let vote_address_var = 0x100000000;
+            let not_a_vote_address = Pubkey::new_unique(); // Not a vote account.
+
+            let mut memory_mapping = MemoryMapping::new(
+                vec![MemoryRegion::new_readonly(
+                    bytes_of(&not_a_vote_address),
+                    vote_address_var,
+                )],
+                &config,
+                &SBPFVersion::V2,
+            )
+            .unwrap();
+
+            let result = SyscallGetEpochStake::rust(
+                &mut invoke_context,
+                vote_address_var,
+                0,
+                0,
+                0,
+                0,
+                &mut memory_mapping,
+            )
+            .unwrap();
+
+            assert_eq!(result, 0); // `0` for active stake.
+
+            // Compute units, as specified by SIMD-0133.
+            // cu = syscall_base_cost
+            //     + floor(32/cpi_bytes_per_unit)
+            //     + mem_op_base_cost
+            assert_eq!(
+                invoke_context.get_compute_meter().to_owned(),
+                compute_budget.compute_unit_limit - expected_cus
             );
         }
     }
