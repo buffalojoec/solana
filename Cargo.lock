@@ -5615,6 +5615,7 @@ dependencies = [
  "solana-poseidon",
  "solana-program-runtime",
  "solana-sdk",
+ "solana-vote",
  "solana-zk-token-sdk",
  "solana_rbpf",
  "test-case",
