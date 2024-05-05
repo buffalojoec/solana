@@ -197,7 +197,7 @@ impl Bank {
             .program_cache
             .write()
             .unwrap()
-            .merge(&programs_modified);
+            .merge(programs_modified.get_modified_entries());
 
         Ok(())
     }

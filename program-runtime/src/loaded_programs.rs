@@ -651,6 +651,8 @@ pub struct ProgramCacheForTxBatch {
     /// Pubkey is the address of a program.
     /// ProgramCacheEntry is the corresponding program entry valid for the slot in which a transaction is being executed.
     entries: HashMap<Pubkey, Arc<ProgramCacheEntry>>,
+    /// Program entries modified during the transaction batch.
+    modified_entries: HashMap<Pubkey, Arc<ProgramCacheEntry>>,
     slot: Slot,
     pub environments: ProgramRuntimeEnvironments,
     /// Anticipated replacement for `environments` at the next epoch.
@@ -677,6 +679,7 @@ impl ProgramCacheForTxBatch {
     ) -> Self {
         Self {
             entries: HashMap::new(),
+            modified_entries: HashMap::new(),
             slot,
             environments,
             upcoming_environments,
@@ -694,6 +697,7 @@ impl ProgramCacheForTxBatch {
     ) -> Self {
         Self {
             entries: HashMap::new(),
+            modified_entries: HashMap::new(),
             slot,
             environments: cache.get_environments_for_epoch(epoch).clone(),
             upcoming_environments: cache.get_upcoming_environments_for_epoch(epoch),
@@ -716,32 +720,49 @@ impl ProgramCacheForTxBatch {
 
     /// Refill the cache with a single entry. It's typically called during transaction loading, and
     /// transaction processing (for program management instructions).
-    /// It replaces the existing entry (if any) with the provided entry. The return value contains
-    /// `true` if an entry existed.
-    /// The function also returns the newly inserted value.
-    pub fn replenish(
-        &mut self,
-        key: Pubkey,
-        entry: Arc<ProgramCacheEntry>,
-    ) -> (bool, Arc<ProgramCacheEntry>) {
-        (self.entries.insert(key, entry.clone()).is_some(), entry)
+    /// It replaces the existing entry (if any) with the provided entry.
+    ///
+    /// Note this will bypass storing a program in `modified_entries`.
+    pub fn replenish(&mut self, key: Pubkey, entry: Arc<ProgramCacheEntry>) {
+        self.entries.insert(key, entry);
+    }
+
+    /// Store an entry in `modified_entries` for a program modified during the
+    /// transaction batch.
+    pub fn store_modified_entry(&mut self, key: Pubkey, entry: Arc<ProgramCacheEntry>) {
+        self.modified_entries.insert(key, entry);
+    }
+
+    /// Get the program cache's modified entries.
+    pub fn get_modified_entries(&self) -> &HashMap<Pubkey, Arc<ProgramCacheEntry>> {
+        &self.modified_entries
+    }
+
+    fn entry_or_tombstone(&self, entry: &Arc<ProgramCacheEntry>) -> Arc<ProgramCacheEntry> {
+        if entry.is_implicit_delay_visibility_tombstone(self.slot) {
+            // Found a program entry on the current fork, but it's not effective
+            // yet. It indicates that the program has delayed visibility. Return
+            // the tombstone to reflect that.
+            Arc::new(ProgramCacheEntry::new_tombstone(
+                entry.deployment_slot,
+                entry.account_owner,
+                ProgramCacheEntryType::DelayVisibility,
+            ))
+        } else {
+            entry.clone()
+        }
     }
 
     pub fn find(&self, key: &Pubkey) -> Option<Arc<ProgramCacheEntry>> {
-        self.entries.get(key).map(|entry| {
-            if entry.is_implicit_delay_visibility_tombstone(self.slot) {
-                // Found a program entry on the current fork, but it's not effective
-                // yet. It indicates that the program has delayed visibility. Return
-                // the tombstone to reflect that.
-                Arc::new(ProgramCacheEntry::new_tombstone(
-                    entry.deployment_slot,
-                    entry.account_owner,
-                    ProgramCacheEntryType::DelayVisibility,
-                ))
-            } else {
-                entry.clone()
-            }
-        })
+        self.entries
+            .get(key)
+            .map(|entry| self.entry_or_tombstone(entry))
+    }
+
+    pub fn find_modified(&self, key: &Pubkey) -> Option<Arc<ProgramCacheEntry>> {
+        self.modified_entries
+            .get(key)
+            .map(|entry| self.entry_or_tombstone(entry))
     }
 
     pub fn slot(&self) -> Slot {
@@ -752,15 +773,11 @@ impl ProgramCacheForTxBatch {
         self.slot = slot;
     }
 
-    pub fn merge(&mut self, other: &Self) {
-        other.entries.iter().for_each(|(key, entry)| {
-            self.merged_modified = true;
+    pub fn merge(&mut self, entries: &HashMap<Pubkey, Arc<ProgramCacheEntry>>) {
+        entries.iter().for_each(|(key, entry)| {
             self.replenish(*key, entry.clone());
-        })
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        });
+        self.merged_modified = true;
     }
 }
 
@@ -1082,8 +1099,8 @@ impl<FG: ForkGraph> ProgramCache<FG> {
         was_occupied
     }
 
-    pub fn merge(&mut self, tx_batch_cache: &ProgramCacheForTxBatch) {
-        tx_batch_cache.entries.iter().for_each(|(key, entry)| {
+    pub fn merge(&mut self, entries: &HashMap<Pubkey, Arc<ProgramCacheEntry>>) {
+        entries.iter().for_each(|(key, entry)| {
             self.assign_program(*key, entry.clone());
         })
     }

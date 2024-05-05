@@ -228,7 +228,7 @@ impl<'a> InvokeContext<'a> {
         // First lookup the cache of the programs modified by the current transaction. If not found, lookup
         // the cache of the cache of the programs that are loaded for the transaction batch.
         self.programs_modified_by_tx
-            .find(pubkey)
+            .find_modified(pubkey)
             .or_else(|| self.program_cache_for_tx_batch.find(pubkey))
     }
 

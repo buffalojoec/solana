@@ -281,7 +281,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         if details.status.is_ok() {
                             program_cache_for_tx_batch
                                 .borrow_mut()
-                                .merge(programs_modified_by_tx);
+                                .merge(programs_modified_by_tx.get_modified_entries());
                         }
                     }
 

@@ -165,7 +165,7 @@ macro_rules! deploy_program {
         $drop
         load_program_metrics.program_id = $program_id.to_string();
         load_program_metrics.submit_datapoint(&mut $invoke_context.timings);
-        $invoke_context.programs_modified_by_tx.replenish($program_id, Arc::new(executor));
+        $invoke_context.programs_modified_by_tx.store_modified_entry($program_id, Arc::new(executor));
     }};
 }
 
@@ -1109,7 +1109,7 @@ fn process_loader_upgradeable_instruction(
                                 &log_collector,
                             )?;
                             let clock = invoke_context.get_sysvar_cache().get_clock()?;
-                            invoke_context.programs_modified_by_tx.replenish(
+                            invoke_context.programs_modified_by_tx.store_modified_entry(
                                 program_key,
                                 Arc::new(ProgramCacheEntry::new_tombstone(
                                     clock.slot,
@@ -1541,7 +1541,7 @@ pub mod test_utils {
                         .set_slot_for_tests(DELAY_VISIBILITY_SLOT_OFFSET);
                     invoke_context
                         .programs_modified_by_tx
-                        .replenish(*pubkey, Arc::new(loaded_program));
+                        .store_modified_entry(*pubkey, Arc::new(loaded_program));
                 }
             }
         }
@@ -3772,7 +3772,7 @@ mod tests {
         };
         invoke_context
             .programs_modified_by_tx
-            .replenish(program_id, Arc::new(program));
+            .store_modified_entry(program_id, Arc::new(program));
 
         assert_matches!(
             deploy_test_program(&mut invoke_context, program_id,),
@@ -3781,7 +3781,7 @@ mod tests {
 
         let updated_program = invoke_context
             .programs_modified_by_tx
-            .find(&program_id)
+            .find_modified(&program_id)
             .expect("Didn't find upgraded program in the cache");
 
         assert_eq!(updated_program.deployment_slot, 2);
@@ -3816,7 +3816,7 @@ mod tests {
         };
         invoke_context
             .programs_modified_by_tx
-            .replenish(program_id, Arc::new(program));
+            .store_modified_entry(program_id, Arc::new(program));
 
         let program_id2 = Pubkey::new_unique();
         assert_matches!(
@@ -3826,7 +3826,7 @@ mod tests {
 
         let program2 = invoke_context
             .programs_modified_by_tx
-            .find(&program_id2)
+            .find_modified(&program_id2)
             .expect("Didn't find upgraded program in the cache");
 
         assert_eq!(program2.deployment_slot, 2);
