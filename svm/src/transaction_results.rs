@@ -6,12 +6,14 @@
 pub use solana_sdk::inner_instruction::{InnerInstruction, InnerInstructionsList};
 use {
     crate::nonce_info::{NonceFull, NonceInfo},
-    solana_program_runtime::loaded_programs::ProgramCacheForTxBatch,
+    solana_program_runtime::loaded_programs::ProgramCacheEntry,
     solana_sdk::{
+        pubkey::Pubkey,
         rent_debits::RentDebits,
         transaction::{self, TransactionError},
         transaction_context::TransactionReturnData,
     },
+    std::{collections::HashMap, sync::Arc},
 };
 
 pub struct TransactionResults {
@@ -34,7 +36,7 @@ pub struct TransactionResults {
 pub enum TransactionExecutionResult {
     Executed {
         details: TransactionExecutionDetails,
-        programs_modified_by_tx: Box<ProgramCacheForTxBatch>,
+        programs_modified_by_tx: HashMap<Pubkey, Arc<ProgramCacheEntry>>,
     },
     NotExecuted(TransactionError),
 }

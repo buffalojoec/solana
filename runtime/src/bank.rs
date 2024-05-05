@@ -4151,14 +4151,12 @@ impl Bank {
                 programs_modified_by_tx,
             } = execution_result
             {
-                if details.status.is_ok()
-                    && !programs_modified_by_tx.get_modified_entries().is_empty()
-                {
+                if details.status.is_ok() && !programs_modified_by_tx.is_empty() {
                     cache
                         .get_or_insert_with(|| {
                             self.transaction_processor.program_cache.write().unwrap()
                         })
-                        .merge(programs_modified_by_tx.get_modified_entries());
+                        .merge(programs_modified_by_tx);
                 }
             }
         }

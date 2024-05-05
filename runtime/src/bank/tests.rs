@@ -39,7 +39,7 @@ use {
         compute_budget::ComputeBudget,
         compute_budget_processor::{self, MAX_COMPUTE_UNIT_LIMIT},
         declare_process_instruction,
-        loaded_programs::{ProgramCacheEntry, ProgramCacheEntryType, ProgramCacheForTxBatch},
+        loaded_programs::{ProgramCacheEntry, ProgramCacheEntryType},
         prioritization_fee::{PrioritizationFeeDetails, PrioritizationFeeType},
         timings::ExecuteTimings,
     },
@@ -242,7 +242,7 @@ fn new_execution_result(
             executed_units: 0,
             accounts_data_len_delta: 0,
         },
-        programs_modified_by_tx: Box::<ProgramCacheForTxBatch>::default(),
+        programs_modified_by_tx: std::collections::HashMap::new(),
     }
 }
 

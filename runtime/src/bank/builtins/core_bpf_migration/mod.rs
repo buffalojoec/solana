@@ -141,16 +141,10 @@ impl Bank {
         let elf = &programdata[progradata_metadata_size..];
         // Set up the two `LoadedProgramsForTxBatch` instances, as if
         // processing a new transaction batch.
-        let program_cache_for_tx_batch = ProgramCacheForTxBatch::new_from_cache(
+        let mut program_cache_for_tx_batch = ProgramCacheForTxBatch::new_from_cache(
             self.slot,
             self.epoch,
             &self.transaction_processor.program_cache.read().unwrap(),
-        );
-        let mut programs_modified = ProgramCacheForTxBatch::new(
-            self.slot,
-            program_cache_for_tx_batch.environments.clone(),
-            program_cache_for_tx_batch.upcoming_environments.clone(),
-            program_cache_for_tx_batch.latest_root_epoch,
         );
 
         // Configure a dummy `InvokeContext` from the runtime's current
@@ -174,11 +168,10 @@ impl Bank {
 
             let mut dummy_invoke_context = InvokeContext::new(
                 &mut dummy_transaction_context,
-                &program_cache_for_tx_batch,
+                &mut program_cache_for_tx_batch,
                 EnvironmentConfig::new(Hash::default(), self.feature_set.clone(), 0, &sysvar_cache),
                 None,
                 compute_budget,
-                &mut programs_modified,
             );
 
             solana_bpf_loader_program::direct_deploy_program(
@@ -197,7 +190,7 @@ impl Bank {
             .program_cache
             .write()
             .unwrap()
-            .merge(programs_modified.get_modified_entries());
+            .merge(program_cache_for_tx_batch.get_modified_entries());
 
         Ok(())
     }

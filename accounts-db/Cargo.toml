@@ -41,7 +41,6 @@ solana-inline-spl = { workspace = true }
 solana-measure = { workspace = true }
 solana-metrics = { workspace = true }
 solana-nohash-hasher = { workspace = true }
-solana-program-runtime = { workspace = true }
 solana-rayon-threadlimit = { workspace = true }
 solana-sdk = { workspace = true }
 solana-stake-program = { workspace = true, optional = true }
