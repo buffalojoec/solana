@@ -599,6 +599,7 @@ impl Consumer {
                 None, // account_overrides
                 self.log_messages_bytes_limit,
                 true,
+                true,
             ));
         execute_and_commit_timings.load_execute_us = load_execute_us;
 

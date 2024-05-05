@@ -145,7 +145,6 @@ use {
         rent_debits::RentDebits,
         reserved_account_keys::ReservedAccountKeys,
         reward_info::RewardInfo,
-        saturating_add_assign,
         signature::{Keypair, Signature},
         slot_hashes::SlotHashes,
         slot_history::{Check, SlotHistory},
@@ -3421,6 +3420,7 @@ impl Bank {
             Some(&account_overrides),
             None,
             true,
+            false,
         );
 
         let post_simulation_accounts = loaded_transactions
@@ -3670,6 +3670,7 @@ impl Bank {
         account_overrides: Option<&AccountOverrides>,
         log_messages_bytes_limit: Option<usize>,
         limit_to_load_programs: bool,
+        commit_to_global_program_cache: bool,
     ) -> LoadAndExecuteTransactionsOutput {
         let sanitized_txs = batch.sanitized_transactions();
         debug!("processing transactions: {}", sanitized_txs.len());
@@ -3734,6 +3735,7 @@ impl Bank {
                 account_overrides,
                 log_messages_bytes_limit,
                 limit_to_load_programs,
+                commit_to_global_program_cache,
             );
 
         let mut signature_count = 0;
@@ -4140,31 +4142,6 @@ impl Bank {
             "store: {}us txs_len={}",
             write_time.as_us(),
             sanitized_txs.len()
-        );
-
-        let mut store_executors_which_were_deployed_time =
-            Measure::start("store_executors_which_were_deployed_time");
-        let mut cache = None;
-        for execution_result in &execution_results {
-            if let TransactionExecutionResult::Executed {
-                details,
-                programs_modified_by_tx,
-            } = execution_result
-            {
-                if details.status.is_ok() && !programs_modified_by_tx.is_empty() {
-                    cache
-                        .get_or_insert_with(|| {
-                            self.transaction_processor.program_cache.write().unwrap()
-                        })
-                        .merge(programs_modified_by_tx);
-                }
-            }
-        }
-        drop(cache);
-        store_executors_which_were_deployed_time.stop();
-        saturating_add_assign!(
-            timings.execute_accessories.update_executors_us,
-            store_executors_which_were_deployed_time.as_us()
         );
 
         let accounts_data_len_delta = execution_results
@@ -4880,6 +4857,7 @@ impl Bank {
             None,
             log_messages_bytes_limit,
             false,
+            true,
         );
 
         let (last_blockhash, lamports_per_signature) =

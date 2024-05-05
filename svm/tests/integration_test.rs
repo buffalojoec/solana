@@ -464,6 +464,7 @@ fn svm_integration() {
         None,
         None,
         false,
+        true,
     );
 
     assert_eq!(result.execution_results.len(), 5);

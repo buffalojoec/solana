@@ -186,6 +186,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         account_overrides: Option<&AccountOverrides>,
         log_messages_bytes_limit: Option<usize>,
         limit_to_load_programs: bool,
+        commit_to_global_program_cache: bool,
     ) -> LoadAndExecuteSanitizedTransactionsOutput {
         let mut program_cache_time = Measure::start("program_cache");
         let mut program_accounts_map = Self::filter_executable_program_accounts(
@@ -278,7 +279,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     {
                         // Update batch specific cache of the loaded programs with the modifications
                         // made by the transaction, if it executed successfully.
-                        if details.status.is_ok() {
+                        if details.status.is_ok() && !programs_modified_by_tx.is_empty() {
                             program_cache_for_tx_batch
                                 .borrow_mut()
                                 .merge(programs_modified_by_tx);
@@ -308,6 +309,32 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     self.slot,
                 );
         }
+
+        let mut store_executors_which_were_deployed_time =
+            Measure::start("store_executors_which_were_deployed_time");
+        // Don't commit to the global cache if we're simulating a transaction.
+        if commit_to_global_program_cache {
+            let mut cache = None;
+            for execution_result in &execution_results {
+                if let TransactionExecutionResult::Executed {
+                    details,
+                    programs_modified_by_tx,
+                } = execution_result
+                {
+                    if details.status.is_ok() && !programs_modified_by_tx.is_empty() {
+                        cache
+                            .get_or_insert_with(|| self.program_cache.write().unwrap())
+                            .merge(programs_modified_by_tx);
+                    }
+                }
+            }
+            drop(cache);
+        }
+        store_executors_which_were_deployed_time.stop();
+        saturating_add_assign!(
+            timings.execute_accessories.update_executors_us,
+            store_executors_which_were_deployed_time.as_us()
+        );
 
         debug!(
             "load: {}us execute: {}us txs_len={}",
