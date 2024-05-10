@@ -1344,7 +1344,24 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                         })
                 })
                 .collect(),
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index_v2) => index_v2
+                .entries
+                .iter()
+                .filter_map(|(key, entry)| match entry.program {
+                    ProgramCacheEntryType::Loaded(_) => {
+                        if (entry.account_owner != ProgramCacheEntryOwner::LoaderV4
+                            && include_program_runtime_v1)
+                            || (entry.account_owner == ProgramCacheEntryOwner::LoaderV4
+                                && include_program_runtime_v2)
+                        {
+                            Some((key.address, entry.clone()))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                })
+                .collect(),
         }
     }
 
@@ -1357,7 +1374,11 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     second_level.iter().map(|program| (*id, program.clone()))
                 })
                 .collect(),
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index_v2) => index_v2
+                .entries
+                .iter()
+                .map(|(key, entry)| (key.address, entry.clone()))
+                .collect(),
         }
     }
 
@@ -1368,7 +1389,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                 .get(key)
                 .map(|second_level| second_level.as_ref())
                 .unwrap_or(&[]),
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(_) => panic!("Index v2 does not keep slot versions"),
         }
     }
 
