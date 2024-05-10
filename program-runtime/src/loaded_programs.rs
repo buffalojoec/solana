@@ -21,7 +21,7 @@ use {
         saturating_add_assign,
     },
     std::{
-        collections::{hash_map::Entry, HashMap},
+        collections::{hash_map::Entry, HashMap, HashSet},
         fmt::{Debug, Formatter},
         sync::{
             atomic::{AtomicU64, Ordering},
@@ -581,7 +581,7 @@ impl LoadingTaskWaiter {
 /// The program cache's V2 index implementation entry key.
 /// Hashes together the program's address, deployment slot, and effective slot
 /// to optimize for searches.
-#[derive(Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
 struct IndexV2Key {
     /// The program address.
     address: Pubkey,
@@ -610,6 +610,9 @@ struct IndexV2 {
     /// address, the deployment slot, and the effective slot, while the value
     /// is the program cache entry.
     entries: HashMap<IndexV2Key, Arc<ProgramCacheEntry>>,
+    /// A lightweight index designed for fast lookups of entries by their
+    /// deployment slot.
+    deployment_slot_index: HashMap<Slot, HashSet<IndexV2Key>>,
 }
 
 impl IndexV2 {
@@ -617,6 +620,7 @@ impl IndexV2 {
     fn new() -> Self {
         Self {
             entries: HashMap::new(),
+            deployment_slot_index: HashMap::new(),
         }
     }
 
@@ -632,7 +636,22 @@ impl IndexV2 {
         entry_key: IndexV2Key,
         program_entry: Arc<ProgramCacheEntry>,
     ) -> Option<Arc<ProgramCacheEntry>> {
+        self.deployment_slot_index
+            .entry(entry_key.deployment_slot)
+            .or_default()
+            .insert(entry_key.clone());
         self.entries.insert(entry_key, program_entry)
+    }
+
+    /// Prune by deployment slot.
+    /// Lookup/erase time is O(n), where n is the number of entries with the
+    /// given deployment slot.
+    fn prune_by_deployment_slot(&mut self, slot: Slot) {
+        if let Some(keys) = self.deployment_slot_index.remove(&slot) {
+            for key in keys {
+                self.entries.remove(&key);
+            }
+        }
     }
 }
 
@@ -1045,7 +1064,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                 }
                 self.remove_programs_with_no_entries();
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index_v2) => index_v2.prune_by_deployment_slot(slot),
         }
     }
 
@@ -1503,7 +1522,7 @@ mod tests {
                 Arc, RwLock,
             },
         },
-        test_case::test_matrix,
+        test_case::{test_case, test_matrix},
     };
 
     static MOCK_ENVIRONMENT: std::sync::OnceLock<ProgramRuntimeEnvironment> =
@@ -2771,9 +2790,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_prune_by_deployment_slot() {
-        let mut cache = new_mock_cache::<TestForkGraphSpecific>(false);
+    #[test_case(false ; "index v1")]
+    // #[test_case(true ; "index v2")] // Can't do this yet without `extract`.
+    fn test_prune_by_deployment_slot(use_index_v2: bool) {
+        let mut cache = new_mock_cache::<TestForkGraphSpecific>(use_index_v2);
 
         // Fork graph created for the test
         //                   0
