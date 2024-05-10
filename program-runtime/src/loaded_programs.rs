@@ -611,6 +611,9 @@ struct IndexV2 {
     /// is the program cache entry.
     entries: HashMap<IndexV2Key, Arc<ProgramCacheEntry>>,
     /// A lightweight index designed for fast lookups of entries by their
+    /// address.
+    address_index: HashMap<Pubkey, HashSet<IndexV2Key>>,
+    /// A lightweight index designed for fast lookups of entries by their
     /// deployment slot.
     deployment_slot_index: HashMap<Slot, HashSet<IndexV2Key>>,
 }
@@ -620,6 +623,7 @@ impl IndexV2 {
     fn new() -> Self {
         Self {
             entries: HashMap::new(),
+            address_index: HashMap::new(),
             deployment_slot_index: HashMap::new(),
         }
     }
@@ -636,6 +640,10 @@ impl IndexV2 {
         entry_key: IndexV2Key,
         program_entry: Arc<ProgramCacheEntry>,
     ) -> Option<Arc<ProgramCacheEntry>> {
+        self.address_index
+            .entry(entry_key.address)
+            .or_default()
+            .insert(entry_key.clone());
         self.deployment_slot_index
             .entry(entry_key.deployment_slot)
             .or_default()
@@ -648,6 +656,17 @@ impl IndexV2 {
     /// given deployment slot.
     fn prune_by_deployment_slot(&mut self, slot: Slot) {
         if let Some(keys) = self.deployment_slot_index.remove(&slot) {
+            for key in keys {
+                self.entries.remove(&key);
+            }
+        }
+    }
+
+    /// Remove a program by its address.
+    /// Lookup/erase time is O(n), where n is the number of entries with the
+    /// given address.
+    fn remove_entry_by_address(&mut self, address: &Pubkey) {
+        if let Some(keys) = self.address_index.remove(address) {
             for key in keys {
                 self.entries.remove(&key);
             }
@@ -1446,7 +1465,11 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     entries.remove(&k);
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index_v2) => {
+                for key in keys {
+                    index_v2.remove_entry_by_address(&key);
+                }
+            }
         }
     }
 
@@ -1521,7 +1544,9 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     );
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(_) => {
+                // Index v2 does not keep track of empty entries.
+            }
         }
     }
 }
