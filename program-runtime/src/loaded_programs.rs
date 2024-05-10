@@ -578,6 +578,38 @@ impl LoadingTaskWaiter {
     }
 }
 
+/// The program cache's V2 index implementation entry key.
+/// Hashes together the program's address, deployment slot, and effective slot
+/// to optimize for searches.
+#[derive(Debug, Hash, Eq, PartialEq)]
+struct IndexV2Key {
+    /// The program address.
+    address: Pubkey,
+    /// The slot in which the program was deployed.
+    deployment_slot: Slot,
+    /// The slot in which the program becomes effective.
+    effective_slot: Slot,
+}
+
+/// The program cache's V2 index implementation.
+#[allow(unused)]
+#[derive(Debug)]
+struct IndexV2 {
+    /// The collection of cache entries. The key is a has of the program
+    /// address, the deployment slot, and the effective slot, while the value
+    /// is the program cache entry.
+    entries: HashMap<IndexV2Key, Arc<ProgramCacheEntry>>,
+}
+
+impl IndexV2 {
+    #[allow(unused)]
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+        }
+    }
+}
+
 #[derive(Debug)]
 enum IndexImplementation {
     /// Fork-graph aware index implementation
@@ -597,6 +629,9 @@ enum IndexImplementation {
         /// so all loads for a given program key are serialized.
         loading_entries: Mutex<HashMap<Pubkey, (Slot, std::thread::ThreadId)>>,
     },
+    /// Fork-aware index implementation v2.
+    #[allow(unused)]
+    V2(IndexV2),
 }
 
 /// This structure is the global cache of loaded, verified and compiled programs.
@@ -780,12 +815,9 @@ pub enum ProgramCacheMatchCriteria {
 }
 
 impl<FG: ForkGraph> ProgramCache<FG> {
-    pub fn new(root_slot: Slot, root_epoch: Epoch) -> Self {
+    fn _new(root_slot: Slot, root_epoch: Epoch, index: IndexImplementation) -> Self {
         Self {
-            index: IndexImplementation::V1 {
-                entries: HashMap::new(),
-                loading_entries: Mutex::new(HashMap::new()),
-            },
+            index,
             latest_root_slot: root_slot,
             latest_root_epoch: root_epoch,
             environments: ProgramRuntimeEnvironments::default(),
@@ -795,6 +827,26 @@ impl<FG: ForkGraph> ProgramCache<FG> {
             fork_graph: None,
             loading_task_waiter: Arc::new(LoadingTaskWaiter::default()),
         }
+    }
+
+    pub fn new(root_slot: Slot, root_epoch: Epoch) -> Self {
+        Self::_new(
+            root_slot,
+            root_epoch,
+            IndexImplementation::V1 {
+                entries: HashMap::new(),
+                loading_entries: Mutex::new(HashMap::new()),
+            },
+        )
+    }
+
+    #[allow(unused)]
+    fn new_with_index_v2(root_slot: Slot, root_epoch: Epoch) -> Self {
+        Self::_new(
+            root_slot,
+            root_epoch,
+            IndexImplementation::V2(IndexV2::new()),
+        )
     }
 
     pub fn set_fork_graph(&mut self, fork_graph: Arc<RwLock<FG>>) {
@@ -899,6 +951,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     }
                 }
             }
+            IndexImplementation::V2(_) => unimplemented!(),
         }
         false
     }
@@ -911,6 +964,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                 }
                 self.remove_programs_with_no_entries();
             }
+            IndexImplementation::V2(_) => unimplemented!(),
         }
     }
 
@@ -992,6 +1046,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     second_level.reverse();
                 }
             }
+            IndexImplementation::V2(_) => unimplemented!(),
         }
         self.remove_programs_with_no_entries();
         debug_assert!(self.latest_root_slot <= new_root_slot);
@@ -1105,6 +1160,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     true
                 });
             }
+            IndexImplementation::V2(_) => unimplemented!(),
         }
         drop(locked_fork_graph);
         if is_first_round {
@@ -1150,6 +1206,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                 self.loading_task_waiter.notify();
                 was_occupied
             }
+            IndexImplementation::V2(_) => unimplemented!(),
         }
     }
 
@@ -1187,6 +1244,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                         })
                 })
                 .collect(),
+            IndexImplementation::V2(_) => unimplemented!(),
         }
     }
 
@@ -1199,6 +1257,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     second_level.iter().map(|program| (*id, program.clone()))
                 })
                 .collect(),
+            IndexImplementation::V2(_) => unimplemented!(),
         }
     }
 
@@ -1209,6 +1268,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                 .get(key)
                 .map(|second_level| second_level.as_ref())
                 .unwrap_or(&[]),
+            IndexImplementation::V2(_) => unimplemented!(),
         }
     }
 
@@ -1265,6 +1325,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     entries.remove(&k);
                 }
             }
+            IndexImplementation::V2(_) => unimplemented!(),
         }
     }
 
@@ -1294,6 +1355,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     *candidate = Arc::new(unloaded);
                 }
             }
+            IndexImplementation::V2(_) => unimplemented!(),
         }
     }
 
@@ -1318,6 +1380,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     );
                 }
             }
+            IndexImplementation::V2(_) => unimplemented!(),
         }
     }
 }
