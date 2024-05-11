@@ -638,6 +638,9 @@ struct IndexV2 {
     /// The collection of cache entries.
     entries: HashMap<IndexV2Key, Arc<ProgramCacheEntry>>,
     /// A lightweight index designed for fast lookups of entries by their
+    /// address.
+    address_index: HashMap<Pubkey, HashSet<IndexV2Key>>,
+    /// A lightweight index designed for fast lookups of entries by their
     /// slot last written to.
     slot_last_written_to_index: HashMap<Slot, HashSet<IndexV2Key>>,
 }
@@ -647,6 +650,7 @@ impl IndexV2 {
     fn new() -> Self {
         Self {
             entries: HashMap::new(),
+            address_index: HashMap::new(),
             slot_last_written_to_index: HashMap::new(),
         }
     }
@@ -692,6 +696,10 @@ impl IndexV2 {
         entry: Arc<ProgramCacheEntry>,
     ) -> Option<Arc<ProgramCacheEntry>> {
         let key = IndexV2Key::new(address, &entry, entry.program.get_environment());
+        self.address_index
+            .entry(*address)
+            .or_default()
+            .insert(key.clone());
         self.slot_last_written_to_index
             .entry(key.slot_last_written_to)
             .or_default()
@@ -700,11 +708,28 @@ impl IndexV2 {
     }
 
     /// Prune by slot last written to.
-    /// Lookup/erase time is O(n), where n is the number of entries with the
+    /// Lookup/erase time is O(2n), where n is the number of entries with the
     /// given slot last written to.
     fn prune_by_slot_last_written_to(&mut self, slot: Slot) {
         if let Some(keys) = self.slot_last_written_to_index.remove(&slot) {
             for key in keys {
+                self.address_index
+                    .get_mut(&key.address)
+                    .map(|keys| keys.remove(&key));
+                self.entries.remove(&key);
+            }
+        }
+    }
+
+    /// [Test-only]: Remove all entries for a program by its address.
+    /// Lookup/erase time is O(2n), where n is the number of entries with the
+    /// given address.
+    fn remove_all_entries_by_address_for_tests(&mut self, address: &Pubkey) {
+        if let Some(keys) = self.address_index.remove(address) {
+            for key in keys {
+                self.slot_last_written_to_index
+                    .get_mut(&key.slot_last_written_to)
+                    .map(|keys| keys.remove(&key));
                 self.entries.remove(&key);
             }
         }
@@ -1514,7 +1539,11 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     entries.remove(&k);
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index_v2) => {
+                for key in keys {
+                    index_v2.remove_all_entries_by_address_for_tests(&key);
+                }
+            }
         }
     }
 
@@ -1588,7 +1617,9 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     );
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(_) => {
+                // Index v2 does not keep track of empty entries.
+            }
         }
     }
 }
