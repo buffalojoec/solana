@@ -19,17 +19,15 @@ use {
         pubkey::Pubkey,
         saturating_add_assign,
     },
-    solana_type_overrides::{
-        rand::{thread_rng, Rng},
+    solana_type_overrides::rand::{thread_rng, Rng},
+    std::{
+        collections::{hash_map::Entry, HashMap, HashSet},
+        fmt::{Debug, Formatter},
         sync::{
             atomic::{AtomicU64, Ordering},
             Arc, Condvar, Mutex, RwLock,
         },
         thread,
-    },
-    std::{
-        collections::{hash_map::Entry, HashMap},
-        fmt::{Debug, Formatter},
     },
 };
 
@@ -591,7 +589,7 @@ fn environment_pointer(env: Option<&ProgramRuntimeEnvironment>) -> u64 {
 /// The program cache's V2 index implementation entry key.
 /// Hashes together the program address, environment, and slot last written to
 /// to optimize for deep-match searches.
-#[derive(Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
 struct IndexV2Key {
     /// The program address.
     address: Pubkey,
@@ -639,6 +637,9 @@ impl IndexV2Key {
 struct IndexV2 {
     /// The collection of cache entries.
     entries: HashMap<IndexV2Key, Arc<ProgramCacheEntry>>,
+    /// A lightweight index designed for fast lookups of entries by their
+    /// slot last written to.
+    slot_last_written_to_index: HashMap<Slot, HashSet<IndexV2Key>>,
 }
 
 impl IndexV2 {
@@ -646,6 +647,7 @@ impl IndexV2 {
     fn new() -> Self {
         Self {
             entries: HashMap::new(),
+            slot_last_written_to_index: HashMap::new(),
         }
     }
 
@@ -672,14 +674,29 @@ impl IndexV2 {
         None
     }
 
-    /// Inserts an entry into the cache.
+    /// Inserts an entry into the cache, updating all indices in the process.
     fn insert_entry(
         &mut self,
         address: &Pubkey,
         entry: Arc<ProgramCacheEntry>,
     ) -> Option<Arc<ProgramCacheEntry>> {
         let key = IndexV2Key::new(address, &entry, entry.program.get_environment());
+        self.slot_last_written_to_index
+            .entry(key.slot_last_written_to)
+            .or_default()
+            .insert(key.clone());
         self.entries.insert(key, entry)
+    }
+
+    /// Prune by slot last written to.
+    /// Lookup/erase time is O(n), where n is the number of entries with the
+    /// given slot last written to.
+    fn prune_by_slot_last_written_to(&mut self, slot: Slot) {
+        if let Some(keys) = self.slot_last_written_to_index.remove(&slot) {
+            for key in keys {
+                self.entries.remove(&key);
+            }
+        }
     }
 }
 
@@ -1099,7 +1116,9 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                 }
                 self.remove_programs_with_no_entries();
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index_v2) => {
+                index_v2.prune_by_slot_last_written_to(slot);
+            }
         }
     }
 
@@ -1560,7 +1579,7 @@ mod tests {
                 Arc, RwLock,
             },
         },
-        test_case::test_matrix,
+        test_case::{test_case, test_matrix},
     };
 
     static MOCK_ENVIRONMENT: std::sync::OnceLock<ProgramRuntimeEnvironment> =
@@ -2828,9 +2847,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_prune_by_deployment_slot() {
-        let mut cache = new_mock_cache::<TestForkGraphSpecific>(false);
+    #[test_case(false ; "index v1")]
+    // #[test_case(true ; "index v2")] // Can't do this yet without `extract`.
+    fn test_prune_by_deployment_slot(use_index_v2: bool) {
+        let mut cache = new_mock_cache::<TestForkGraphSpecific>(use_index_v2);
 
         // Fork graph created for the test
         //                   0
