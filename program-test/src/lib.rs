@@ -21,17 +21,21 @@ use {
     },
     solana_runtime::{
         accounts_background_service::{AbsRequestSender, SnapshotRequestKind},
-        bank::Bank,
+        bank::{builtins::BUILTINS, Bank},
         bank_forks::BankForks,
         commitment::BlockCommitmentCache,
         genesis_utils::{create_genesis_config_with_leader_ex, GenesisConfigInfo},
         runtime_config::RuntimeConfig,
     },
     solana_sdk::{
-        account::{create_account_shared_data_for_test, Account, AccountSharedData},
+        account::{
+            create_account_shared_data_for_test, Account, AccountSharedData, WritableAccount,
+        },
         account_info::AccountInfo,
+        bpf_loader_upgradeable::{self, UpgradeableLoaderState},
         clock::{Epoch, Slot},
         entrypoint::{deserialize, ProgramResult, SUCCESS},
+        feature,
         feature_set::FEATURE_NAMES,
         fee_calculator::{FeeCalculator, FeeRateGovernor, DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE},
         genesis_config::{ClusterType, GenesisConfig},
@@ -465,6 +469,7 @@ pub struct ProgramTest {
     accounts: Vec<(Pubkey, AccountSharedData)>,
     builtin_programs: Vec<(Pubkey, &'static str, ProgramCacheEntry)>,
     compute_max_units: Option<u64>,
+    core_bpf_migration_feature_ids: HashSet<Pubkey>,
     prefer_bpf: bool,
     deactivate_feature_set: HashSet<Pubkey>,
     transaction_account_lock_limit: Option<usize>,
@@ -497,6 +502,7 @@ impl Default for ProgramTest {
             accounts: vec![],
             builtin_programs: vec![],
             compute_max_units: None,
+            core_bpf_migration_feature_ids: HashSet::default(),
             prefer_bpf,
             deactivate_feature_set: HashSet::default(),
             transaction_account_lock_limit: None,
@@ -617,8 +623,8 @@ impl ProgramTest {
         program_id: Pubkey,
         builtin_function: Option<BuiltinFunctionWithContext>,
     ) {
-        let add_bpf = |this: &mut ProgramTest, program_file: PathBuf| {
-            let data = read_file(&program_file);
+        let read_elf = |program_file: PathBuf| {
+            let elf = read_file(&program_file);
             info!(
                 "\"{}\" SBF program from {}{}",
                 program_name,
@@ -640,12 +646,48 @@ impl ProgramTest {
                     .flatten()
                     .unwrap_or_default()
             );
+            elf
+        };
 
+        let add_core_bpf =
+            |this: &mut ProgramTest, feature_id: Pubkey, buffer_address: Pubkey, elf: Vec<u8>| {
+                let rent = Rent::default();
+                let feature_account = {
+                    let state = feature::Feature {
+                        activated_at: Some(0),
+                    };
+                    let lamports = rent.minimum_balance(feature::Feature::size_of());
+                    feature::create_account(&state, lamports)
+                };
+                let buffer_account = {
+                    let buffer_metadata_size = UpgradeableLoaderState::size_of_buffer_metadata();
+                    let space = buffer_metadata_size + elf.len();
+                    let lamports = rent.minimum_balance(space);
+                    let owner = &bpf_loader_upgradeable::id();
+                    let buffer_metadata = UpgradeableLoaderState::Buffer {
+                        authority_address: None,
+                    };
+                    let mut account = AccountSharedData::new_data_with_space(
+                        lamports,
+                        &buffer_metadata,
+                        space,
+                        owner,
+                    )
+                    .unwrap();
+                    account.data_as_mut_slice()[buffer_metadata_size..].copy_from_slice(&elf);
+                    account
+                };
+                this.core_bpf_migration_feature_ids.insert(feature_id);
+                this.add_account(feature_id, feature_account.into());
+                this.add_account(buffer_address, buffer_account.into());
+            };
+
+        let add_bpf = |this: &mut ProgramTest, elf: Vec<u8>| {
             this.add_account(
                 program_id,
                 Account {
-                    lamports: Rent::default().minimum_balance(data.len()).max(1),
-                    data,
+                    lamports: Rent::default().minimum_balance(elf.len()).max(1),
+                    data: elf,
                     owner: solana_sdk::bpf_loader::id(),
                     executable: true,
                     rent_epoch: 0,
@@ -692,7 +734,30 @@ impl ProgramTest {
         match (self.prefer_bpf, program_file, builtin_function) {
             // If SBF is preferred (i.e., `test-sbf` is invoked) and a BPF shared object exists,
             // use that as the program data.
-            (true, Some(file), _) => add_bpf(self, file),
+            (true, Some(file), _) => {
+                let elf = read_elf(file);
+                // If the provided program shares the same program ID as a
+                // default builtin, add it to the list of core BPF programs, to
+                // ensure it isn't overwritten by its corresponding builtin.
+                if let Some((feature_id, buffer_address)) = BUILTINS
+                    .iter()
+                    .find(|builtin| builtin.program_id == program_id)
+                    .and_then(|builtin| {
+                        builtin
+                            .core_bpf_migration_config
+                            .as_ref()
+                            .map(|config| (config.feature_id, config.source_buffer_address))
+                    })
+                {
+                    info!(
+                        "Using provided Core BPF version: {} for builtin program: {}",
+                        program_name, program_id
+                    );
+                    add_core_bpf(self, feature_id, buffer_address, elf);
+                } else {
+                    add_bpf(self, elf);
+                }
+            }
 
             // If SBF is not required (i.e., we were invoked with `test`), use the provided
             // processor function as is.
@@ -806,7 +871,7 @@ impl ProgramTest {
         debug!("Payer address: {}", mint_keypair.pubkey());
         debug!("Genesis config: {}", genesis_config);
 
-        let bank = Bank::new_with_paths(
+        let mut bank = Bank::new_with_paths(
             &genesis_config,
             Arc::new(RuntimeConfig {
                 compute_budget: self.compute_max_units.map(|max_units| ComputeBudget {
@@ -847,6 +912,12 @@ impl ProgramTest {
             bank.store_account(address, account);
         }
         bank.set_capitalization();
+
+        // Force-migrate any Core BPF programs provided.
+        bank.apply_builtin_program_feature_transitions_for_tests(
+            &self.core_bpf_migration_feature_ids,
+        );
+
         // Advance beyond slot 0 for a slightly more realistic test environment
         let bank = {
             let bank = Arc::new(bank);
