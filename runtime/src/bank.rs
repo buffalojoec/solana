@@ -7142,6 +7142,14 @@ impl Bank {
     pub fn set_fee_structure(&mut self, fee_structure: &FeeStructure) {
         self.transaction_processor.fee_structure = fee_structure.clone();
     }
+
+    pub fn apply_builtin_program_feature_transitions_for_tests(
+        &mut self,
+        feature_ids: &HashSet<Pubkey>,
+    ) {
+        self.apply_builtin_program_feature_transitions(true, feature_ids);
+        feature_ids.iter().for_each(|f| self.activate_feature(f));
+    }
 }
 
 /// Compute how much an account has changed size.  This function is useful when the data size delta
