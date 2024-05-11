@@ -1,4 +1,4 @@
-pub(crate) mod core_bpf_migration;
+pub mod core_bpf_migration;
 pub mod prototypes;
 
 pub use prototypes::{BuiltinPrototype, StatelessBuiltinPrototype};
@@ -12,11 +12,11 @@ macro_rules! testable_prototype {
     }) => {
         $prototype {
             core_bpf_migration_config: {
-                #[cfg(not(test))]
+                #[cfg(not(any(test, feature = "dev-context-only-utils")))]
                 {
                     $core_bpf_migration_config
                 }
-                #[cfg(test)]
+                #[cfg(any(test, feature = "dev-context-only-utils"))]
                 {
                     Some( test_only::$name::CONFIG )
                 }
@@ -121,8 +121,8 @@ pub static STATELESS_BUILTINS: &[StatelessBuiltinPrototype] =
 // into the builtins list for both the feature ID and the source program ID.
 // These arbitrary IDs can then be used to configure feature-activation runtime
 // tests.
-#[cfg(test)]
-mod test_only {
+#[cfg(any(test, feature = "dev-context-only-utils"))]
+pub mod test_only {
     use super::core_bpf_migration::{CoreBpfMigrationConfig, CoreBpfMigrationTargetType};
     pub mod system_program {
         pub mod feature {
@@ -131,7 +131,7 @@ mod test_only {
         pub mod source_buffer {
             solana_sdk::declare_id!("EDEhzg1Jk79Wrk4mwpRa7txjgRxcE6igXwd6egFDVhuz");
         }
-        pub const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
+        pub(crate) const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
             source_buffer_address: source_buffer::id(),
             feature_id: feature::id(),
             migration_target: super::CoreBpfMigrationTargetType::Builtin,
@@ -146,7 +146,7 @@ mod test_only {
         pub mod source_buffer {
             solana_sdk::declare_id!("6T9s4PTcHnpq2AVAqoCbJd4FuHsdD99MjSUEbS7qb1tT");
         }
-        pub const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
+        pub(crate) const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
             source_buffer_address: source_buffer::id(),
             feature_id: feature::id(),
             migration_target: super::CoreBpfMigrationTargetType::Builtin,
@@ -161,7 +161,7 @@ mod test_only {
         pub mod source_buffer {
             solana_sdk::declare_id!("2a3XnUr4Xfxd8hBST8wd4D3Qbiu339XKessYsDwabCED");
         }
-        pub const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
+        pub(crate) const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
             source_buffer_address: source_buffer::id(),
             feature_id: feature::id(),
             migration_target: super::CoreBpfMigrationTargetType::Builtin,
@@ -176,7 +176,7 @@ mod test_only {
         pub mod source_buffer {
             solana_sdk::declare_id!("73ALcNtVqyM3q7XsvB2xkVECvggu4CcLX5J2XKmpjdBU");
         }
-        pub const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
+        pub(crate) const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
             source_buffer_address: source_buffer::id(),
             feature_id: feature::id(),
             migration_target: super::CoreBpfMigrationTargetType::Builtin,
@@ -191,7 +191,7 @@ mod test_only {
         pub mod source_buffer {
             solana_sdk::declare_id!("DveUYB5m9G3ce4zpV3fxg9pCNkvH1wDsyd8XberZ47JL");
         }
-        pub const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
+        pub(crate) const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
             source_buffer_address: source_buffer::id(),
             feature_id: feature::id(),
             migration_target: super::CoreBpfMigrationTargetType::Builtin,
@@ -206,7 +206,7 @@ mod test_only {
         pub mod source_buffer {
             solana_sdk::declare_id!("2EWMYGJPuGLW4TexLLEMeXP2BkB1PXEKBFb698yw6LhT");
         }
-        pub const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
+        pub(crate) const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
             source_buffer_address: source_buffer::id(),
             feature_id: feature::id(),
             migration_target: super::CoreBpfMigrationTargetType::Builtin,
@@ -221,7 +221,7 @@ mod test_only {
         pub mod source_buffer {
             solana_sdk::declare_id!("6bTmA9iefD57GDoQ9wUjG8SeYkSpRw3EkKzxZCbhkavq");
         }
-        pub const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
+        pub(crate) const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
             source_buffer_address: source_buffer::id(),
             feature_id: feature::id(),
             migration_target: super::CoreBpfMigrationTargetType::Builtin,
@@ -236,7 +236,7 @@ mod test_only {
         pub mod source_buffer {
             solana_sdk::declare_id!("KfX1oLpFC5CwmFeSgXrNcXaouKjFkPuSJ4UsKb3zKMX");
         }
-        pub const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
+        pub(crate) const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
             source_buffer_address: source_buffer::id(),
             feature_id: feature::id(),
             migration_target: super::CoreBpfMigrationTargetType::Builtin,
@@ -251,7 +251,7 @@ mod test_only {
         pub mod source_buffer {
             solana_sdk::declare_id!("DQshE9LTac8eXjZTi8ApeuZJYH67UxTMUxaEGstC6mqJ");
         }
-        pub const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
+        pub(crate) const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
             source_buffer_address: source_buffer::id(),
             feature_id: feature::id(),
             migration_target: super::CoreBpfMigrationTargetType::Builtin,
@@ -266,7 +266,7 @@ mod test_only {
         pub mod source_buffer {
             solana_sdk::declare_id!("Ffe9gL8vXraBkiv3HqbLvBqY7i9V4qtZxjH83jYYDe1V");
         }
-        pub const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
+        pub(crate) const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
             source_buffer_address: source_buffer::id(),
             feature_id: feature::id(),
             migration_target: super::CoreBpfMigrationTargetType::Builtin,
@@ -281,7 +281,7 @@ mod test_only {
         pub mod source_buffer {
             solana_sdk::declare_id!("EH45pKy1kzjifB93wEJi91js3S4HETdsteywR7ZCNPn5");
         }
-        pub const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
+        pub(crate) const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
             source_buffer_address: source_buffer::id(),
             feature_id: feature::id(),
             migration_target: super::CoreBpfMigrationTargetType::Builtin,
@@ -296,7 +296,7 @@ mod test_only {
         pub mod source_buffer {
             solana_sdk::declare_id!("CWioXdq2ctv8Z4XdhmzJzgpU5i97ZHZZJVSJUmndV3mk");
         }
-        pub const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
+        pub(crate) const CONFIG: super::CoreBpfMigrationConfig = super::CoreBpfMigrationConfig {
             source_buffer_address: source_buffer::id(),
             feature_id: feature::id(),
             migration_target: super::CoreBpfMigrationTargetType::Stateless,

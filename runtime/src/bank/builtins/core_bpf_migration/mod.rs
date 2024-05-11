@@ -38,7 +38,7 @@ pub(crate) enum CoreBpfMigrationTargetType {
 
 /// Configuration for migrating a built-in program to Core BPF.
 #[derive(Debug, PartialEq)]
-pub(crate) struct CoreBpfMigrationConfig {
+pub struct CoreBpfMigrationConfig {
     /// The address of the source buffer account to be used to replace the
     /// builtin.
     pub source_buffer_address: Pubkey,
@@ -48,12 +48,12 @@ pub(crate) struct CoreBpfMigrationConfig {
     /// activated after the builtin is already enabled.
     pub feature_id: Pubkey,
     /// The type of target to replace.
-    pub migration_target: CoreBpfMigrationTargetType,
+    pub(crate) migration_target: CoreBpfMigrationTargetType,
     /// Static message used to emit datapoint logging.
     /// This is used to identify the migration in the logs.
     /// Should be unique to the migration, ie:
     /// "migrate_{builtin/stateless}_to_core_bpf_{program_name}".
-    pub datapoint_name: &'static str,
+    pub(crate) datapoint_name: &'static str,
 }
 
 fn checked_add<T: CheckedAdd>(a: T, b: T) -> Result<T, CoreBpfMigrationError> {
