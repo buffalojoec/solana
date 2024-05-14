@@ -25,7 +25,7 @@ solana-bpf-loader-program = { workspace = true }
 solana-inline-spl = { workspace = true }
 solana-logger = { workspace = true }
 solana-program-runtime = { workspace = true }
-solana-runtime = { workspace = true }
+solana-runtime = { workspace = true, features = ["dev-context-only-utils"] }
 solana-sdk = { workspace = true }
 solana-svm = { workspace = true }
 solana-vote-program = { workspace = true }
