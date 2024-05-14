@@ -468,7 +468,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         loaded_programs_for_txs.unwrap()
     }
 
-    pub fn recompile_program_cache<CB: TransactionProcessingCallback>(
+    pub fn prepare_program_cache_for_upcoming_feature_set<CB: TransactionProcessingCallback>(
         &self,
         callbacks: &CB,
         upcoming_feature_set: &FeatureSet,

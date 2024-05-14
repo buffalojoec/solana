@@ -1223,9 +1223,12 @@ impl Bank {
             }
         });
 
-        let (_, recompilation_time_us) = measure_us!(new
+        let (_, cache_preparation_time_us) = measure_us!(new
             .transaction_processor
-            .recompile_program_cache(&new, &new.compute_active_feature_set(true).0));
+            .prepare_program_cache_for_upcoming_feature_set(
+                &new,
+                &new.compute_active_feature_set(true).0
+            ));
 
         // Update sysvars before processing transactions
         let (_, update_sysvars_time_us) = measure_us!({
@@ -1261,7 +1264,7 @@ impl Bank {
                 feature_set_time_us,
                 ancestors_time_us,
                 update_epoch_time_us,
-                recompilation_time_us,
+                cache_preparation_time_us,
                 update_sysvars_time_us,
                 fill_sysvar_cache_time_us,
             },
