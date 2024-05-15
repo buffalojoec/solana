@@ -1212,7 +1212,8 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                         })
                 })
                 .collect(),
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index_v2) => index_v2
+                .get_flattened_entries(include_program_runtime_v1, include_program_runtime_v2),
         }
     }
 
@@ -1225,7 +1226,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     second_level.iter().map(|program| (*id, program.clone()))
                 })
                 .collect(),
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index_v2) => index_v2.get_flattened_entries_for_tests(),
         }
     }
 
@@ -1236,7 +1237,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                 .get(key)
                 .map(|second_level| second_level.as_ref())
                 .unwrap_or(&[]),
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(_) => panic!("Index v2 does not keep slot versions"),
         }
     }
 

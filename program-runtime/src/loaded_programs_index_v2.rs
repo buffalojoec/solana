@@ -32,7 +32,7 @@
 #![allow(unused)]
 
 use {
-    crate::loaded_programs::{ProgramCacheEntry, ProgramCacheEntryType},
+    crate::loaded_programs::{ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType},
     solana_sdk::{clock::Slot, pubkey::Pubkey},
     std::{
         collections::{hash_map::Entry, HashMap},
@@ -72,6 +72,33 @@ impl Node {
             program: Arc::clone(program),
             slot,
         }
+    }
+
+    /// Get all entries, flattened, which are verified and compiled.
+    fn get_flattened_entries(
+        &self,
+        include_program_runtime_v1: bool,
+        include_program_runtime_v2: bool,
+    ) -> Vec<Arc<ProgramCacheEntry>> {
+        let mut entries = vec![];
+        if self.is_verified_compiled(include_program_runtime_v1, include_program_runtime_v2) {
+            entries.push(Arc::clone(&self.program));
+            entries.extend(self.branches.iter().flat_map(|branch| {
+                branch.get_flattened_entries(include_program_runtime_v1, include_program_runtime_v2)
+            }));
+        }
+        entries
+    }
+
+    /// [Test-only]: Get all entries, flattened.
+    fn get_flattened_entries_for_tests(&self) -> Vec<Arc<ProgramCacheEntry>> {
+        let mut entries = vec![Arc::clone(&self.program)];
+        entries.extend(
+            self.branches
+                .iter()
+                .flat_map(|branch| branch.get_flattened_entries_for_tests()),
+        );
+        entries
     }
 
     /// Insert a new entry in the program graph. Returns `true` when the entry
@@ -124,6 +151,23 @@ impl Node {
         // Insert a new branch.
         self.branches.push(Node::new(program, slot));
         true
+    }
+
+    /// Returns whether or not a node is a verified, compiled program.
+    fn is_verified_compiled(
+        &self,
+        include_program_runtime_v1: bool,
+        include_program_runtime_v2: bool,
+    ) -> bool {
+        match &self.program.program {
+            ProgramCacheEntryType::Loaded(_) => {
+                (self.program.account_owner != ProgramCacheEntryOwner::LoaderV4
+                    && include_program_runtime_v1)
+                    || (self.program.account_owner == ProgramCacheEntryOwner::LoaderV4
+                        && include_program_runtime_v2)
+            }
+            _ => false,
+        }
     }
 
     /// Update an existing node with the provided entry.
@@ -180,6 +224,46 @@ impl ProgramCacheIndexV2 {
             graph: HashMap::new(),
             root_slot,
         }
+    }
+
+    /// Get all entries, flattened, which are verified and compiled.
+    pub(crate) fn get_flattened_entries(
+        &self,
+        include_program_runtime_v1: bool,
+        include_program_runtime_v2: bool,
+    ) -> Vec<(Pubkey, Arc<ProgramCacheEntry>)> {
+        self.graph
+            .iter()
+            .flat_map(|(address, fork)| {
+                fork.iter()
+                    .flat_map(|node| {
+                        node.get_flattened_entries(
+                            include_program_runtime_v1,
+                            include_program_runtime_v2,
+                        )
+                        .into_iter()
+                        .map(move |program| (*address, program))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    /// [Test-only]: Get all entries in the graph, flattened, regardless of
+    /// verification/compilation status.
+    pub(crate) fn get_flattened_entries_for_tests(&self) -> Vec<(Pubkey, Arc<ProgramCacheEntry>)> {
+        self.graph
+            .iter()
+            .flat_map(|(address, fork)| {
+                fork.iter()
+                    .flat_map(|node| {
+                        node.get_flattened_entries_for_tests()
+                            .into_iter()
+                            .map(move |program| (*address, program))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
     }
 
     /// Insert a new program entry into the program graph.
