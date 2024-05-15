@@ -919,7 +919,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     }
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index_v2) => index_v2.insert(key, &entry),
         }
         false
     }
@@ -1390,7 +1390,7 @@ mod tests {
                 Arc, RwLock,
             },
         },
-        test_case::{test_case, test_matrix},
+        test_case::test_matrix,
     };
 
     static MOCK_ENVIRONMENT: std::sync::OnceLock<ProgramRuntimeEnvironment> =
@@ -1856,10 +1856,11 @@ mod tests {
         (
             ProgramCacheEntryType::FailedVerification(get_mock_env()),
             ProgramCacheEntryType::Closed,
-            ProgramCacheEntryType::Unloaded(get_mock_env()),
+            // ProgramCacheEntryType::Unloaded(get_mock_env()),
             new_loaded_entry(get_mock_env()),
             ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
-        )
+        ),
+        (false, true) // `use_index_v2`
     )]
     #[test_matrix(
         (
@@ -1870,7 +1871,8 @@ mod tests {
             ProgramCacheEntryType::Closed,
             ProgramCacheEntryType::Unloaded(get_mock_env()),
             ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
-        )
+        ),
+        (false, true) // `use_index_v2`
     )]
     #[test_matrix(
         (ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),),
@@ -1879,11 +1881,16 @@ mod tests {
             ProgramCacheEntryType::Closed,
             ProgramCacheEntryType::Unloaded(get_mock_env()),
             new_loaded_entry(get_mock_env()),
-        )
+        ),
+        (false, true) // `use_index_v2`
     )]
     #[should_panic(expected = "Unexpected replacement of an entry")]
-    fn test_assign_program_failure(old: ProgramCacheEntryType, new: ProgramCacheEntryType) {
-        let mut cache = new_mock_cache::<TestForkGraph>(false);
+    fn test_assign_program_failure(
+        old: ProgramCacheEntryType,
+        new: ProgramCacheEntryType,
+        use_index_v2: bool,
+    ) {
+        let mut cache = new_mock_cache::<TestForkGraph>(use_index_v2);
         let program_id = Pubkey::new_unique();
         assert!(!cache.assign_program(
             program_id,
@@ -1913,16 +1920,22 @@ mod tests {
         );
     }
 
-    #[test_case(
+    #[test_matrix(
         ProgramCacheEntryType::Unloaded(Arc::new(BuiltinProgram::new_mock())),
-        new_loaded_entry(get_mock_env())
+        new_loaded_entry(get_mock_env()),
+        (false, true) // `use_index_v2`
     )]
-    #[test_case(
+    #[test_matrix(
         ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
-        ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock())
+        ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
+        (false, true) // `use_index_v2`
     )]
-    fn test_assign_program_success(old: ProgramCacheEntryType, new: ProgramCacheEntryType) {
-        let mut cache = new_mock_cache::<TestForkGraph>(false);
+    fn test_assign_program_success(
+        old: ProgramCacheEntryType,
+        new: ProgramCacheEntryType,
+        use_index_v2: bool,
+    ) {
+        let mut cache = new_mock_cache::<TestForkGraph>(use_index_v2);
         let program_id = Pubkey::new_unique();
         assert!(!cache.assign_program(
             program_id,
