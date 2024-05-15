@@ -13,6 +13,7 @@ pub mod compute_budget;
 pub mod compute_budget_processor;
 pub mod invoke_context;
 pub mod loaded_programs;
+pub mod loaded_programs_index_v2;
 pub mod log_collector;
 pub mod prioritization_fee;
 pub mod stable_log;
