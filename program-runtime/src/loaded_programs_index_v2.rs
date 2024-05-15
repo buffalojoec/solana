@@ -193,4 +193,9 @@ impl ProgramCacheIndexV2 {
         }
         root.push(Node::new(program, slot));
     }
+
+    /// Remove all entries for a program by its address.
+    pub(crate) fn remove_program(&mut self, address: &Pubkey) {
+        self.graph.remove(address);
+    }
 }

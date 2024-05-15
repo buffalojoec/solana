@@ -1293,7 +1293,11 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     entries.remove(&k);
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index_v2) => {
+                for k in keys {
+                    index_v2.remove_program(&k);
+                }
+            }
         }
     }
 
@@ -1352,7 +1356,9 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     );
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(_) => {
+                // Index v2 does not keep track of empty entries.
+            }
         }
     }
 }
