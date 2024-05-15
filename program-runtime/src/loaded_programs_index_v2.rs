@@ -32,7 +32,9 @@
 #![allow(unused)]
 
 use {
-    crate::loaded_programs::{ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType},
+    crate::loaded_programs::{
+        ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType, ProgramRuntimeEnvironment,
+    },
     solana_sdk::{clock::Slot, pubkey::Pubkey},
     std::{
         collections::{hash_map::Entry, HashMap},
@@ -44,6 +46,9 @@ use {
 struct Node {
     /// The node's branches.
     branches: Vec<Node>,
+    /// The runtime environment the program was compiled for.
+    /// Represented as a `u64` pointer to its location in memory.
+    environment: u64,
     /// The cached program.
     program: Arc<ProgramCacheEntry>,
     /// The slot of the node.
@@ -67,8 +72,13 @@ impl std::hash::Hash for Node {
 
 impl Node {
     fn new(program: &Arc<ProgramCacheEntry>, slot: Slot) -> Self {
+        let environment = program
+            .program
+            .get_environment()
+            .map_or(0, |env| Arc::as_ptr(env) as u64);
         Self {
             branches: Vec::new(),
+            environment,
             program: Arc::clone(program),
             slot,
         }
@@ -170,6 +180,43 @@ impl Node {
         }
     }
 
+    /// Prune the node and its branches based on the provided new root slot.
+    ///
+    /// Consider a fork graph's rooting behavior.
+    ///
+    /// ```
+    ///
+    ///        0 <- root    
+    ///      /   \          
+    ///     10    5           5 <- root
+    ///     |    / \         / \
+    ///    20   11  12      11  12          11 <- root
+    ///                     |              / | \
+    ///                     15          14  15  25         15 <- root
+    ///                                  |   |   |          |
+    ///                                 15  16  27         16
+    ///                                                     |
+    ///                                                    19
+    ///
+    /// ```
+    ///
+    /// Now consider the following rules.
+    ///
+    /// Once a slot becomes rooted:
+    ///
+    /// * No slots less than it can exist.
+    /// * Orphaned branches must be pruned.
+    ///
+    /// Additionally, a program may have multiple entries at the same slot,
+    /// which exist for different environments. Any outdated environments are
+    /// also pruned.
+    fn prune(&mut self, new_root_slot: Slot) {
+        self.branches.retain(|branch| branch.slot >= new_root_slot);
+        self.branches
+            .iter_mut()
+            .for_each(|branch| branch.prune(new_root_slot));
+    }
+
     /// Update an existing node with the provided entry.
     ///
     /// Only three types of replacements are allowed:
@@ -214,14 +261,21 @@ pub(crate) struct ProgramCacheIndexV2 {
     /// The key is the program address, while the value is the root nodes of
     /// each program's fork graph.
     graph: HashMap<Pubkey, Vec<Node>>,
+    /// The current root environment.
+    root_environment: u64,
     /// The current root slot.
     root_slot: Slot,
 }
 
 impl ProgramCacheIndexV2 {
-    pub(crate) fn new(root_slot: Slot) -> Self {
+    pub(crate) fn new(
+        root_slot: Slot,
+        root_environment: Option<ProgramRuntimeEnvironment>,
+    ) -> Self {
+        let root_environment = root_environment.map_or(0, |env| Arc::as_ptr(&env) as u64);
         Self {
             graph: HashMap::new(),
+            root_environment,
             root_slot,
         }
     }
@@ -276,6 +330,16 @@ impl ProgramCacheIndexV2 {
             }
         }
         root.push(Node::new(program, slot));
+    }
+
+    /// Prune the graph.
+    fn prune(&mut self, new_root_slot: Slot) {
+        self.root_slot = new_root_slot;
+        for fork in self.graph.values_mut() {
+            for root in fork.iter_mut() {
+                root.prune(new_root_slot);
+            }
+        }
     }
 
     /// Remove all entries for a program by its address.
