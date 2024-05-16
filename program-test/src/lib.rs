@@ -30,6 +30,7 @@ use {
     solana_sdk::{
         account::{create_account_shared_data_for_test, Account, AccountSharedData},
         account_info::AccountInfo,
+        bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
         clock::{Epoch, Slot},
         entrypoint::{deserialize, ProgramResult, SUCCESS},
         feature_set::FEATURE_NAMES,
@@ -626,7 +627,7 @@ impl ProgramTest {
         builtin_function: Option<BuiltinFunctionWithContext>,
     ) {
         let add_bpf = |this: &mut ProgramTest, program_file: PathBuf| {
-            let data = read_file(&program_file);
+            let elf = read_file(&program_file);
             info!(
                 "\"{}\" SBF program from {}{}",
                 program_name,
@@ -649,14 +650,49 @@ impl ProgramTest {
                     .unwrap_or_default()
             );
 
+            let programdata_address = get_program_data_address(&program_id);
+
+            let program_data = bincode::serialize(&UpgradeableLoaderState::Program {
+                programdata_address,
+            })
+            .unwrap();
+
+            let programdata_data = {
+                let metadata_offset = UpgradeableLoaderState::size_of_programdata_metadata();
+                let data_len = metadata_offset + elf.len();
+                let mut data = vec![0; data_len];
+                bincode::serialize_into(
+                    &mut data[..metadata_offset],
+                    &UpgradeableLoaderState::ProgramData {
+                        slot: 0,
+                        upgrade_authority_address: None,
+                    },
+                )
+                .unwrap();
+                data[metadata_offset..].copy_from_slice(&elf);
+                data
+            };
+
+            let rent = Rent::default();
+
             // Add to genesis accounts to ensure any BPF versions of builtins
             // are not overwritten by their builtin counterparts.
             this.add_genesis_account(
                 program_id,
                 Account {
-                    lamports: Rent::default().minimum_balance(data.len()).max(1),
-                    data,
-                    owner: solana_sdk::bpf_loader::id(),
+                    lamports: rent.minimum_balance(program_data.len()).max(1),
+                    data: program_data,
+                    owner: solana_sdk::bpf_loader_upgradeable::id(),
+                    executable: true,
+                    rent_epoch: 0,
+                },
+            );
+            this.add_genesis_account(
+                programdata_address,
+                Account {
+                    lamports: rent.minimum_balance(programdata_data.len()).max(1),
+                    data: programdata_data,
+                    owner: solana_sdk::bpf_loader_upgradeable::id(),
                     executable: true,
                     rent_epoch: 0,
                 },
