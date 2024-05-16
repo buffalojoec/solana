@@ -30,6 +30,7 @@ use {
     solana_sdk::{
         account::{create_account_shared_data_for_test, Account, AccountSharedData},
         account_info::AccountInfo,
+        bpf_loader_upgradeable::{get_program_data_address, UpgradeableLoaderState},
         clock::{Epoch, Slot},
         entrypoint::{deserialize, ProgramResult, SUCCESS},
         feature_set::FEATURE_NAMES,
@@ -466,6 +467,7 @@ pub struct ProgramTest {
     builtin_programs: Vec<(Pubkey, &'static str, ProgramCacheEntry)>,
     compute_max_units: Option<u64>,
     prefer_bpf: bool,
+    prefer_loader_v3: bool,
     deactivate_feature_set: HashSet<Pubkey>,
     transaction_account_lock_limit: Option<usize>,
 }
@@ -498,6 +500,7 @@ impl Default for ProgramTest {
             builtin_programs: vec![],
             compute_max_units: None,
             prefer_bpf,
+            prefer_loader_v3: false,
             deactivate_feature_set: HashSet::default(),
             transaction_account_lock_limit: None,
         }
@@ -525,6 +528,11 @@ impl ProgramTest {
     /// Override default SBF program selection
     pub fn prefer_bpf(&mut self, prefer_bpf: bool) {
         self.prefer_bpf = prefer_bpf;
+    }
+
+    /// Override default loader selection.
+    pub fn prefer_loader_v3(&mut self, prefer_loader_v3: bool) {
+        self.prefer_loader_v3 = prefer_loader_v3;
     }
 
     /// Override the default maximum compute units
@@ -618,7 +626,7 @@ impl ProgramTest {
         builtin_function: Option<BuiltinFunctionWithContext>,
     ) {
         let add_bpf = |this: &mut ProgramTest, program_file: PathBuf| {
-            let data = read_file(&program_file);
+            let elf = read_file(&program_file);
             info!(
                 "\"{}\" SBF program from {}{}",
                 program_name,
@@ -641,16 +649,61 @@ impl ProgramTest {
                     .unwrap_or_default()
             );
 
-            this.add_account(
-                program_id,
-                Account {
-                    lamports: Rent::default().minimum_balance(data.len()).max(1),
-                    data,
-                    owner: solana_sdk::bpf_loader::id(),
-                    executable: true,
-                    rent_epoch: 0,
-                },
-            );
+            if this.prefer_loader_v3 {
+                let programdata_address = get_program_data_address(&program_id);
+                let program_data = bincode::serialize(&UpgradeableLoaderState::Program {
+                    programdata_address,
+                })
+                .unwrap();
+                let programdata_data = {
+                    let metadata_offset = UpgradeableLoaderState::size_of_programdata_metadata();
+                    let data_len = metadata_offset + elf.len();
+                    let mut data = vec![0; data_len];
+                    bincode::serialize_into(
+                        &mut data[..metadata_offset],
+                        &UpgradeableLoaderState::ProgramData {
+                            slot: 0,
+                            upgrade_authority_address: None,
+                        },
+                    )
+                    .unwrap();
+                    data[metadata_offset..].copy_from_slice(&elf);
+                    data
+                };
+                this.add_account(
+                    program_id,
+                    Account {
+                        lamports: Rent::default().minimum_balance(program_data.len()).max(1),
+                        data: program_data,
+                        owner: solana_sdk::bpf_loader_upgradeable::id(),
+                        executable: true,
+                        rent_epoch: 0,
+                    },
+                );
+                this.add_account(
+                    programdata_address,
+                    Account {
+                        lamports: Rent::default()
+                            .minimum_balance(programdata_data.len())
+                            .max(1),
+                        data: programdata_data,
+                        owner: solana_sdk::bpf_loader_upgradeable::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                );
+            } else {
+                this.add_account(
+                    program_id,
+                    Account {
+                        lamports: Rent::default().minimum_balance(elf.len()).max(1),
+                        data: elf,
+                        owner: solana_sdk::bpf_loader::id(),
+                        executable: true,
+                        rent_epoch: 0,
+                    },
+                );
+            }
         };
 
         let warn_invalid_program_name = || {
