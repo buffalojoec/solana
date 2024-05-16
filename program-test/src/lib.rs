@@ -463,6 +463,7 @@ pub fn read_file<P: AsRef<Path>>(path: P) -> Vec<u8> {
 
 pub struct ProgramTest {
     accounts: Vec<(Pubkey, AccountSharedData)>,
+    genesis_accounts: Vec<(Pubkey, AccountSharedData)>,
     builtin_programs: Vec<(Pubkey, &'static str, ProgramCacheEntry)>,
     compute_max_units: Option<u64>,
     prefer_bpf: bool,
@@ -495,6 +496,7 @@ impl Default for ProgramTest {
 
         Self {
             accounts: vec![],
+            genesis_accounts: vec![],
             builtin_programs: vec![],
             compute_max_units: None,
             prefer_bpf,
@@ -546,6 +548,12 @@ impl ProgramTest {
     #[deprecated(since = "1.8.0", note = "please use `set_compute_max_units` instead")]
     pub fn set_bpf_compute_max_units(&mut self, bpf_compute_max_units: u64) {
         self.set_compute_max_units(bpf_compute_max_units);
+    }
+
+    /// Add an account to the genesis accounts.
+    fn add_genesis_account(&mut self, address: Pubkey, account: Account) {
+        self.genesis_accounts
+            .push((address, AccountSharedData::from(account)));
     }
 
     /// Add an account to the test environment
@@ -641,7 +649,9 @@ impl ProgramTest {
                     .unwrap_or_default()
             );
 
-            this.add_account(
+            // Add to genesis accounts to ensure any BPF versions of builtins
+            // are not overwritten by their builtin counterparts.
+            this.add_genesis_account(
                 program_id,
                 Account {
                     lamports: Rent::default().minimum_balance(data.len()).max(1),
@@ -780,7 +790,7 @@ impl ProgramTest {
             fee_rate_governor,
             rent,
             ClusterType::Development,
-            vec![],
+            self.genesis_accounts.clone(),
         );
 
         // Remove features tagged to deactivate
