@@ -475,7 +475,7 @@ fn execute_fixture_as_instr(
 
     let mut invoke_context = InvokeContext::new(
         &mut transaction_context,
-        &loaded_programs,
+        &mut loaded_programs,
         env_config,
         Some(log_collector.clone()),
         compute_budget,

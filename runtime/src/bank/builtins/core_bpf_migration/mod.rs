@@ -169,7 +169,7 @@ impl Bank {
         let elf = &programdata[progradata_metadata_size..];
         // Set up the two `LoadedProgramsForTxBatch` instances, as if
         // processing a new transaction batch.
-        let program_cache_for_tx_batch = ProgramCacheForTxBatch::new_from_cache(
+        let mut program_cache_for_tx_batch = ProgramCacheForTxBatch::new_from_cache(
             self.slot,
             self.epoch,
             &self.transaction_processor.program_cache.read().unwrap(),
@@ -202,7 +202,7 @@ impl Bank {
 
             let mut dummy_invoke_context = InvokeContext::new(
                 &mut dummy_transaction_context,
-                &program_cache_for_tx_batch,
+                &mut program_cache_for_tx_batch,
                 EnvironmentConfig::new(
                     Hash::default(),
                     None,

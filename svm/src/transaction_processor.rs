@@ -339,7 +339,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         compute_budget,
                         &mut execute_timings,
                         &mut error_metrics,
-                        &program_cache_for_tx_batch.borrow(),
+                        &mut program_cache_for_tx_batch.borrow_mut(),
                         environment,
                         config,
                     );
@@ -722,7 +722,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         compute_budget: ComputeBudget,
         execute_timings: &mut ExecuteTimings,
         error_metrics: &mut TransactionErrorMetrics,
-        program_cache_for_tx_batch: &ProgramCacheForTxBatch,
+        program_cache_for_tx_batch: &mut ProgramCacheForTxBatch,
         environment: &TransactionProcessingEnvironment,
         config: &TransactionProcessingConfig,
     ) -> TransactionExecutionResult {
@@ -1149,7 +1149,7 @@ mod tests {
         };
 
         let sanitized_message = new_unchecked_sanitized_message(message);
-        let program_cache_for_tx_batch = ProgramCacheForTxBatch::default();
+        let mut program_cache_for_tx_batch = ProgramCacheForTxBatch::default();
         let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
 
         let sanitized_transaction = SanitizedTransaction::new_for_tests(
@@ -1179,7 +1179,7 @@ mod tests {
             ComputeBudget::default(),
             &mut ExecuteTimings::default(),
             &mut TransactionErrorMetrics::default(),
-            &program_cache_for_tx_batch,
+            &mut program_cache_for_tx_batch,
             &processing_environment,
             &processing_config,
         );
@@ -1201,7 +1201,7 @@ mod tests {
             ComputeBudget::default(),
             &mut ExecuteTimings::default(),
             &mut TransactionErrorMetrics::default(),
-            &program_cache_for_tx_batch,
+            &mut program_cache_for_tx_batch,
             &processing_environment,
             &processing_config,
         );
@@ -1231,7 +1231,7 @@ mod tests {
             ComputeBudget::default(),
             &mut ExecuteTimings::default(),
             &mut TransactionErrorMetrics::default(),
-            &program_cache_for_tx_batch,
+            &mut program_cache_for_tx_batch,
             &processing_environment,
             &processing_config,
         );
@@ -1271,7 +1271,7 @@ mod tests {
         };
 
         let sanitized_message = new_unchecked_sanitized_message(message);
-        let program_cache_for_tx_batch = ProgramCacheForTxBatch::default();
+        let mut program_cache_for_tx_batch = ProgramCacheForTxBatch::default();
         let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
 
         let sanitized_transaction = SanitizedTransaction::new_for_tests(
@@ -1307,7 +1307,7 @@ mod tests {
             ComputeBudget::default(),
             &mut ExecuteTimings::default(),
             &mut error_metrics,
-            &program_cache_for_tx_batch,
+            &mut program_cache_for_tx_batch,
             &TransactionProcessingEnvironment::default(),
             &processing_config,
         );

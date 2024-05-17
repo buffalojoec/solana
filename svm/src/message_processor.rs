@@ -286,7 +286,7 @@ mod tests {
         );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &program_cache_for_tx_batch,
+            &mut program_cache_for_tx_batch,
             environment_config,
             None,
             ComputeBudget::default(),
@@ -342,7 +342,7 @@ mod tests {
         );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &program_cache_for_tx_batch,
+            &mut program_cache_for_tx_batch,
             environment_config,
             None,
             ComputeBudget::default(),
@@ -388,7 +388,7 @@ mod tests {
         );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &program_cache_for_tx_batch,
+            &mut program_cache_for_tx_batch,
             environment_config,
             None,
             ComputeBudget::default(),
@@ -525,7 +525,7 @@ mod tests {
         );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &program_cache_for_tx_batch,
+            &mut program_cache_for_tx_batch,
             environment_config,
             None,
             ComputeBudget::default(),
@@ -566,7 +566,7 @@ mod tests {
         );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &program_cache_for_tx_batch,
+            &mut program_cache_for_tx_batch,
             environment_config,
             None,
             ComputeBudget::default(),
@@ -604,7 +604,7 @@ mod tests {
         );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &program_cache_for_tx_batch,
+            &mut program_cache_for_tx_batch,
             environment_config,
             None,
             ComputeBudget::default(),
@@ -703,7 +703,7 @@ mod tests {
         );
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
-            &program_cache_for_tx_batch,
+            &mut program_cache_for_tx_batch,
             environment_config,
             None,
             ComputeBudget::default(),
