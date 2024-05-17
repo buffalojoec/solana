@@ -720,14 +720,6 @@ impl ProgramCacheForTxBatch {
         }
     }
 
-    pub fn entries(&self) -> &HashMap<Pubkey, Arc<ProgramCacheEntry>> {
-        &self.entries
-    }
-
-    pub fn take_entries(&mut self) -> HashMap<Pubkey, Arc<ProgramCacheEntry>> {
-        std::mem::take(&mut self.entries)
-    }
-
     /// Returns the current environments depending on the given epoch
     pub fn get_environments_for_epoch(&self, epoch: Epoch) -> &ProgramRuntimeEnvironments {
         if epoch != self.latest_root_epoch {

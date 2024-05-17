@@ -232,7 +232,7 @@ impl Bank {
             .program_cache
             .write()
             .unwrap()
-            .merge(programs_modified.entries());
+            .merge(&programs_modified.drain_modified_entries());
 
         Ok(())
     }
