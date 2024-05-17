@@ -165,7 +165,7 @@ macro_rules! deploy_program {
         $drop
         load_program_metrics.program_id = $program_id.to_string();
         load_program_metrics.submit_datapoint(&mut $invoke_context.timings);
-        $invoke_context.programs_modified_by_tx.store_modified_entry($program_id, Arc::new(executor));
+        $invoke_context.program_cache_for_tx_batch.store_modified_entry($program_id, Arc::new(executor));
     }};
 }
 
@@ -1109,14 +1109,16 @@ fn process_loader_upgradeable_instruction(
                                 &log_collector,
                             )?;
                             let clock = invoke_context.get_sysvar_cache().get_clock()?;
-                            invoke_context.programs_modified_by_tx.store_modified_entry(
-                                program_key,
-                                Arc::new(ProgramCacheEntry::new_tombstone(
-                                    clock.slot,
-                                    ProgramCacheEntryOwner::LoaderV3,
-                                    ProgramCacheEntryType::Closed,
-                                )),
-                            );
+                            invoke_context
+                                .program_cache_for_tx_batch
+                                .store_modified_entry(
+                                    program_key,
+                                    Arc::new(ProgramCacheEntry::new_tombstone(
+                                        clock.slot,
+                                        ProgramCacheEntryOwner::LoaderV3,
+                                        ProgramCacheEntryType::Closed,
+                                    )),
+                                );
                         }
                         _ => {
                             ic_logger_msg!(log_collector, "Invalid Program account");
@@ -1543,10 +1545,10 @@ pub mod test_utils {
                     false,
                 ) {
                     invoke_context
-                        .programs_modified_by_tx
+                        .program_cache_for_tx_batch
                         .set_slot_for_tests(DELAY_VISIBILITY_SLOT_OFFSET);
                     invoke_context
-                        .programs_modified_by_tx
+                        .program_cache_for_tx_batch
                         .store_modified_entry(*pubkey, Arc::new(loaded_program));
                 }
             }
@@ -3763,7 +3765,7 @@ mod tests {
             latest_access_slot: AtomicU64::new(0),
         };
         invoke_context
-            .programs_modified_by_tx
+            .program_cache_for_tx_batch
             .replenish(program_id, Arc::new(program));
 
         assert_matches!(
@@ -3772,7 +3774,7 @@ mod tests {
         );
 
         let updated_program = invoke_context
-            .programs_modified_by_tx
+            .program_cache_for_tx_batch
             .find(&program_id)
             .expect("Didn't find upgraded program in the cache");
 
@@ -3807,7 +3809,7 @@ mod tests {
             latest_access_slot: AtomicU64::new(0),
         };
         invoke_context
-            .programs_modified_by_tx
+            .program_cache_for_tx_batch
             .replenish(program_id, Arc::new(program));
 
         let program_id2 = Pubkey::new_unique();
@@ -3817,7 +3819,7 @@ mod tests {
         );
 
         let program2 = invoke_context
-            .programs_modified_by_tx
+            .program_cache_for_tx_batch
             .find(&program_id2)
             .expect("Didn't find upgraded program in the cache");
 

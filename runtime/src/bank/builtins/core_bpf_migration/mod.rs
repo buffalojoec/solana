@@ -174,12 +174,6 @@ impl Bank {
             self.epoch,
             &self.transaction_processor.program_cache.read().unwrap(),
         );
-        let mut programs_modified = ProgramCacheForTxBatch::new(
-            self.slot,
-            program_cache_for_tx_batch.environments.clone(),
-            program_cache_for_tx_batch.upcoming_environments.clone(),
-            program_cache_for_tx_batch.latest_root_epoch,
-        );
 
         // Configure a dummy `InvokeContext` from the runtime's current
         // environment, as well as the two `ProgramCacheForTxBatch`
@@ -213,7 +207,6 @@ impl Bank {
                 ),
                 None,
                 compute_budget,
-                &mut programs_modified,
             );
 
             solana_bpf_loader_program::direct_deploy_program(
@@ -232,7 +225,7 @@ impl Bank {
             .program_cache
             .write()
             .unwrap()
-            .merge(&programs_modified.drain_modified_entries());
+            .merge(&program_cache_for_tx_batch.drain_modified_entries());
 
         Ok(())
     }

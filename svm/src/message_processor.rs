@@ -275,7 +275,6 @@ mod tests {
             ]),
         ));
         let sysvar_cache = SysvarCache::default();
-        let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
         let environment_config = EnvironmentConfig::new(
             Hash::default(),
             None,
@@ -290,7 +289,6 @@ mod tests {
             environment_config,
             None,
             ComputeBudget::default(),
-            &mut programs_modified_by_tx,
         );
         let result = MessageProcessor::process_message(
             &message,
@@ -331,7 +329,6 @@ mod tests {
                 ),
             ]),
         ));
-        let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
         let environment_config = EnvironmentConfig::new(
             Hash::default(),
             None,
@@ -346,7 +343,6 @@ mod tests {
             environment_config,
             None,
             ComputeBudget::default(),
-            &mut programs_modified_by_tx,
         );
         let result = MessageProcessor::process_message(
             &message,
@@ -377,7 +373,6 @@ mod tests {
                 ),
             ]),
         ));
-        let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
         let environment_config = EnvironmentConfig::new(
             Hash::default(),
             None,
@@ -392,7 +387,6 @@ mod tests {
             environment_config,
             None,
             ComputeBudget::default(),
-            &mut programs_modified_by_tx,
         );
         let result = MessageProcessor::process_message(
             &message,
@@ -514,7 +508,6 @@ mod tests {
             Some(transaction_context.get_key_of_account_at_index(0).unwrap()),
         ));
         let sysvar_cache = SysvarCache::default();
-        let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
         let environment_config = EnvironmentConfig::new(
             Hash::default(),
             None,
@@ -529,7 +522,6 @@ mod tests {
             environment_config,
             None,
             ComputeBudget::default(),
-            &mut programs_modified_by_tx,
         );
         let result = MessageProcessor::process_message(
             &message,
@@ -555,7 +547,6 @@ mod tests {
             )],
             Some(transaction_context.get_key_of_account_at_index(0).unwrap()),
         ));
-        let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
         let environment_config = EnvironmentConfig::new(
             Hash::default(),
             None,
@@ -570,7 +561,6 @@ mod tests {
             environment_config,
             None,
             ComputeBudget::default(),
-            &mut programs_modified_by_tx,
         );
         let result = MessageProcessor::process_message(
             &message,
@@ -593,7 +583,6 @@ mod tests {
             )],
             Some(transaction_context.get_key_of_account_at_index(0).unwrap()),
         ));
-        let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
         let environment_config = EnvironmentConfig::new(
             Hash::default(),
             None,
@@ -608,7 +597,6 @@ mod tests {
             environment_config,
             None,
             ComputeBudget::default(),
-            &mut programs_modified_by_tx,
         );
         let result = MessageProcessor::process_message(
             &message,
@@ -692,7 +680,6 @@ mod tests {
             mock_program_id,
             Arc::new(ProgramCacheEntry::new_builtin(0, 0, MockBuiltin::vm)),
         );
-        let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
         let environment_config = EnvironmentConfig::new(
             Hash::default(),
             None,
@@ -707,7 +694,6 @@ mod tests {
             environment_config,
             None,
             ComputeBudget::default(),
-            &mut programs_modified_by_tx,
         );
         let result = MessageProcessor::process_message(
             &message,

@@ -202,7 +202,6 @@ pub struct InvokeContext<'a> {
     /// the designated compute budget during program execution.
     compute_meter: RefCell<u64>,
     log_collector: Option<Rc<RefCell<LogCollector>>>,
-    pub programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     /// Latest measurement not yet accumulated in [ExecuteDetailsTimings::execute_us]
     pub execute_time: Option<Measure>,
     pub timings: ExecuteDetailsTimings,
@@ -218,7 +217,6 @@ impl<'a> InvokeContext<'a> {
         environment_config: EnvironmentConfig<'a>,
         log_collector: Option<Rc<RefCell<LogCollector>>>,
         compute_budget: ComputeBudget,
-        programs_modified_by_tx: &'a mut ProgramCacheForTxBatch,
     ) -> Self {
         Self {
             transaction_context,
@@ -227,7 +225,6 @@ impl<'a> InvokeContext<'a> {
             log_collector,
             compute_budget,
             compute_meter: RefCell::new(compute_budget.compute_unit_limit),
-            programs_modified_by_tx,
             execute_time: None,
             timings: ExecuteDetailsTimings::default(),
             syscall_context: Vec::new(),
@@ -236,11 +233,7 @@ impl<'a> InvokeContext<'a> {
     }
 
     pub fn find_program_in_cache(&self, pubkey: &Pubkey) -> Option<Arc<ProgramCacheEntry>> {
-        // First lookup the cache of the programs modified by the current transaction. If not found, lookup
-        // the cache of the cache of the programs that are loaded for the transaction batch.
-        self.programs_modified_by_tx
-            .find(pubkey)
-            .or_else(|| self.program_cache_for_tx_batch.find(pubkey))
+        self.program_cache_for_tx_batch.find(pubkey)
     }
 
     pub fn get_environments_for_slot(
@@ -734,14 +727,12 @@ macro_rules! with_mock_invoke_context {
             &sysvar_cache,
         );
         let mut program_cache_for_tx_batch = ProgramCacheForTxBatch::default();
-        let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
         let mut $invoke_context = InvokeContext::new(
             &mut $transaction_context,
             &mut program_cache_for_tx_batch,
             environment_config,
             Some(LogCollector::new_ref()),
             compute_budget,
-            &mut programs_modified_by_tx,
         );
     };
 }

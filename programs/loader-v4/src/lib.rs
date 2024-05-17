@@ -460,7 +460,7 @@ pub fn process_instruction_deploy(
         );
     }
     invoke_context
-        .programs_modified_by_tx
+        .program_cache_for_tx_batch
         .store_modified_entry(*program.get_key(), Arc::new(executor));
     Ok(())
 }
@@ -661,7 +661,7 @@ mod tests {
                     if let Ok(loaded_program) = ProgramCacheEntry::new(
                         &loader_v4::id(),
                         invoke_context
-                            .programs_modified_by_tx
+                            .program_cache_for_tx_batch
                             .environments
                             .program_runtime_v2
                             .clone(),
@@ -671,9 +671,11 @@ mod tests {
                         account.data().len(),
                         &mut load_program_metrics,
                     ) {
-                        invoke_context.programs_modified_by_tx.set_slot_for_tests(0);
                         invoke_context
-                            .programs_modified_by_tx
+                            .program_cache_for_tx_batch
+                            .set_slot_for_tests(0);
+                        invoke_context
+                            .program_cache_for_tx_batch
                             .store_modified_entry(*pubkey, Arc::new(loaded_program));
                     }
                 }
@@ -708,7 +710,7 @@ mod tests {
             Entrypoint::vm,
             |invoke_context| {
                 invoke_context
-                    .programs_modified_by_tx
+                    .program_cache_for_tx_batch
                     .environments
                     .program_runtime_v2 = Arc::new(create_program_runtime_environment_v2(
                     &ComputeBudget::default(),

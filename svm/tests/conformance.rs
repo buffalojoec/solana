@@ -460,7 +460,6 @@ fn execute_fixture_as_instr(
         )),
     );
 
-    let mut programs_modified_by_tx = ProgramCacheForTxBatch::default();
     let log_collector = LogCollector::new_ref();
 
     let sysvar_cache = &batch_processor.sysvar_cache.read().unwrap();
@@ -479,7 +478,6 @@ fn execute_fixture_as_instr(
         env_config,
         Some(log_collector.clone()),
         compute_budget,
-        &mut programs_modified_by_tx,
     );
 
     let mut instruction_accounts: Vec<InstructionAccount> =
