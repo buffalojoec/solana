@@ -316,6 +316,8 @@ mod tests {
             &super::BUILTINS[2].core_bpf_migration_config,
             &Some(super::test_only::stake_program::CONFIG)
         );
+        // Config has a live migration config, so it has no test-only configs
+        // to test here.
         assert_eq!(
             &super::BUILTINS[4].core_bpf_migration_config,
             &Some(super::test_only::solana_bpf_loader_deprecated_program::CONFIG)
@@ -344,5 +346,7 @@ mod tests {
             &super::BUILTINS[10].core_bpf_migration_config,
             &Some(super::test_only::loader_v4::CONFIG)
         );
+        // Feature Gate has a live migration config, so it has no test-only
+        // configs to test here.
     }
 }
