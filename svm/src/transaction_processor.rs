@@ -85,7 +85,6 @@ impl ExecutionRecordingConfig {
 }
 
 /// Configurations for processing transactions.
-#[derive(Default)]
 pub struct TransactionProcessingConfig<'a> {
     /// Encapsulates overridden accounts, typically used for transaction
     /// simulation.
@@ -1001,7 +1000,12 @@ mod tests {
             rent_debits: RentDebits::default(),
         };
 
-        let mut processing_config = TransactionProcessingConfig::default();
+        let mut processing_config = TransactionProcessingConfig {
+            account_overrides: None,
+            log_messages_bytes_limit: None,
+            limit_to_load_programs: false,
+            recording_config: ExecutionRecordingConfig::default(),
+        };
         processing_config.recording_config.enable_log_recording = true;
 
         let result = batch_processor.execute_loaded_transaction(
@@ -1126,8 +1130,10 @@ mod tests {
         };
 
         let processing_config = TransactionProcessingConfig {
+            account_overrides: None,
+            log_messages_bytes_limit: None,
+            limit_to_load_programs: false,
             recording_config: ExecutionRecordingConfig::new_single_setting(false),
-            ..Default::default()
         };
         let mut error_metrics = TransactionErrorMetrics::new();
 

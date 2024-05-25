@@ -461,13 +461,16 @@ fn svm_integration() {
     register_builtins(&mock_bank, &batch_processor);
 
     let mut error_counter = TransactionErrorMetrics::default();
+
     let processing_config = TransactionProcessingConfig {
+        account_overrides: None,
+        log_messages_bytes_limit: None,
+        limit_to_load_programs: false,
         recording_config: ExecutionRecordingConfig {
             enable_log_recording: true,
             enable_return_data_recording: true,
             enable_cpi_recording: false,
         },
-        ..Default::default()
     };
     let mut timings = ExecuteTimings::default();
 
