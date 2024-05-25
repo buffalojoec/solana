@@ -96,6 +96,8 @@ pub struct TransactionProcessingConfig<'a> {
     pub compute_budget: Option<ComputeBudget>,
     /// The feature set to use for the transaction batch.
     pub feature_set: Arc<FeatureSet>,
+    /// The fee structure to use for the transaction batch.
+    pub fee_structure: &'a FeeStructure,
     /// Lamports per signature to charge for the transaction batch.
     pub lamports_per_signature: u64,
     /// The maximum number of bytes that log messages can consume.
@@ -122,9 +124,6 @@ pub struct TransactionBatchProcessor<FG: ForkGraph> {
     /// initialized from genesis
     pub epoch_schedule: EpochSchedule,
 
-    /// Transaction fee structure
-    pub fee_structure: FeeStructure,
-
     /// SysvarCache is a collection of system variables that are
     /// accessible from on chain programs. It is passed to SVM from
     /// client code (e.g. Bank) and forwarded to the MessageProcessor.
@@ -143,7 +142,6 @@ impl<FG: ForkGraph> Debug for TransactionBatchProcessor<FG> {
             .field("slot", &self.slot)
             .field("epoch", &self.epoch)
             .field("epoch_schedule", &self.epoch_schedule)
-            .field("fee_structure", &self.fee_structure)
             .field("sysvar_cache", &self.sysvar_cache)
             .field("program_cache", &self.program_cache)
             .finish()
@@ -156,7 +154,6 @@ impl<FG: ForkGraph> Default for TransactionBatchProcessor<FG> {
             slot: Slot::default(),
             epoch: Epoch::default(),
             epoch_schedule: EpochSchedule::default(),
-            fee_structure: FeeStructure::default(),
             sysvar_cache: RwLock::<SysvarCache>::default(),
             program_cache: Arc::new(RwLock::new(ProgramCache::new(
                 Slot::default(),
@@ -179,7 +176,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             slot,
             epoch,
             epoch_schedule,
-            fee_structure: FeeStructure::default(),
             sysvar_cache: RwLock::<SysvarCache>::default(),
             program_cache,
             builtin_program_ids: RwLock::new(builtin_program_ids),
@@ -191,7 +187,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             slot,
             epoch,
             epoch_schedule: self.epoch_schedule.clone(),
-            fee_structure: self.fee_structure.clone(),
             sysvar_cache: RwLock::<SysvarCache>::default(),
             program_cache: self.program_cache.clone(),
             builtin_program_ids: RwLock::new(self.builtin_program_ids.read().unwrap().clone()),
@@ -244,7 +239,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             check_results,
             error_counters,
             &config.feature_set,
-            &self.fee_structure,
+            config.fee_structure,
             config.rent_collector,
             config.account_overrides,
             &program_cache_for_tx_batch.borrow(),
@@ -994,6 +989,7 @@ mod tests {
             blockhash: Hash::default(),
             compute_budget: None,
             feature_set: Arc::new(FeatureSet::all_enabled()),
+            fee_structure: &FeeStructure::default(),
             lamports_per_signature: 0,
             log_messages_bytes_limit: None,
             limit_to_load_programs: false,
@@ -1125,6 +1121,7 @@ mod tests {
             blockhash: Hash::default(),
             compute_budget: None,
             feature_set: Arc::new(FeatureSet::all_enabled()),
+            fee_structure: &FeeStructure::default(),
             lamports_per_signature: 0,
             log_messages_bytes_limit: None,
             limit_to_load_programs: false,

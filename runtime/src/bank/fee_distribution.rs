@@ -85,7 +85,7 @@ impl Bank {
         transaction: &SanitizedTransaction,
         fee_budget_limits: &FeeBudgetLimits,
     ) -> u64 {
-        let fee_details = self.fee_structure().calculate_fee_details(
+        let fee_details = self.fee_structure.calculate_fee_details(
             transaction.message(),
             fee_budget_limits,
             self.feature_set

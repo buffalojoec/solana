@@ -582,6 +582,7 @@ impl PartialEq for Bank {
             is_delta,
             compute_budget,
             transaction_account_lock_limit,
+            fee_structure,
             // TODO: Confirm if all these fields are intentionally ignored!
             rewards: _,
             cluster_type: _,
@@ -639,6 +640,7 @@ impl PartialEq for Bank {
             && is_delta.load(Relaxed) == other.is_delta.load(Relaxed)
             && compute_budget == &other.compute_budget
             && transaction_account_lock_limit == &other.transaction_account_lock_limit
+            && fee_structure == &other.fee_structure
     }
 }
 
@@ -849,6 +851,8 @@ pub struct Bank {
     compute_budget: Option<ComputeBudget>,
 
     transaction_account_lock_limit: Option<usize>,
+
+    fee_structure: FeeStructure,
 }
 
 struct VoteWithStakeDelegations {
@@ -966,6 +970,7 @@ impl Bank {
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
             compute_budget: None,
             transaction_account_lock_limit: None,
+            fee_structure: FeeStructure::default(),
         };
 
         bank.transaction_processor = TransactionBatchProcessor::new(
@@ -1220,6 +1225,7 @@ impl Bank {
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
             compute_budget: parent.compute_budget,
             transaction_account_lock_limit: parent.transaction_account_lock_limit,
+            fee_structure: parent.fee_structure.clone(),
         };
 
         let (_, ancestors_time_us) = measure_us!({
@@ -1607,6 +1613,7 @@ impl Bank {
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
             compute_budget: runtime_config.compute_budget,
             transaction_account_lock_limit: runtime_config.transaction_account_lock_limit,
+            fee_structure: FeeStructure::default(),
         };
 
         bank.transaction_processor = TransactionBatchProcessor::new(
@@ -3089,7 +3096,7 @@ impl Bank {
         message: &SanitizedMessage,
         lamports_per_signature: u64,
     ) -> u64 {
-        self.fee_structure().calculate_fee(
+        self.fee_structure.calculate_fee(
             message,
             lamports_per_signature,
             &process_compute_budget_instructions(message.program_instructions_iter())
@@ -3693,6 +3700,7 @@ impl Bank {
             blockhash,
             compute_budget: self.compute_budget,
             feature_set: Arc::clone(&self.feature_set),
+            fee_structure: &FeeStructure::default(),
             lamports_per_signature,
             limit_to_load_programs,
             log_messages_bytes_limit,
@@ -3967,7 +3975,7 @@ impl Bank {
                     )?;
 
                 if !FeeStructure::to_clear_transaction_fee(lamports_per_signature) {
-                    let fee_details = self.fee_structure().calculate_fee_details(
+                    let fee_details = self.fee_structure.calculate_fee_details(
                         message,
                         &process_compute_budget_instructions(message.program_instructions_iter())
                             .unwrap_or_default()
@@ -6781,7 +6789,7 @@ impl Bank {
     }
 
     pub fn fee_structure(&self) -> &FeeStructure {
-        &self.transaction_processor.fee_structure
+        &self.fee_structure
     }
 
     pub fn add_builtin(&self, program_id: Pubkey, name: &str, builtin: ProgramCacheEntry) {
@@ -7099,7 +7107,7 @@ impl Bank {
     }
 
     pub fn set_fee_structure(&mut self, fee_structure: &FeeStructure) {
-        self.transaction_processor.fee_structure = fee_structure.clone();
+        self.fee_structure = fee_structure.clone();
     }
 }
 
