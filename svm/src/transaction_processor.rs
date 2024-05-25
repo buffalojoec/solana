@@ -36,6 +36,7 @@ use {
         epoch_schedule::EpochSchedule,
         feature_set::FeatureSet,
         fee::FeeStructure,
+        hash::Hash,
         inner_instruction::{InnerInstruction, InnerInstructionsList},
         instruction::{CompiledInstruction, TRANSACTION_LEVEL_STACK_HEIGHT},
         message::SanitizedMessage,
@@ -89,6 +90,10 @@ pub struct TransactionProcessingConfig<'a> {
     /// Encapsulates overridden accounts, typically used for transaction
     /// simulation.
     pub account_overrides: Option<&'a AccountOverrides>,
+    /// The blockhash to use for the transaction batch.
+    pub blockhash: Hash,
+    /// Lamports per signature to charge for the transaction batch.
+    pub lamports_per_signature: u64,
     /// The maximum number of bytes that log messages can consume.
     pub log_messages_bytes_limit: Option<usize>,
     /// Whether to limit the number of programs loaded for the transaction
@@ -609,8 +614,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             None
         };
 
-        let (blockhash, lamports_per_signature) =
-            callback.get_last_blockhash_and_lamports_per_signature();
+        let blockhash = config.blockhash;
+        let lamports_per_signature = config.lamports_per_signature;
 
         let mut executed_units = 0u64;
         let mut programs_modified_by_tx = ProgramCacheForTxBatch::new(
@@ -896,10 +901,6 @@ mod tests {
             self.account_shared_data.borrow().get(pubkey).cloned()
         }
 
-        fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64) {
-            (Hash::new_unique(), 2)
-        }
-
         fn get_rent_collector(&self) -> &RentCollector {
             &self.rent_collector
         }
@@ -1002,6 +1003,8 @@ mod tests {
 
         let mut processing_config = TransactionProcessingConfig {
             account_overrides: None,
+            blockhash: Hash::default(),
+            lamports_per_signature: 0,
             log_messages_bytes_limit: None,
             limit_to_load_programs: false,
             recording_config: ExecutionRecordingConfig::default(),
@@ -1131,6 +1134,8 @@ mod tests {
 
         let processing_config = TransactionProcessingConfig {
             account_overrides: None,
+            blockhash: Hash::default(),
+            lamports_per_signature: 0,
             log_messages_bytes_limit: None,
             limit_to_load_programs: false,
             recording_config: ExecutionRecordingConfig::new_single_setting(false),

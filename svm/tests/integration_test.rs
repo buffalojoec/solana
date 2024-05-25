@@ -464,6 +464,8 @@ fn svm_integration() {
 
     let processing_config = TransactionProcessingConfig {
         account_overrides: None,
+        blockhash: Hash::default(),
+        lamports_per_signature: 0,
         log_messages_bytes_limit: None,
         limit_to_load_programs: false,
         recording_config: ExecutionRecordingConfig {

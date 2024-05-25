@@ -519,10 +519,6 @@ mod tests {
             self.accounts_map.get(pubkey).cloned()
         }
 
-        fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64) {
-            (Hash::new_unique(), 0)
-        }
-
         fn get_rent_collector(&self) -> &RentCollector {
             &self.rent_collector
         }

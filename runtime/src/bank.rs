@@ -3673,8 +3673,12 @@ impl Bank {
         debug!("check: {}us", check_time.as_us());
         timings.saturating_add_in_place(ExecuteTimingType::CheckUs, check_time.as_us());
 
+        let (blockhash, lamports_per_signature) = self.last_blockhash_and_lamports_per_signature();
+
         let processing_config = TransactionProcessingConfig {
             account_overrides,
+            blockhash,
+            lamports_per_signature,
             limit_to_load_programs,
             log_messages_bytes_limit,
             recording_config,
@@ -6822,10 +6826,6 @@ impl TransactionProcessingCallback for Bank {
             .accounts_db
             .load_with_fixed_root(&self.ancestors, pubkey)
             .map(|(acc, _)| acc)
-    }
-
-    fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64) {
-        self.last_blockhash_and_lamports_per_signature()
     }
 
     fn get_rent_collector(&self) -> &RentCollector {
