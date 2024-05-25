@@ -94,6 +94,7 @@ use {
     solana_measure::{measure, measure::Measure, measure_us},
     solana_perf::perf_libs,
     solana_program_runtime::{
+        compute_budget::ComputeBudget,
         compute_budget_processor::process_compute_budget_instructions,
         invoke_context::BuiltinFunctionWithContext,
         loaded_programs::{
@@ -579,6 +580,8 @@ impl PartialEq for Bank {
             stakes_cache,
             epoch_stakes,
             is_delta,
+            compute_budget,
+            transaction_account_lock_limit,
             // TODO: Confirm if all these fields are intentionally ignored!
             rewards: _,
             cluster_type: _,
@@ -634,6 +637,8 @@ impl PartialEq for Bank {
             && *stakes_cache.stakes() == *other.stakes_cache.stakes()
             && epoch_stakes == &other.epoch_stakes
             && is_delta.load(Relaxed) == other.is_delta.load(Relaxed)
+            && compute_budget == &other.compute_budget
+            && transaction_account_lock_limit == &other.transaction_account_lock_limit
     }
 }
 
@@ -840,6 +845,10 @@ pub struct Bank {
 
     /// Collected fee details
     collector_fee_details: RwLock<CollectorFeeDetails>,
+
+    compute_budget: Option<ComputeBudget>,
+
+    transaction_account_lock_limit: Option<usize>,
 }
 
 struct VoteWithStakeDelegations {
@@ -955,13 +964,14 @@ impl Bank {
             transaction_processor: TransactionBatchProcessor::default(),
             check_program_modification_slot: false,
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
+            compute_budget: None,
+            transaction_account_lock_limit: None,
         };
 
         bank.transaction_processor = TransactionBatchProcessor::new(
             bank.slot,
             bank.epoch,
             bank.epoch_schedule.clone(),
-            Arc::new(RuntimeConfig::default()),
             Arc::new(RwLock::new(ProgramCache::new(
                 Slot::default(),
                 Epoch::default(),
@@ -1002,8 +1012,9 @@ impl Bank {
         let accounts = Accounts::new(Arc::new(accounts_db));
         let mut bank = Self::default_with_accounts(accounts);
         bank.ancestors = Ancestors::from(vec![bank.slot()]);
+        bank.compute_budget = runtime_config.compute_budget;
+        bank.transaction_account_lock_limit = runtime_config.transaction_account_lock_limit;
         bank.transaction_debug_keys = debug_keys;
-        bank.transaction_processor.runtime_config = runtime_config;
         bank.cluster_type = Some(genesis_config.cluster_type);
 
         #[cfg(not(feature = "dev-context-only-utils"))]
@@ -1207,6 +1218,8 @@ impl Bank {
             transaction_processor,
             check_program_modification_slot: false,
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
+            compute_budget: parent.compute_budget,
+            transaction_account_lock_limit: parent.transaction_account_lock_limit,
         };
 
         let (_, ancestors_time_us) = measure_us!({
@@ -1241,7 +1254,8 @@ impl Bank {
             .transaction_processor
             .prepare_program_cache_for_upcoming_feature_set(
                 &new,
-                &new.compute_active_feature_set(true).0
+                &new.compute_active_feature_set(true).0,
+                &new.compute_budget.unwrap_or_default(),
             ));
 
         // Update sysvars before processing transactions
@@ -1591,13 +1605,14 @@ impl Bank {
             check_program_modification_slot: false,
             // collector_fee_details is not serialized to snapshot
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
+            compute_budget: runtime_config.compute_budget,
+            transaction_account_lock_limit: runtime_config.transaction_account_lock_limit,
         };
 
         bank.transaction_processor = TransactionBatchProcessor::new(
             bank.slot,
             bank.epoch,
             bank.epoch_schedule.clone(),
-            runtime_config,
             Arc::new(RwLock::new(ProgramCache::new(fields.slot, fields.epoch))),
             HashSet::default(),
         );
@@ -3234,9 +3249,7 @@ impl Bank {
 
     /// Get the max number of accounts that a transaction may lock in this block
     pub fn get_transaction_account_lock_limit(&self) -> usize {
-        if let Some(transaction_account_lock_limit) =
-            self.runtime_config().transaction_account_lock_limit
-        {
+        if let Some(transaction_account_lock_limit) = self.transaction_account_lock_limit {
             transaction_account_lock_limit
         } else if self
             .feature_set
@@ -3678,12 +3691,14 @@ impl Bank {
         let processing_config = TransactionProcessingConfig {
             account_overrides,
             blockhash,
+            compute_budget: self.compute_budget,
             feature_set: Arc::clone(&self.feature_set),
             lamports_per_signature,
             limit_to_load_programs,
             log_messages_bytes_limit,
             recording_config,
             rent_collector: &self.rent_collector,
+            transaction_account_lock_limit: self.transaction_account_lock_limit,
         };
 
         let sanitized_output = self
@@ -5162,7 +5177,7 @@ impl Bank {
         program_cache.environments.program_runtime_v1 = Arc::new(
             create_program_runtime_environment_v1(
                 &self.feature_set,
-                &self.runtime_config().compute_budget.unwrap_or_default(),
+                &self.compute_budget.unwrap_or_default(),
                 false, /* deployment */
                 false, /* debugging_features */
             )
@@ -5170,7 +5185,7 @@ impl Bank {
         );
         program_cache.environments.program_runtime_v2 =
             Arc::new(create_program_runtime_environment_v2(
-                &self.runtime_config().compute_budget.unwrap_or_default(),
+                &self.compute_budget.unwrap_or_default(),
                 false, /* debugging_features */
             ));
     }
@@ -6767,10 +6782,6 @@ impl Bank {
 
     pub fn fee_structure(&self) -> &FeeStructure {
         &self.transaction_processor.fee_structure
-    }
-
-    pub fn runtime_config(&self) -> &RuntimeConfig {
-        &self.transaction_processor.runtime_config
     }
 
     pub fn add_builtin(&self, program_id: Pubkey, name: &str, builtin: ProgramCacheEntry) {

@@ -34,7 +34,6 @@ use {
     },
     solana_svm::{
         account_loader::{CheckedTransactionDetails, TransactionCheckResult},
-        runtime_config::RuntimeConfig,
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_processing_callback::TransactionProcessingCallback,
         transaction_processor::{
@@ -453,7 +452,6 @@ fn svm_integration() {
         EXECUTION_SLOT,
         EXECUTION_EPOCH,
         EpochSchedule::default(),
-        Arc::new(RuntimeConfig::default()),
         program_cache.clone(),
         HashSet::default(),
     );
@@ -467,6 +465,7 @@ fn svm_integration() {
     let processing_config = TransactionProcessingConfig {
         account_overrides: None,
         blockhash: Hash::default(),
+        compute_budget: None,
         feature_set: Arc::new(FeatureSet::default()),
         lamports_per_signature: 0,
         log_messages_bytes_limit: None,
@@ -477,6 +476,7 @@ fn svm_integration() {
             enable_cpi_recording: false,
         },
         rent_collector: &RentCollector::default(),
+        transaction_account_lock_limit: None,
     };
     let mut timings = ExecuteTimings::default();
 
