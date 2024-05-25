@@ -15,7 +15,7 @@ use {
         account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
         feature_set::{
             self, include_loaded_accounts_data_size_in_fee_calculation,
-            remove_rounding_in_fee_calculation,
+            remove_rounding_in_fee_calculation, FeatureSet,
         },
         fee::FeeStructure,
         message::SanitizedMessage,
@@ -125,12 +125,12 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
     txs: &[SanitizedTransaction],
     check_results: &[TransactionCheckResult],
     error_counters: &mut TransactionErrorMetrics,
+    feature_set: &FeatureSet,
     fee_structure: &FeeStructure,
     rent_collector: &RentCollector,
     account_overrides: Option<&AccountOverrides>,
     loaded_programs: &ProgramCacheForTxBatch,
 ) -> Vec<TransactionLoadResult> {
-    let feature_set = callbacks.get_feature_set();
     txs.iter()
         .zip(check_results)
         .map(|etx| match etx {
@@ -164,6 +164,7 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
                     nonce.as_ref(),
                     fee,
                     error_counters,
+                    feature_set,
                     rent_collector,
                     account_overrides,
                     loaded_programs,
@@ -180,12 +181,11 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
     nonce: Option<&NoncePartial>,
     fee: u64,
     error_counters: &mut TransactionErrorMetrics,
+    feature_set: &FeatureSet,
     rent_collector: &RentCollector,
     account_overrides: Option<&AccountOverrides>,
     loaded_programs: &ProgramCacheForTxBatch,
 ) -> Result<LoadedTransaction> {
-    let feature_set = callbacks.get_feature_set();
-
     // There is no way to predict what program will execute without an error
     // If a fee can pay for execution then the program will be scheduled
     let mut validated_fee_payer = false;
@@ -508,7 +508,6 @@ mod tests {
     #[derive(Default)]
     struct TestCallbacks {
         accounts_map: HashMap<Pubkey, AccountSharedData>,
-        feature_set: Arc<FeatureSet>,
     }
 
     impl TransactionProcessingCallback for TestCallbacks {
@@ -518,10 +517,6 @@ mod tests {
 
         fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.accounts_map.get(pubkey).cloned()
-        }
-
-        fn get_feature_set(&self) -> Arc<FeatureSet> {
-            self.feature_set.clone()
         }
     }
 
@@ -540,10 +535,7 @@ mod tests {
         for (pubkey, account) in ka {
             accounts_map.insert(*pubkey, account.clone());
         }
-        let callbacks = TestCallbacks {
-            accounts_map,
-            feature_set: Arc::new(feature_set.clone()),
-        };
+        let callbacks = TestCallbacks { accounts_map };
         load_accounts(
             &callbacks,
             &[sanitized_tx],
@@ -552,6 +544,7 @@ mod tests {
                 lamports_per_signature: Some(lamports_per_signature),
             })],
             error_counters,
+            feature_set,
             fee_structure,
             rent_collector,
             None,
@@ -1028,10 +1021,7 @@ mod tests {
         for (pubkey, account) in ka {
             accounts_map.insert(*pubkey, account.clone());
         }
-        let callbacks = TestCallbacks {
-            accounts_map,
-            feature_set: Arc::new(FeatureSet::all_enabled()),
-        };
+        let callbacks = TestCallbacks { accounts_map };
         load_accounts(
             &callbacks,
             &[tx],
@@ -1040,6 +1030,7 @@ mod tests {
                 lamports_per_signature: Some(10),
             })],
             &mut error_counters,
+            &FeatureSet::all_enabled(),
             &FeeStructure::default(),
             &RentCollector::default(),
             account_overrides,
@@ -1447,6 +1438,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &FeatureSet::all_enabled(),
             &RentCollector::default(),
             None,
             &loaded_programs,
@@ -1492,6 +1484,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &FeatureSet::all_enabled(),
             &RentCollector::default(),
             None,
             &loaded_programs,
@@ -1560,6 +1553,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &FeatureSet::all_enabled(),
             &RentCollector::default(),
             None,
             &loaded_programs,
@@ -1604,6 +1598,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &FeatureSet::all_enabled(),
             &RentCollector::default(),
             None,
             &loaded_programs,
@@ -1648,6 +1643,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &FeatureSet::all_enabled(),
             &RentCollector::default(),
             None,
             &loaded_programs,
@@ -1699,6 +1695,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &FeatureSet::all_enabled(),
             &RentCollector::default(),
             None,
             &loaded_programs,
@@ -1769,6 +1766,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &FeatureSet::all_enabled(),
             &RentCollector::default(),
             None,
             &loaded_programs,
@@ -1827,6 +1825,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &FeatureSet::all_enabled(),
             &RentCollector::default(),
             None,
             &loaded_programs,
@@ -1890,6 +1889,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &FeatureSet::all_enabled(),
             &RentCollector::default(),
             None,
             &loaded_programs,
@@ -1980,6 +1980,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &FeatureSet::all_enabled(),
             &RentCollector::default(),
             None,
             &loaded_programs,
@@ -2055,6 +2056,7 @@ mod tests {
                 lamports_per_signature: Some(0),
             })],
             &mut error_counters,
+            &FeatureSet::all_enabled(),
             &FeeStructure::default(),
             &RentCollector::default(),
             None,
@@ -2141,6 +2143,7 @@ mod tests {
             &[sanitized_transaction],
             &[check_result],
             &mut error_counter,
+            &FeatureSet::all_enabled(),
             &FeeStructure::default(),
             &RentCollector::default(),
             None,
@@ -2214,6 +2217,7 @@ mod tests {
             &[sanitized_transaction.clone()],
             &[check_result],
             &mut TransactionErrorMetrics::default(),
+            &FeatureSet::all_enabled(),
             &fee_structure,
             &RentCollector::default(),
             None,
@@ -2232,6 +2236,7 @@ mod tests {
             &[sanitized_transaction.clone()],
             &[check_result.clone()],
             &mut TransactionErrorMetrics::default(),
+            &FeatureSet::all_enabled(),
             &fee_structure,
             &RentCollector::default(),
             None,
@@ -2247,6 +2252,7 @@ mod tests {
             &[sanitized_transaction.clone()],
             &[check_result],
             &mut TransactionErrorMetrics::default(),
+            &FeatureSet::all_enabled(),
             &fee_structure,
             &RentCollector::default(),
             None,

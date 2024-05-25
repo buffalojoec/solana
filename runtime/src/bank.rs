@@ -3678,6 +3678,7 @@ impl Bank {
         let processing_config = TransactionProcessingConfig {
             account_overrides,
             blockhash,
+            feature_set: Arc::clone(&self.feature_set),
             lamports_per_signature,
             limit_to_load_programs,
             log_messages_bytes_limit,
@@ -6827,10 +6828,6 @@ impl TransactionProcessingCallback for Bank {
             .accounts_db
             .load_with_fixed_root(&self.ancestors, pubkey)
             .map(|(acc, _)| acc)
-    }
-
-    fn get_feature_set(&self) -> Arc<FeatureSet> {
-        self.feature_set.clone()
     }
 
     fn get_program_match_criteria(&self, program: &Pubkey) -> ProgramCacheMatchCriteria {

@@ -93,6 +93,8 @@ pub struct TransactionProcessingConfig<'a> {
     pub account_overrides: Option<&'a AccountOverrides>,
     /// The blockhash to use for the transaction batch.
     pub blockhash: Hash,
+    /// The feature set to use for the transaction batch.
+    pub feature_set: Arc<FeatureSet>,
     /// Lamports per signature to charge for the transaction batch.
     pub lamports_per_signature: u64,
     /// The maximum number of bytes that log messages can consume.
@@ -246,6 +248,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             sanitized_txs,
             check_results,
             error_counters,
+            &config.feature_set,
             &self.fee_structure,
             config.rent_collector,
             config.account_overrides,
@@ -284,7 +287,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         };
 
                     let result = self.execute_loaded_transaction(
-                        callbacks,
                         tx,
                         loaded_transaction,
                         compute_budget,
@@ -564,9 +566,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
     /// Execute a transaction using the provided loaded accounts and update
     /// the executors cache if the transaction was successful.
-    fn execute_loaded_transaction<CB: TransactionProcessingCallback>(
+    fn execute_loaded_transaction(
         &self,
-        callback: &CB,
         tx: &SanitizedTransaction,
         loaded_transaction: &mut LoadedTransaction,
         compute_budget: ComputeBudget,
@@ -635,7 +636,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             program_cache_for_tx_batch,
             EnvironmentConfig::new(
                 blockhash,
-                callback.get_feature_set(),
+                Arc::clone(&config.feature_set),
                 lamports_per_signature,
                 sysvar_cache,
             ),
@@ -882,7 +883,6 @@ mod tests {
 
     #[derive(Default, Clone)]
     pub struct MockBankCallback {
-        feature_set: Arc<FeatureSet>,
         pub account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
     }
 
@@ -901,10 +901,6 @@ mod tests {
 
         fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.account_shared_data.borrow().get(pubkey).cloned()
-        }
-
-        fn get_feature_set(&self) -> Arc<FeatureSet> {
-            self.feature_set.clone()
         }
 
         fn add_builtin_account(&self, name: &str, program_id: &Pubkey) {
@@ -982,7 +978,6 @@ mod tests {
 
         let sanitized_message = new_unchecked_sanitized_message(message);
         let program_cache_for_tx_batch = ProgramCacheForTxBatch::default();
-        let mock_bank = MockBankCallback::default();
         let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
 
         let sanitized_transaction = SanitizedTransaction::new_for_tests(
@@ -1002,6 +997,7 @@ mod tests {
         let mut processing_config = TransactionProcessingConfig {
             account_overrides: None,
             blockhash: Hash::default(),
+            feature_set: Arc::new(FeatureSet::all_enabled()),
             lamports_per_signature: 0,
             log_messages_bytes_limit: None,
             limit_to_load_programs: false,
@@ -1011,7 +1007,6 @@ mod tests {
         processing_config.recording_config.enable_log_recording = true;
 
         let result = batch_processor.execute_loaded_transaction(
-            &mock_bank,
             &sanitized_transaction,
             &mut loaded_transaction,
             ComputeBudget::default(),
@@ -1033,7 +1028,6 @@ mod tests {
         processing_config.log_messages_bytes_limit = Some(2);
 
         let result = batch_processor.execute_loaded_transaction(
-            &mock_bank,
             &sanitized_transaction,
             &mut loaded_transaction,
             ComputeBudget::default(),
@@ -1063,7 +1057,6 @@ mod tests {
         processing_config.log_messages_bytes_limit = None;
 
         let result = batch_processor.execute_loaded_transaction(
-            &mock_bank,
             &sanitized_transaction,
             &mut loaded_transaction,
             ComputeBudget::default(),
@@ -1109,7 +1102,6 @@ mod tests {
 
         let sanitized_message = new_unchecked_sanitized_message(message);
         let program_cache_for_tx_batch = ProgramCacheForTxBatch::default();
-        let mock_bank = MockBankCallback::default();
         let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
 
         let sanitized_transaction = SanitizedTransaction::new_for_tests(
@@ -1134,6 +1126,7 @@ mod tests {
         let processing_config = TransactionProcessingConfig {
             account_overrides: None,
             blockhash: Hash::default(),
+            feature_set: Arc::new(FeatureSet::all_enabled()),
             lamports_per_signature: 0,
             log_messages_bytes_limit: None,
             limit_to_load_programs: false,
@@ -1143,7 +1136,6 @@ mod tests {
         let mut error_metrics = TransactionErrorMetrics::new();
 
         let _ = batch_processor.execute_loaded_transaction(
-            &mock_bank,
             &sanitized_transaction,
             &mut loaded_transaction,
             ComputeBudget::default(),

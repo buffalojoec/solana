@@ -230,9 +230,7 @@ mod tests {
             loaded_programs::{BlockRelation, ProgramRuntimeEnvironments},
             solana_rbpf::program::BuiltinProgram,
         },
-        solana_sdk::{
-            account::WritableAccount, bpf_loader, bpf_loader_upgradeable, feature_set::FeatureSet,
-        },
+        solana_sdk::{account::WritableAccount, bpf_loader, bpf_loader_upgradeable},
         std::{
             cell::RefCell,
             collections::HashMap,
@@ -252,7 +250,6 @@ mod tests {
 
     #[derive(Default, Clone)]
     pub struct MockBankCallback {
-        feature_set: Arc<FeatureSet>,
         pub account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
     }
 
@@ -271,10 +268,6 @@ mod tests {
 
         fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.account_shared_data.borrow().get(pubkey).cloned()
-        }
-
-        fn get_feature_set(&self) -> Arc<FeatureSet> {
-            self.feature_set.clone()
         }
 
         fn add_builtin_account(&self, name: &str, program_id: &Pubkey) {

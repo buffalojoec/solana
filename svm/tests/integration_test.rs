@@ -23,6 +23,7 @@ use {
         bpf_loader_upgradeable::{self, UpgradeableLoaderState},
         clock::{Clock, Epoch, Slot, UnixTimestamp},
         epoch_schedule::EpochSchedule,
+        feature_set::FeatureSet,
         hash::Hash,
         instruction::AccountMeta,
         pubkey::Pubkey,
@@ -466,6 +467,7 @@ fn svm_integration() {
     let processing_config = TransactionProcessingConfig {
         account_overrides: None,
         blockhash: Hash::default(),
+        feature_set: Arc::new(FeatureSet::default()),
         lamports_per_signature: 0,
         log_messages_bytes_limit: None,
         limit_to_load_programs: false,
