@@ -126,6 +126,7 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
     check_results: &[TransactionCheckResult],
     error_counters: &mut TransactionErrorMetrics,
     fee_structure: &FeeStructure,
+    rent_collector: &RentCollector,
     account_overrides: Option<&AccountOverrides>,
     loaded_programs: &ProgramCacheForTxBatch,
 ) -> Vec<TransactionLoadResult> {
@@ -163,6 +164,7 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
                     nonce.as_ref(),
                     fee,
                     error_counters,
+                    rent_collector,
                     account_overrides,
                     loaded_programs,
                 )
@@ -178,6 +180,7 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
     nonce: Option<&NoncePartial>,
     fee: u64,
     error_counters: &mut TransactionErrorMetrics,
+    rent_collector: &RentCollector,
     account_overrides: Option<&AccountOverrides>,
     loaded_programs: &ProgramCacheForTxBatch,
 ) -> Result<LoadedTransaction> {
@@ -190,7 +193,6 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
     let account_keys = message.account_keys();
     let mut accounts_found = Vec::with_capacity(account_keys.len());
     let mut rent_debits = RentDebits::default();
-    let rent_collector = callbacks.get_rent_collector();
 
     let requested_loaded_accounts_data_size_limit =
         get_requested_loaded_accounts_data_size_limit(message)?;
@@ -506,7 +508,6 @@ mod tests {
     #[derive(Default)]
     struct TestCallbacks {
         accounts_map: HashMap<Pubkey, AccountSharedData>,
-        rent_collector: RentCollector,
         feature_set: Arc<FeatureSet>,
     }
 
@@ -517,10 +518,6 @@ mod tests {
 
         fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.accounts_map.get(pubkey).cloned()
-        }
-
-        fn get_rent_collector(&self) -> &RentCollector {
-            &self.rent_collector
         }
 
         fn get_feature_set(&self) -> Arc<FeatureSet> {
@@ -545,7 +542,6 @@ mod tests {
         }
         let callbacks = TestCallbacks {
             accounts_map,
-            rent_collector: rent_collector.clone(),
             feature_set: Arc::new(feature_set.clone()),
         };
         load_accounts(
@@ -557,6 +553,7 @@ mod tests {
             })],
             error_counters,
             fee_structure,
+            rent_collector,
             None,
             &ProgramCacheForTxBatch::default(),
         )
@@ -1033,7 +1030,6 @@ mod tests {
         }
         let callbacks = TestCallbacks {
             accounts_map,
-            rent_collector: RentCollector::default(),
             feature_set: Arc::new(FeatureSet::all_enabled()),
         };
         load_accounts(
@@ -1045,6 +1041,7 @@ mod tests {
             })],
             &mut error_counters,
             &FeeStructure::default(),
+            &RentCollector::default(),
             account_overrides,
             &ProgramCacheForTxBatch::default(),
         )
@@ -1450,6 +1447,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &RentCollector::default(),
             None,
             &loaded_programs,
         );
@@ -1494,6 +1492,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &RentCollector::default(),
             None,
             &loaded_programs,
         );
@@ -1561,6 +1560,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &RentCollector::default(),
             None,
             &loaded_programs,
         );
@@ -1604,6 +1604,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &RentCollector::default(),
             None,
             &loaded_programs,
         );
@@ -1647,6 +1648,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &RentCollector::default(),
             None,
             &loaded_programs,
         );
@@ -1697,6 +1699,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &RentCollector::default(),
             None,
             &loaded_programs,
         );
@@ -1766,6 +1769,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &RentCollector::default(),
             None,
             &loaded_programs,
         );
@@ -1823,6 +1827,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &RentCollector::default(),
             None,
             &loaded_programs,
         );
@@ -1885,6 +1890,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &RentCollector::default(),
             None,
             &loaded_programs,
         );
@@ -1974,6 +1980,7 @@ mod tests {
             None,
             32,
             &mut error_counter,
+            &RentCollector::default(),
             None,
             &loaded_programs,
         );
@@ -2049,6 +2056,7 @@ mod tests {
             })],
             &mut error_counters,
             &FeeStructure::default(),
+            &RentCollector::default(),
             None,
             &ProgramCacheForTxBatch::default(),
         );
@@ -2134,6 +2142,7 @@ mod tests {
             &[check_result],
             &mut error_counter,
             &FeeStructure::default(),
+            &RentCollector::default(),
             None,
             &loaded_programs,
         );
@@ -2206,6 +2215,7 @@ mod tests {
             &[check_result],
             &mut TransactionErrorMetrics::default(),
             &fee_structure,
+            &RentCollector::default(),
             None,
             &ProgramCacheForTxBatch::default(),
         );
@@ -2223,6 +2233,7 @@ mod tests {
             &[check_result.clone()],
             &mut TransactionErrorMetrics::default(),
             &fee_structure,
+            &RentCollector::default(),
             None,
             &ProgramCacheForTxBatch::default(),
         );
@@ -2237,6 +2248,7 @@ mod tests {
             &[check_result],
             &mut TransactionErrorMetrics::default(),
             &fee_structure,
+            &RentCollector::default(),
             None,
             &ProgramCacheForTxBatch::default(),
         );

@@ -26,6 +26,7 @@ use {
         hash::Hash,
         instruction::AccountMeta,
         pubkey::Pubkey,
+        rent_collector::RentCollector,
         signature::Signature,
         sysvar::SysvarId,
         transaction::{SanitizedTransaction, TransactionError},
@@ -473,6 +474,7 @@ fn svm_integration() {
             enable_return_data_recording: true,
             enable_cpi_recording: false,
         },
+        rent_collector: &RentCollector::default(),
     };
     let mut timings = ExecuteTimings::default();
 

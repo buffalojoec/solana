@@ -41,6 +41,7 @@ use {
         instruction::{CompiledInstruction, TRANSACTION_LEVEL_STACK_HEIGHT},
         message::SanitizedMessage,
         pubkey::Pubkey,
+        rent_collector::RentCollector,
         saturating_add_assign,
         transaction::{SanitizedTransaction, TransactionError},
         transaction_context::{ExecutionRecord, TransactionContext},
@@ -101,6 +102,8 @@ pub struct TransactionProcessingConfig<'a> {
     pub limit_to_load_programs: bool,
     /// Recording capabilities for transaction execution.
     pub recording_config: ExecutionRecordingConfig,
+    /// The rent collector to use for the transaction batch.
+    pub rent_collector: &'a RentCollector,
 }
 
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
@@ -244,6 +247,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             check_results,
             error_counters,
             &self.fee_structure,
+            config.rent_collector,
             config.account_overrides,
             &program_cache_for_tx_batch.borrow(),
         );
@@ -590,7 +594,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut transaction_context = TransactionContext::new(
             transaction_accounts,
-            callback.get_rent_collector().rent.clone(),
+            config.rent_collector.rent.clone(),
             compute_budget.max_invoke_stack_height,
             compute_budget.max_instruction_trace_length,
         );
@@ -598,7 +602,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         transaction_context.set_signature(tx.signature());
 
         let pre_account_state_info = TransactionAccountStateInfo::new(
-            &callback.get_rent_collector().rent,
+            &config.rent_collector.rent,
             &transaction_context,
             tx.message(),
         );
@@ -660,7 +664,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         let mut status = process_result
             .and_then(|info| {
                 let post_account_state_info = TransactionAccountStateInfo::new(
-                    &callback.get_rent_collector().rent,
+                    &config.rent_collector.rent,
                     &transaction_context,
                     tx.message(),
                 );
@@ -852,7 +856,6 @@ mod tests {
             fee_calculator::FeeCalculator,
             hash::Hash,
             message::{LegacyMessage, Message, MessageHeader},
-            rent_collector::RentCollector,
             rent_debits::RentDebits,
             reserved_account_keys::ReservedAccountKeys,
             signature::{Keypair, Signature},
@@ -879,7 +882,6 @@ mod tests {
 
     #[derive(Default, Clone)]
     pub struct MockBankCallback {
-        rent_collector: RentCollector,
         feature_set: Arc<FeatureSet>,
         pub account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
     }
@@ -899,10 +901,6 @@ mod tests {
 
         fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.account_shared_data.borrow().get(pubkey).cloned()
-        }
-
-        fn get_rent_collector(&self) -> &RentCollector {
-            &self.rent_collector
         }
 
         fn get_feature_set(&self) -> Arc<FeatureSet> {
@@ -1008,6 +1006,7 @@ mod tests {
             log_messages_bytes_limit: None,
             limit_to_load_programs: false,
             recording_config: ExecutionRecordingConfig::default(),
+            rent_collector: &RentCollector::default(),
         };
         processing_config.recording_config.enable_log_recording = true;
 
@@ -1139,6 +1138,7 @@ mod tests {
             log_messages_bytes_limit: None,
             limit_to_load_programs: false,
             recording_config: ExecutionRecordingConfig::new_single_setting(false),
+            rent_collector: &RentCollector::default(),
         };
         let mut error_metrics = TransactionErrorMetrics::new();
 

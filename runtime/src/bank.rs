@@ -3682,6 +3682,7 @@ impl Bank {
             limit_to_load_programs,
             log_messages_bytes_limit,
             recording_config,
+            rent_collector: &self.rent_collector,
         };
 
         let sanitized_output = self
@@ -6826,10 +6827,6 @@ impl TransactionProcessingCallback for Bank {
             .accounts_db
             .load_with_fixed_root(&self.ancestors, pubkey)
             .map(|(acc, _)| acc)
-    }
-
-    fn get_rent_collector(&self) -> &RentCollector {
-        &self.rent_collector
     }
 
     fn get_feature_set(&self) -> Arc<FeatureSet> {

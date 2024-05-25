@@ -232,7 +232,6 @@ mod tests {
         },
         solana_sdk::{
             account::WritableAccount, bpf_loader, bpf_loader_upgradeable, feature_set::FeatureSet,
-            rent_collector::RentCollector,
         },
         std::{
             cell::RefCell,
@@ -253,7 +252,6 @@ mod tests {
 
     #[derive(Default, Clone)]
     pub struct MockBankCallback {
-        rent_collector: RentCollector,
         feature_set: Arc<FeatureSet>,
         pub account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
     }
@@ -273,10 +271,6 @@ mod tests {
 
         fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.account_shared_data.borrow().get(pubkey).cloned()
-        }
-
-        fn get_rent_collector(&self) -> &RentCollector {
-            &self.rent_collector
         }
 
         fn get_feature_set(&self) -> Arc<FeatureSet> {
