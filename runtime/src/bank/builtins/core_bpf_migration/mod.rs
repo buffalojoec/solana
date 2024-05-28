@@ -42,6 +42,13 @@ pub(crate) struct CoreBpfMigrationConfig {
     /// The address of the source buffer account to be used to replace the
     /// builtin.
     pub source_buffer_address: Pubkey,
+    /// The authority to be used as the BPF program's upgrade authority.
+    ///
+    /// Note: If this value is set to `None`, then the migration will ignore
+    /// the source buffer account's authority. If it's set to any `Some(..)`
+    /// value, then the migration will perform a sanity check to ensure the
+    /// source buffer account's authority matches the provided value.
+    pub upgrade_authority_address: Option<Pubkey>,
     /// The feature gate to trigger the migration to Core BPF.
     /// Note: This feature gate should never be the same as any builtin's
     /// `enable_feature_id`. It should always be a feature gate that will be
@@ -513,6 +520,7 @@ pub(crate) mod tests {
 
         let core_bpf_migration_config = CoreBpfMigrationConfig {
             source_buffer_address,
+            upgrade_authority_address,
             feature_id: Pubkey::new_unique(),
             migration_target: CoreBpfMigrationTargetType::Builtin,
             datapoint_name: "test_migrate_builtin",
@@ -571,6 +579,7 @@ pub(crate) mod tests {
 
         let core_bpf_migration_config = CoreBpfMigrationConfig {
             source_buffer_address,
+            upgrade_authority_address,
             feature_id: Pubkey::new_unique(),
             migration_target: CoreBpfMigrationTargetType::Stateless,
             datapoint_name: "test_migrate_stateless_builtin",
