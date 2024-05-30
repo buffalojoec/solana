@@ -111,19 +111,14 @@ impl Bank {
             authority_address: buffer_authority,
         } = bincode::deserialize(&source.buffer_account.data()[..buffer_metadata_size])?
         {
-            let target_upgrade_authority_address =
-                match (upgrade_authority_address, buffer_authority) {
-                    (Some(provided_authority), Some(buffer_authority)) => {
-                        if provided_authority != buffer_authority {
-                            return Err(CoreBpfMigrationError::UpgradeAuthorityMismatch(
-                                provided_authority,
-                                buffer_authority,
-                            ));
-                        }
-                        Some(provided_authority)
-                    }
-                    _ => None,
-                };
+            if let Some(provided_authority) = upgrade_authority_address {
+                if upgrade_authority_address != buffer_authority {
+                    return Err(CoreBpfMigrationError::UpgradeAuthorityMismatch(
+                        provided_authority,
+                        buffer_authority,
+                    ));
+                }
+            }
 
             let elf = &source.buffer_account.data()[buffer_metadata_size..];
 
@@ -134,7 +129,7 @@ impl Bank {
 
             let programdata_metadata = UpgradeableLoaderState::ProgramData {
                 slot: self.slot,
-                upgrade_authority_address: target_upgrade_authority_address,
+                upgrade_authority_address,
             };
 
             let mut account = AccountSharedData::new_data_with_space(
