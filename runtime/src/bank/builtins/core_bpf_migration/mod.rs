@@ -733,12 +733,14 @@ pub(crate) mod tests {
 
         let program_data_address = get_program_data_address(&builtin_id);
         let program_data_account = bank.get_account(&program_data_address).unwrap();
-        match program_data_account.state().unwrap() {
+        let program_data_account_state: UpgradeableLoaderState =
+            program_data_account.state().unwrap();
+        assert_eq!(
+            program_data_account_state,
             UpgradeableLoaderState::ProgramData {
-                upgrade_authority_address,
-                ..
-            } => assert_eq!(upgrade_authority_address, None),
-            _ => panic!("Unexpected state"),
-        }
+                upgrade_authority_address: None,
+                slot: bank.slot(),
+            },
+        );
     }
 }
