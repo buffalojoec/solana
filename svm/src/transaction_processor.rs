@@ -95,6 +95,8 @@ pub struct TransactionProcessingConfig<'a> {
     /// Encapsulates overridden accounts, typically used for transaction
     /// simulation.
     pub account_overrides: Option<&'a AccountOverrides>,
+    /// The compute budget to use for transaction execution.
+    pub compute_budget: Option<ComputeBudget>,
     /// The maximum number of bytes that log messages can consume.
     pub log_messages_bytes_limit: Option<usize>,
     /// Whether to limit the number of programs loaded for the transaction

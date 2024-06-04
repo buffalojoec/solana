@@ -291,6 +291,7 @@ fn run_fixture(fixture: InstrFixture, filename: OsString, execute_as_instr: bool
     };
     let processor_config = TransactionProcessingConfig {
         account_overrides: None,
+        compute_budget: None,
         log_messages_bytes_limit: None,
         limit_to_load_programs: true,
         recording_config,

@@ -89,7 +89,10 @@ use {
         storable_accounts::StorableAccounts,
     },
     solana_bpf_loader_program::syscalls::create_program_runtime_environment_v1,
-    solana_compute_budget::compute_budget_processor::process_compute_budget_instructions,
+    solana_compute_budget::{
+        compute_budget::ComputeBudget,
+        compute_budget_processor::process_compute_budget_instructions,
+    },
     solana_cost_model::cost_tracker::CostTracker,
     solana_loader_v4_program::create_program_runtime_environment_v2,
     solana_measure::{measure, measure::Measure, measure_us},
@@ -3389,6 +3392,7 @@ impl Bank {
             &mut timings,
             TransactionProcessingConfig {
                 account_overrides: Some(&account_overrides),
+                compute_budget: self.compute_budget(),
                 log_messages_bytes_limit: None,
                 limit_to_load_programs: true,
                 recording_config: ExecutionRecordingConfig {
@@ -4814,6 +4818,7 @@ impl Bank {
             timings,
             TransactionProcessingConfig {
                 account_overrides: None,
+                compute_budget: self.compute_budget(),
                 log_messages_bytes_limit,
                 limit_to_load_programs: false,
                 recording_config,
@@ -6769,6 +6774,10 @@ impl Bank {
 
     pub fn runtime_config(&self) -> &RuntimeConfig {
         &self.transaction_processor.runtime_config
+    }
+
+    pub fn compute_budget(&self) -> Option<ComputeBudget> {
+        self.transaction_processor.runtime_config.compute_budget
     }
 
     pub fn add_builtin(&self, program_id: Pubkey, name: &str, builtin: ProgramCacheEntry) {
