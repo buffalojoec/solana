@@ -598,6 +598,7 @@ impl PartialEq for Bank {
             transaction_processor: _,
             check_program_modification_slot: _,
             collector_fee_details: _,
+            compute_budget: _,
             // Ignore new fields explicitly if they do not impact PartialEq.
             // Adding ".." will remove compile-time checks that if a new field
             // is added to the struct, this PartialEq is accordingly updated.
@@ -877,6 +878,9 @@ pub struct Bank {
 
     /// Collected fee details
     collector_fee_details: RwLock<CollectorFeeDetails>,
+
+    /// The compute budget to use for transaction execution.
+    compute_budget: Option<ComputeBudget>,
 }
 
 struct VoteWithStakeDelegations {
@@ -992,6 +996,7 @@ impl Bank {
             transaction_processor: TransactionBatchProcessor::default(),
             check_program_modification_slot: false,
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
+            compute_budget: None,
         };
 
         bank.transaction_processor = TransactionBatchProcessor::new(
@@ -1035,6 +1040,7 @@ impl Bank {
         let accounts = Accounts::new(Arc::new(accounts_db));
         let mut bank = Self::default_with_accounts(accounts);
         bank.ancestors = Ancestors::from(vec![bank.slot()]);
+        bank.compute_budget = runtime_config.compute_budget;
         bank.transaction_debug_keys = debug_keys;
         bank.transaction_processor.runtime_config = runtime_config;
         bank.cluster_type = Some(genesis_config.cluster_type);
@@ -1239,6 +1245,7 @@ impl Bank {
             transaction_processor,
             check_program_modification_slot: false,
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
+            compute_budget: parent.compute_budget,
         };
 
         let (_, ancestors_time_us) = measure_us!({
@@ -1622,6 +1629,7 @@ impl Bank {
             check_program_modification_slot: false,
             // collector_fee_details is not serialized to snapshot
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
+            compute_budget: runtime_config.compute_budget,
         };
 
         bank.transaction_processor = TransactionBatchProcessor::new(
@@ -6777,7 +6785,7 @@ impl Bank {
     }
 
     pub fn compute_budget(&self) -> Option<ComputeBudget> {
-        self.transaction_processor.runtime_config.compute_budget
+        self.compute_budget
     }
 
     pub fn add_builtin(&self, program_id: Pubkey, name: &str, builtin: ProgramCacheEntry) {
