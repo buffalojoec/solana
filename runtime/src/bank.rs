@@ -5161,7 +5161,7 @@ impl Bank {
         program_cache.environments.program_runtime_v1 = Arc::new(
             create_program_runtime_environment_v1(
                 &self.feature_set,
-                &self.runtime_config().compute_budget.unwrap_or_default(),
+                &self.compute_budget().unwrap_or_default(),
                 false, /* deployment */
                 false, /* debugging_features */
             )
@@ -5169,7 +5169,7 @@ impl Bank {
         );
         program_cache.environments.program_runtime_v2 =
             Arc::new(create_program_runtime_environment_v2(
-                &self.runtime_config().compute_budget.unwrap_or_default(),
+                &self.compute_budget().unwrap_or_default(),
                 false, /* debugging_features */
             ));
     }
@@ -6786,10 +6786,6 @@ impl Bank {
 
     pub fn fee_structure(&self) -> &FeeStructure {
         &self.transaction_processor.fee_structure
-    }
-
-    pub fn runtime_config(&self) -> &RuntimeConfig {
-        &self.transaction_processor.runtime_config
     }
 
     pub fn compute_budget(&self) -> Option<ComputeBudget> {
