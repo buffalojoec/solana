@@ -295,6 +295,7 @@ fn run_fixture(fixture: InstrFixture, filename: OsString, execute_as_instr: bool
         log_messages_bytes_limit: None,
         limit_to_load_programs: true,
         recording_config,
+        transaction_account_lock_limit: None,
     };
 
     if execute_as_instr {

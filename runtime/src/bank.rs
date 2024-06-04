@@ -3408,6 +3408,7 @@ impl Bank {
                     enable_log_recording: true,
                     enable_return_data_recording: true,
                 },
+                transaction_account_lock_limit: Some(self.get_transaction_account_lock_limit()),
             },
         );
 
@@ -4830,6 +4831,7 @@ impl Bank {
                 log_messages_bytes_limit,
                 limit_to_load_programs: false,
                 recording_config,
+                transaction_account_lock_limit: Some(self.get_transaction_account_lock_limit()),
             },
         );
 
