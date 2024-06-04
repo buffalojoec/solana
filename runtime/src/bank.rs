@@ -599,6 +599,7 @@ impl PartialEq for Bank {
             check_program_modification_slot: _,
             collector_fee_details: _,
             compute_budget: _,
+            transaction_account_lock_limit: _,
             // Ignore new fields explicitly if they do not impact PartialEq.
             // Adding ".." will remove compile-time checks that if a new field
             // is added to the struct, this PartialEq is accordingly updated.
@@ -881,6 +882,9 @@ pub struct Bank {
 
     /// The compute budget to use for transaction execution.
     compute_budget: Option<ComputeBudget>,
+
+    /// The max number of accounts that a transaction may lock.
+    transaction_account_lock_limit: Option<usize>,
 }
 
 struct VoteWithStakeDelegations {
@@ -997,6 +1001,7 @@ impl Bank {
             check_program_modification_slot: false,
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
             compute_budget: None,
+            transaction_account_lock_limit: None,
         };
 
         bank.transaction_processor = TransactionBatchProcessor::new(
@@ -1041,6 +1046,7 @@ impl Bank {
         let mut bank = Self::default_with_accounts(accounts);
         bank.ancestors = Ancestors::from(vec![bank.slot()]);
         bank.compute_budget = runtime_config.compute_budget;
+        bank.transaction_account_lock_limit = runtime_config.transaction_account_lock_limit;
         bank.transaction_debug_keys = debug_keys;
         bank.transaction_processor.runtime_config = runtime_config;
         bank.cluster_type = Some(genesis_config.cluster_type);
@@ -1246,6 +1252,7 @@ impl Bank {
             check_program_modification_slot: false,
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
             compute_budget: parent.compute_budget,
+            transaction_account_lock_limit: parent.transaction_account_lock_limit,
         };
 
         let (_, ancestors_time_us) = measure_us!({
@@ -1630,6 +1637,7 @@ impl Bank {
             // collector_fee_details is not serialized to snapshot
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
             compute_budget: runtime_config.compute_budget,
+            transaction_account_lock_limit: runtime_config.transaction_account_lock_limit,
         };
 
         bank.transaction_processor = TransactionBatchProcessor::new(
@@ -3271,9 +3279,7 @@ impl Bank {
 
     /// Get the max number of accounts that a transaction may lock in this block
     pub fn get_transaction_account_lock_limit(&self) -> usize {
-        if let Some(transaction_account_lock_limit) =
-            self.runtime_config().transaction_account_lock_limit
-        {
+        if let Some(transaction_account_lock_limit) = self.transaction_account_lock_limit {
             transaction_account_lock_limit
         } else if self
             .feature_set
