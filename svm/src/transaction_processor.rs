@@ -202,12 +202,11 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         callbacks: &CB,
         sanitized_txs: &[SanitizedTransaction],
         check_results: &mut [TransactionCheckResult],
-        error_counters: &mut TransactionErrorMetrics,
         timings: &mut ExecuteTimings,
         config: &TransactionProcessingConfig,
     ) -> LoadAndExecuteSanitizedTransactionsOutput {
         // Initialize metrics.
-        let error_metrics = TransactionErrorMetrics::default();
+        let mut error_metrics = TransactionErrorMetrics::default();
 
         let mut program_cache_time = Measure::start("program_cache");
         let mut program_accounts_map = Self::filter_executable_program_accounts(
@@ -244,7 +243,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             callbacks,
             sanitized_txs,
             check_results,
-            error_counters,
+            &mut error_metrics,
             &self.fee_structure,
             config.account_overrides,
             &program_cache_for_tx_batch.borrow(),
@@ -287,7 +286,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         loaded_transaction,
                         compute_budget,
                         timings,
-                        error_counters,
+                        &mut error_metrics,
                         &program_cache_for_tx_batch.borrow(),
                         config,
                     );
@@ -559,7 +558,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         loaded_transaction: &mut LoadedTransaction,
         compute_budget: ComputeBudget,
         timings: &mut ExecuteTimings,
-        error_counters: &mut TransactionErrorMetrics,
+        error_metrics: &mut TransactionErrorMetrics,
         program_cache_for_tx_batch: &ProgramCacheForTxBatch,
         config: &TransactionProcessingConfig,
     ) -> TransactionExecutionResult {
@@ -667,13 +666,13 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 match err {
                     TransactionError::InvalidRentPayingAccount
                     | TransactionError::InsufficientFundsForRent { .. } => {
-                        error_counters.invalid_rent_paying_account += 1;
+                        error_metrics.invalid_rent_paying_account += 1;
                     }
                     TransactionError::InvalidAccountIndex => {
-                        error_counters.invalid_account_index += 1;
+                        error_metrics.invalid_account_index += 1;
                     }
                     _ => {
-                        error_counters.instruction_error += 1;
+                        error_metrics.instruction_error += 1;
                     }
                 }
                 err
