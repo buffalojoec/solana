@@ -38,7 +38,6 @@ use {
     solana_svm::{
         account_loader::CheckedTransactionDetails,
         program_loader,
-        runtime_config::RuntimeConfig,
         transaction_processing_callback::TransactionProcessingCallback,
         transaction_processor::{
             ExecutionRecordingConfig, TransactionBatchProcessor, TransactionProcessingConfig,
@@ -251,7 +250,6 @@ fn run_fixture(fixture: InstrFixture, filename: OsString, execute_as_instr: bool
         42,
         2,
         EpochSchedule::default(),
-        Arc::new(RuntimeConfig::default()),
         HashSet::new(),
     );
 

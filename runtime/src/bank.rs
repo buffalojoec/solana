@@ -1008,7 +1008,6 @@ impl Bank {
             bank.slot,
             bank.epoch,
             bank.epoch_schedule.clone(),
-            Arc::new(RuntimeConfig::default()),
             HashSet::default(),
         );
 
@@ -1048,7 +1047,6 @@ impl Bank {
         bank.compute_budget = runtime_config.compute_budget;
         bank.transaction_account_lock_limit = runtime_config.transaction_account_lock_limit;
         bank.transaction_debug_keys = debug_keys;
-        bank.transaction_processor.runtime_config = runtime_config;
         bank.cluster_type = Some(genesis_config.cluster_type);
 
         #[cfg(not(feature = "dev-context-only-utils"))]
@@ -1645,7 +1643,6 @@ impl Bank {
             bank.slot,
             bank.epoch,
             bank.epoch_schedule.clone(),
-            runtime_config,
             HashSet::default(),
         );
 
