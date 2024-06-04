@@ -21,7 +21,7 @@ use {
         transaction_context::TransactionContext,
     },
     source_buffer::SourceBuffer,
-    std::sync::atomic::Ordering::Relaxed,
+    std::{cmp::Ordering, sync::atomic::Ordering::Relaxed},
     target_builtin::TargetBuiltin,
     target_core_bpf::TargetCoreBpf,
 };
@@ -282,12 +282,16 @@ impl Bank {
         )?;
 
         // Update the bank's capitalization.
-        if lamports_to_burn > lamports_to_fund {
-            self.capitalization
-                .fetch_sub(checked_sub(lamports_to_burn, lamports_to_fund)?, Relaxed);
-        } else {
-            self.capitalization
-                .fetch_add(checked_sub(lamports_to_fund, lamports_to_burn)?, Relaxed);
+        match lamports_to_burn.cmp(&lamports_to_fund) {
+            Ordering::Greater => {
+                self.capitalization
+                    .fetch_sub(checked_sub(lamports_to_burn, lamports_to_fund)?, Relaxed);
+            }
+            Ordering::Less => {
+                self.capitalization
+                    .fetch_add(checked_sub(lamports_to_fund, lamports_to_burn)?, Relaxed);
+            }
+            Ordering::Equal => (),
         }
 
         // Store the new program accounts and clear the source buffer account.
@@ -359,10 +363,12 @@ impl Bank {
         )?;
 
         // Calculate the lamports to burn.
-        // The target program account _and_ the target program data account
-        // will both be replaced, so burn both their lamports.
+        // Since the program account is not replaced, only the program data
+        // account and the source buffer account are involved.
+        // The target program data account will be replaced, so burn its
+        // lamports.
         // The source buffer account will be cleared, so burn its lamports.
-        // The two new program accounts will need to be funded.
+        // The new program data account will need to be funded.
         let lamports_to_burn = checked_add(
             target.program_data_account.lamports(),
             source.buffer_account.lamports(),
@@ -370,12 +376,16 @@ impl Bank {
         let lamports_to_fund = new_target_program_data_account.lamports();
 
         // Update the bank's capitalization.
-        if lamports_to_burn > lamports_to_fund {
-            self.capitalization
-                .fetch_sub(checked_sub(lamports_to_burn, lamports_to_fund)?, Relaxed);
-        } else {
-            self.capitalization
-                .fetch_add(checked_sub(lamports_to_fund, lamports_to_burn)?, Relaxed);
+        match lamports_to_burn.cmp(&lamports_to_fund) {
+            Ordering::Greater => {
+                self.capitalization
+                    .fetch_sub(checked_sub(lamports_to_burn, lamports_to_fund)?, Relaxed);
+            }
+            Ordering::Less => {
+                self.capitalization
+                    .fetch_add(checked_sub(lamports_to_fund, lamports_to_burn)?, Relaxed);
+            }
+            Ordering::Equal => (),
         }
 
         // Store the new program data account and clear the source buffer account.
