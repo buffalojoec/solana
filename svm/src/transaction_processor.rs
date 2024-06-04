@@ -57,11 +57,16 @@ use {
 /// A list of log messages emitted during a transaction
 pub type TransactionLogMessages = Vec<String>;
 
+/// The output of the transaction batch processor's
+/// `load_and_execute_sanitized_transactions` method.
 pub struct LoadAndExecuteSanitizedTransactionsOutput {
-    pub loaded_transactions: Vec<TransactionLoadResult>,
+    /// Error metrics for transactions that were processed.
+    pub error_metrics: TransactionErrorMetrics,
     // Vector of results indicating whether a transaction was executed or could not
     // be executed. Note executed transactions can still have failed!
     pub execution_results: Vec<TransactionExecutionResult>,
+    // Vector of loaded transactions from transactions that were processed.
+    pub loaded_transactions: Vec<TransactionLoadResult>,
 }
 
 /// Configuration of the recording capabilities for transaction execution
@@ -201,6 +206,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         timings: &mut ExecuteTimings,
         config: &TransactionProcessingConfig,
     ) -> LoadAndExecuteSanitizedTransactionsOutput {
+        // Initialize metrics.
+        let error_metrics = TransactionErrorMetrics::default();
+
         let mut program_cache_time = Measure::start("program_cache");
         let mut program_accounts_map = Self::filter_executable_program_accounts(
             callbacks,
@@ -224,8 +232,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             let execution_results =
                 vec![TransactionExecutionResult::NotExecuted(ERROR); sanitized_txs.len()];
             return LoadAndExecuteSanitizedTransactionsOutput {
-                loaded_transactions,
+                error_metrics,
                 execution_results,
+                loaded_transactions,
             };
         }
         program_cache_time.stop();
@@ -336,8 +345,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         timings.saturating_add_in_place(ExecuteTimingType::ExecuteUs, execution_time.as_us());
 
         LoadAndExecuteSanitizedTransactionsOutput {
-            loaded_transactions,
+            error_metrics,
             execution_results,
+            loaded_transactions,
         }
     }
 
