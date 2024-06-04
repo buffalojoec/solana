@@ -1287,7 +1287,8 @@ impl Bank {
             .transaction_processor
             .prepare_program_cache_for_upcoming_feature_set(
                 &new,
-                &new.compute_active_feature_set(true).0
+                &new.compute_active_feature_set(true).0,
+                &new.compute_budget.unwrap_or_default(),
             ));
 
         // Update sysvars before processing transactions

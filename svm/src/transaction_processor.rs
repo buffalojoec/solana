@@ -492,6 +492,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         &self,
         callbacks: &CB,
         upcoming_feature_set: &FeatureSet,
+        compute_budget: &ComputeBudget,
     ) {
         // Recompile loaded programs one at a time before the next epoch hits
         let (_epoch, slot_index) = self.epoch_schedule.get_epoch_and_slot_index(self.slot);
@@ -533,13 +534,13 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             let mut program_cache = self.program_cache.write().unwrap();
             let program_runtime_environment_v1 = create_program_runtime_environment_v1(
                 upcoming_feature_set,
-                &self.runtime_config.compute_budget.unwrap_or_default(),
+                compute_budget,
                 false, /* deployment */
                 false, /* debugging_features */
             )
             .unwrap();
             let program_runtime_environment_v2 = create_program_runtime_environment_v2(
-                &self.runtime_config.compute_budget.unwrap_or_default(),
+                compute_budget,
                 false, /* debugging_features */
             );
             let mut upcoming_environments = program_cache.environments.clone();
