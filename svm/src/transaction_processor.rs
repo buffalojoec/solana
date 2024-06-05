@@ -62,6 +62,8 @@ pub type TransactionLogMessages = Vec<String>;
 pub struct LoadAndExecuteSanitizedTransactionsOutput {
     /// Error metrics for transactions that were processed.
     pub error_metrics: TransactionErrorMetrics,
+    /// Timings for transaction batch execution.
+    pub execute_timings: ExecuteTimings,
     // Vector of results indicating whether a transaction was executed or could not
     // be executed. Note executed transactions can still have failed!
     pub execution_results: Vec<TransactionExecutionResult>,
@@ -215,6 +217,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     ) -> LoadAndExecuteSanitizedTransactionsOutput {
         // Initialize metrics.
         let mut error_metrics = TransactionErrorMetrics::default();
+        let execute_timings = ExecuteTimings::default();
 
         let mut program_cache_time = Measure::start("program_cache");
         let mut program_accounts_map = Self::filter_executable_program_accounts(
@@ -240,6 +243,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 vec![TransactionExecutionResult::NotExecuted(ERROR); sanitized_txs.len()];
             return LoadAndExecuteSanitizedTransactionsOutput {
                 error_metrics,
+                execute_timings,
                 execution_results,
                 loaded_transactions,
             };
@@ -353,6 +357,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         LoadAndExecuteSanitizedTransactionsOutput {
             error_metrics,
+            execute_timings,
             execution_results,
             loaded_transactions,
         }
