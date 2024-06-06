@@ -266,6 +266,11 @@ fn get_sysvar(
     let sysvar_id = sysvar_id as *const _ as *const u8;
     let var_addr = dst as *mut _ as *mut u8;
 
+    // Check that the provided destination buffer is aligned to 8.
+    if var_addr.align_offset(8) != 0 {
+        return Err(ProgramError::InvalidArgument);
+    }
+
     #[cfg(target_os = "solana")]
     let result = unsafe { crate::syscalls::sol_get_sysvar(sysvar_id, var_addr, offset, length) };
 
