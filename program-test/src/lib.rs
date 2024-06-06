@@ -614,6 +614,14 @@ impl ProgramTest {
         self.add_account(address, account.into());
     }
 
+    pub fn add_upgradeable_program_to_genesis(&mut self, program_id: &Pubkey, elf: &[u8]) {
+        let program_accounts =
+            programs::bpf_loader_upgradeable_program_accounts(program_id, elf, &Rent::default());
+        for (address, account) in program_accounts {
+            self.add_genesis_account(address, account);
+        }
+    }
+
     /// Add a SBF program to the test environment.
     ///
     /// `program_name` will also be used to locate the SBF shared object in the current or fixtures

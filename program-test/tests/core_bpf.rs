@@ -1,9 +1,7 @@
 use {
-    solana_program_test::{
-        find_file, programs::bpf_loader_upgradeable_program_accounts, read_file, ProgramTest,
-    },
+    solana_program_test::{find_file, read_file, ProgramTest},
     solana_sdk::{
-        bpf_loader_upgradeable, instruction::Instruction, rent::Rent, signature::Signer,
+        bpf_loader_upgradeable, instruction::Instruction, signature::Signer,
         transaction::Transaction,
     },
 };
@@ -19,15 +17,8 @@ async fn test_add_bpf_program() {
     let program_file = find_file(&format!("{program_name}.so")).unwrap();
     let elf = read_file(&program_file);
 
-    let program_accounts =
-        bpf_loader_upgradeable_program_accounts(&program_id, &elf, &Rent::default());
-
     let mut program_test = ProgramTest::default();
-    program_test.prefer_bpf(true);
-
-    for (address, account) in program_accounts {
-        program_test.add_genesis_account(address, account);
-    }
+    program_test.add_upgradeable_program_to_genesis(&program_id, &elf);
 
     let mut context = program_test.start_with_context().await;
 
