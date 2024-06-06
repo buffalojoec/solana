@@ -147,24 +147,27 @@ impl BpfAllocator {
 
 pub struct EnvironmentConfig<'a> {
     pub blockhash: Hash,
+    epoch_total_stake: Option<u64>,
+    epoch_vote_accounts: Option<&'a VoteAccountsHashMap>,
     pub feature_set: Arc<FeatureSet>,
     pub lamports_per_signature: u64,
-    vote_accounts: Option<&'a VoteAccountsHashMap>,
     sysvar_cache: &'a SysvarCache,
 }
 impl<'a> EnvironmentConfig<'a> {
     pub fn new(
         blockhash: Hash,
+        epoch_total_stake: Option<u64>,
+        epoch_vote_accounts: Option<&'a VoteAccountsHashMap>,
         feature_set: Arc<FeatureSet>,
         lamports_per_signature: u64,
-        vote_accounts: Option<&'a VoteAccountsHashMap>,
         sysvar_cache: &'a SysvarCache,
     ) -> Self {
         Self {
             blockhash,
+            epoch_total_stake,
+            epoch_vote_accounts,
             feature_set,
             lamports_per_signature,
-            vote_accounts,
             sysvar_cache,
         }
     }
@@ -618,9 +621,14 @@ impl<'a> InvokeContext<'a> {
         self.environment_config.sysvar_cache
     }
 
-    /// Get cached vote accounts.
-    pub fn get_vote_accounts(&self) -> Option<&VoteAccountsHashMap> {
-        self.environment_config.vote_accounts
+    /// Get cached epoch total stake.
+    pub fn get_epoch_total_stake(&self) -> Option<u64> {
+        self.environment_config.epoch_total_stake
+    }
+
+    /// Get cached epoch vote accounts.
+    pub fn get_epoch_vote_accounts(&self) -> Option<&VoteAccountsHashMap> {
+        self.environment_config.epoch_vote_accounts
     }
 
     // Should alignment be enforced during user pointer translation
@@ -719,9 +727,10 @@ macro_rules! with_mock_invoke_context {
         });
         let environment_config = EnvironmentConfig::new(
             Hash::default(),
+            None,
+            None,
             Arc::new(FeatureSet::all_enabled()),
             0,
-            /* vote_accounts */ None,
             &sysvar_cache,
         );
         let program_cache_for_tx_batch = ProgramCacheForTxBatch::default();

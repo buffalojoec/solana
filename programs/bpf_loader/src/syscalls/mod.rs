@@ -2025,51 +2025,75 @@ declare_builtin_function!(
     SyscallGetEpochStake,
     fn rust(
         invoke_context: &mut InvokeContext,
-        vote_address: u64,
+        var_addr: u64,
         _arg2: u64,
         _arg3: u64,
         _arg4: u64,
         _arg5: u64,
         memory_mapping: &mut MemoryMapping,
     ) -> Result<u64, Error> {
-        // Compute units, as specified by SIMD-0133.
-        // cu = syscall_base_cost
-        //     + floor(32/cpi_bytes_per_unit)
-        //     + mem_op_base_cost
         let compute_budget = invoke_context.get_compute_budget();
-        let compute_units = compute_budget
-            .syscall_base_cost
-            .saturating_add(
-                (PUBKEY_BYTES as u64)
-                    .checked_div(compute_budget.cpi_bytes_per_unit)
-                    .unwrap_or(u64::MAX),
+
+        if var_addr == 0 {
+            // As specified by SIMD-0133: If `var_addr` is a null pointer:
+            //
+            // Compute units:
+            //
+            // ```
+            // syscall_base
+            // ```
+            let compute_units = compute_budget.syscall_base_cost;
+            consume_compute_meter(invoke_context, compute_units)?;
+            //
+            // Control flow:
+            //
+            // - The syscall aborts the virtual machine if:
+            //     - Compute budget is exceeded.
+            // - Otherwise, the syscall returns a `u64` integer representing the total active
+            //   stake on the cluster for the current epoch.
+            Ok(invoke_context.get_epoch_total_stake().unwrap_or(0))
+        } else {
+            // As specified by SIMD-0133: If `var_addr` is _not_ a null pointer:
+            //
+            // Compute units:
+            //
+            // ```
+            // syscall_base + floor(PUBKEY_BYTES/cpi_bytes_per_unit) + mem_op_base
+            // ```
+            let compute_units = compute_budget
+                .syscall_base_cost
+                .saturating_add(
+                    (PUBKEY_BYTES as u64)
+                        .checked_div(compute_budget.cpi_bytes_per_unit)
+                        .unwrap_or(u64::MAX),
+                )
+                .saturating_add(compute_budget.mem_op_base_cost);
+            consume_compute_meter(invoke_context, compute_units)?;
+            //
+            // Control flow:
+            //
+            // - The syscall aborts the virtual machine if:
+            //     - Not all bytes in VM memory range `[vote_addr, vote_addr + 32)` are
+            //       readable.
+            //     - Compute budget is exceeded.
+            // - Otherwise, the syscall returns a `u64` integer representing the total active
+            //   stake delegated to the vote account at the provided address.
+            //   If the provided vote address corresponds to an account that is not a vote
+            //   account or does not exist, the syscall will return `0` for active stake.
+            let check_aligned = invoke_context.get_check_aligned();
+            let vote_address = translate_type::<Pubkey>(memory_mapping, var_addr, check_aligned)?;
+
+            Ok(
+                if let Some(vote_accounts) = invoke_context.get_epoch_vote_accounts() {
+                    vote_accounts
+                        .get(vote_address)
+                        .map(|(stake, _)| *stake)
+                        .unwrap_or(0)
+                } else {
+                    0
+                },
             )
-            .saturating_add(compute_budget.mem_op_base_cost);
-
-        consume_compute_meter(invoke_context, compute_units)?;
-
-        // Control flow, as specified by SIMD-0133.
-        // * The syscall aborts the virtual machine if not all bytes in VM
-        //   memory range `[vote_addr, vote_addr + 32)` are readable.
-        // * Otherwise, the syscall returns a `u64` integer representing the
-        //   total active stake delegated to the vote account at the provided
-        //   address.
-        //   * If the provided vote address corresponds to an account that is
-        //     not a vote account or does not exist, the syscall will return
-        //     `0` for active stake.
-        let check_aligned = invoke_context.get_check_aligned();
-        let vote_address = translate_type::<Pubkey>(memory_mapping, vote_address, check_aligned)?;
-
-        Ok(
-            if let Some(vote_accounts) = invoke_context.get_vote_accounts() {
-                vote_accounts
-                    .get(vote_address)
-                    .map(|(stake, _)| *stake)
-                    .unwrap_or(0)
-            } else {
-                0
-            },
-        )
+        }
     }
 );
 
@@ -4745,7 +4769,50 @@ mod tests {
     }
 
     #[test]
-    fn test_syscall_get_epoch_stake() {
+    fn test_syscall_get_epoch_stake_total_stake() {
+        let config = Config::default();
+        let mut compute_budget = ComputeBudget::default();
+        let sysvar_cache = Arc::<SysvarCache>::default();
+
+        let expected_total_stake = 200_000_000_000_000u64;
+        // Compute units, as specified by SIMD-0133.
+        // cu = syscall_base_cost
+        let expected_cus = compute_budget.syscall_base_cost;
+
+        // Set the compute budget to the expected CUs to ensure the syscall
+        // doesn't exceed the expected usage.
+        compute_budget.compute_unit_limit = expected_cus;
+
+        with_mock_invoke_context!(invoke_context, transaction_context, vec![]);
+        invoke_context.environment_config = EnvironmentConfig::new(
+            Hash::default(),
+            Some(expected_total_stake),
+            None, // Vote accounts are not needed for this test.
+            Arc::<FeatureSet>::default(),
+            0,
+            &sysvar_cache,
+        );
+
+        let null_pointer_var = std::ptr::null::<Pubkey>() as u64;
+
+        let mut memory_mapping = MemoryMapping::new(vec![], &config, &SBPFVersion::V2).unwrap();
+
+        let result = SyscallGetEpochStake::rust(
+            &mut invoke_context,
+            null_pointer_var,
+            0,
+            0,
+            0,
+            0,
+            &mut memory_mapping,
+        )
+        .unwrap();
+
+        assert_eq!(result, expected_total_stake);
+    }
+
+    #[test]
+    fn test_syscall_get_epoch_stake_vote_account_stake() {
         let config = Config::default();
         let mut compute_budget = ComputeBudget::default();
         let sysvar_cache = Arc::<SysvarCache>::default();
@@ -4781,9 +4848,10 @@ mod tests {
         with_mock_invoke_context!(invoke_context, transaction_context, vec![]);
         invoke_context.environment_config = EnvironmentConfig::new(
             Hash::default(),
+            None, // Total stake is not needed for this test.
+            Some(&vote_accounts_map),
             Arc::<FeatureSet>::default(),
             0,
-            Some(&vote_accounts_map),
             &sysvar_cache,
         );
 

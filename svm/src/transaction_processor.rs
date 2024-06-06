@@ -626,9 +626,10 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             program_cache_for_tx_batch,
             EnvironmentConfig::new(
                 blockhash,
+                callback.get_epoch_total_stake(),
+                callback.get_epoch_vote_accounts(),
                 callback.get_feature_set(),
                 lamports_per_signature,
-                callback.get_vote_accounts(),
                 sysvar_cache,
             ),
             log_collector.clone(),
@@ -923,7 +924,11 @@ mod tests {
             self.feature_set.clone()
         }
 
-        fn get_vote_accounts(&self) -> Option<&VoteAccountsHashMap> {
+        fn get_epoch_total_stake(&self) -> Option<u64> {
+            None
+        }
+
+        fn get_epoch_vote_accounts(&self) -> Option<&VoteAccountsHashMap> {
             None
         }
 

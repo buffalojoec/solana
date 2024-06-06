@@ -70,7 +70,11 @@ impl TransactionProcessingCallback for MockBankCallback {
         self.feature_set.clone()
     }
 
-    fn get_vote_accounts(&self) -> Option<&VoteAccountsHashMap> {
+    fn get_epoch_total_stake(&self) -> Option<u64> {
+        None
+    }
+
+    fn get_epoch_vote_accounts(&self) -> Option<&VoteAccountsHashMap> {
         None
     }
 

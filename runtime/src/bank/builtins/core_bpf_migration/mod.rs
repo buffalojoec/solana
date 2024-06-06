@@ -205,9 +205,10 @@ impl Bank {
                 &program_cache_for_tx_batch,
                 EnvironmentConfig::new(
                     Hash::default(),
+                    None,
+                    None,
                     self.feature_set.clone(),
                     0,
-                    None,
                     &sysvar_cache,
                 ),
                 None,

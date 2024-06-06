@@ -20,7 +20,9 @@ pub trait TransactionProcessingCallback {
 
     fn get_feature_set(&self) -> Arc<FeatureSet>;
 
-    fn get_vote_accounts(&self) -> Option<&VoteAccountsHashMap>;
+    fn get_epoch_total_stake(&self) -> Option<u64>;
+
+    fn get_epoch_vote_accounts(&self) -> Option<&VoteAccountsHashMap>;
 
     fn get_program_match_criteria(&self, _program: &Pubkey) -> ProgramCacheMatchCriteria {
         ProgramCacheMatchCriteria::NoCriteria
