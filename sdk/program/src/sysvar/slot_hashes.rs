@@ -83,7 +83,9 @@ pub trait SlotHashesSysvar {
     /// Get a value from the sysvar entries by its key.
     /// Returns `None` if the key is not found.
     fn get(slot: &Slot) -> Result<Option<Hash>, ProgramError> {
-        let data = get_sysvar(&SlotHashes::id(), 0, SlotHashes::size_of() as u64)?;
+        let data_len = SlotHashes::size_of();
+        let mut data = vec![0u8; data_len];
+        get_sysvar(&mut data, &SlotHashes::id(), 0, data_len as u64)?;
         let pod_hashes: &[PodSlotHash] =
             bytemuck::try_cast_slice(&data[8..]).map_err(|_| ProgramError::InvalidAccountData)?;
 
@@ -96,7 +98,9 @@ pub trait SlotHashesSysvar {
     /// Get the position of an entry in the sysvar by its key.
     /// Returns `None` if the key is not found.
     fn position(slot: &Slot) -> Result<Option<usize>, ProgramError> {
-        let data = get_sysvar(&SlotHashes::id(), 0, SlotHashes::size_of() as u64)?;
+        let data_len = SlotHashes::size_of();
+        let mut data = vec![0u8; data_len];
+        get_sysvar(&mut data, &SlotHashes::id(), 0, data_len as u64)?;
         let pod_hashes: &[PodSlotHash] =
             bytemuck::try_cast_slice(&data[8..]).map_err(|_| ProgramError::InvalidAccountData)?;
 

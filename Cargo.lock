@@ -6690,7 +6690,6 @@ dependencies = [
  "solana-logger",
  "solana-sdk-macro",
  "static_assertions",
- "test-case",
  "thiserror",
  "wasm-bindgen",
 ]
