@@ -10,11 +10,11 @@ use {
 
 #[tokio::test]
 async fn test_add_bpf_program() {
-    std::env::set_var("SBF_OUT_DIR", "../programs/bpf_loader/test_elfs/out");
+    std::env::set_var("SBF_OUT_DIR", "./tests/fixtures");
 
     // Core BPF program: Address Lookup Lable.
     let program_id = solana_sdk::address_lookup_table::program::id();
-    let program_name = "noop_aligned";
+    let program_name = "noop_program";
 
     let program_file = find_file(&format!("{program_name}.so")).unwrap();
     let elf = read_file(&program_file);

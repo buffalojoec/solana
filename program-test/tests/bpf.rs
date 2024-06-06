@@ -10,11 +10,11 @@ use {
 async fn test_add_bpf_program() {
     let program_id = Pubkey::new_unique();
 
-    std::env::set_var("SBF_OUT_DIR", "../programs/bpf_loader/test_elfs/out");
+    std::env::set_var("SBF_OUT_DIR", "./tests/fixtures");
 
     let mut program_test = ProgramTest::default();
     program_test.prefer_bpf(true);
-    program_test.add_program("noop_aligned", program_id, None);
+    program_test.add_program("noop_program", program_id, None);
 
     let mut context = program_test.start_with_context().await;
 
