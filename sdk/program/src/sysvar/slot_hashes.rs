@@ -46,13 +46,15 @@
 //! ```
 
 pub use crate::slot_hashes::SlotHashes;
-use crate::{
-    account_info::AccountInfo,
-    clock::Slot,
-    hash::{Hash, HASH_BYTES},
-    program_error::ProgramError,
-    slot_hashes::{SlotHash, MAX_ENTRIES},
-    sysvar::{get_sysvar, Sysvar, SysvarId},
+use {
+    crate::{
+        account_info::AccountInfo,
+        clock::Slot,
+        hash::Hash,
+        program_error::ProgramError,
+        sysvar::{get_sysvar, Sysvar, SysvarId},
+    },
+    bytemuck::{Pod, Zeroable},
 };
 
 crate::declare_sysvar_id!("SysvarS1otHashes111111111111111111111111111", SlotHashes);
@@ -69,67 +71,42 @@ impl Sysvar for SlotHashes {
     }
 }
 
+#[derive(Copy, Clone, Pod, Zeroable)]
+#[repr(C)]
+struct PodSlotHash {
+    slot: Slot,
+    hash: Hash,
+}
+
 /// Trait for querying the `SlotHashes` sysvar.
 pub trait SlotHashesSysvar {
     /// Get a value from the sysvar entries by its key.
     /// Returns `None` if the key is not found.
-    fn get(key: &Slot) -> Result<Option<Hash>, ProgramError> {
-        get_slot_hash_bytes_with_position(key)
-            .map(|result| result.map(|(_, bytes)| Hash::new(&bytes[8..8 + HASH_BYTES])))
+    fn get(slot: &Slot) -> Result<Option<Hash>, ProgramError> {
+        let data = get_sysvar(&SlotHashes::id(), 0, SlotHashes::size_of() as u64)?;
+        let pod_hashes: &[PodSlotHash] =
+            bytemuck::try_cast_slice(&data[8..]).map_err(|_| ProgramError::InvalidAccountData)?;
+
+        Ok(pod_hashes
+            .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
+            .map(|idx| pod_hashes[idx].hash)
+            .ok())
     }
 
     /// Get the position of an entry in the sysvar by its key.
     /// Returns `None` if the key is not found.
-    fn position(key: &Slot) -> Result<Option<usize>, ProgramError> {
-        get_slot_hash_bytes_with_position(key).map(|result| result.map(|(position, _)| position))
+    fn position(slot: &Slot) -> Result<Option<usize>, ProgramError> {
+        let data = get_sysvar(&SlotHashes::id(), 0, SlotHashes::size_of() as u64)?;
+        let pod_hashes: &[PodSlotHash] =
+            bytemuck::try_cast_slice(&data[8..]).map_err(|_| ProgramError::InvalidAccountData)?;
+
+        Ok(pod_hashes
+            .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
+            .ok())
     }
 }
 
 impl SlotHashesSysvar for SlotHashes {}
-
-fn get_slot_hash_bytes_with_position<'a>(
-    slot: &Slot,
-) -> Result<Option<(usize, &'a [u8])>, ProgramError> {
-    // Slot hashes is sorted largest -> smallest slot, so we can leverage
-    // this to perform the search.
-    //
-    // `SlotHashes` can have skipped slots, so we'll have to implement a
-    // binary search over data from `sol_get_sysvar`.
-    let key = slot.to_le_bytes();
-
-    // Rust's `serde::Serialize` will serialize a `usize` as a `u64` on 64-bit
-    // systems for vector length prefixes.
-    let start_offset = std::mem::size_of::<u64>();
-    let length = SlotHashes::size_of().saturating_sub(start_offset);
-    let entry_size = std::mem::size_of::<SlotHash>();
-
-    let data = get_sysvar(&SlotHashes::id(), start_offset as u64, length as u64)?;
-
-    let mut low: usize = 0;
-    let mut high: usize = MAX_ENTRIES.saturating_sub(1);
-    while low <= high {
-        let mid = low.saturating_add(high).div_euclid(2);
-        let offset = mid.saturating_mul(entry_size);
-        let end = offset.saturating_add(entry_size);
-
-        let entry_data = &data[offset..end];
-        let key_data = &entry_data[..8];
-
-        match key_data.cmp(&key) {
-            std::cmp::Ordering::Equal => {
-                return Ok(Some((mid, entry_data)));
-            }
-            std::cmp::Ordering::Greater => {
-                low = mid.saturating_add(1);
-            }
-            std::cmp::Ordering::Less => {
-                high = mid;
-            }
-        }
-    }
-
-    Ok(None)
-}
 
 #[cfg(test)]
 mod tests {
