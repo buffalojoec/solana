@@ -614,9 +614,16 @@ impl ProgramTest {
         self.add_account(address, account.into());
     }
 
-    pub fn add_upgradeable_program_to_genesis(&mut self, program_id: &Pubkey, elf: &[u8]) {
+    pub fn add_upgradeable_program_to_genesis(
+        &mut self,
+        program_name: &'static str,
+        program_id: &Pubkey,
+    ) {
+        let program_file = find_file(&format!("{program_name}.so"))
+            .expect("Program file data not available for {program_name} ({program_id})");
+        let elf = read_file(program_file);
         let program_accounts =
-            programs::bpf_loader_upgradeable_program_accounts(program_id, elf, &Rent::default());
+            programs::bpf_loader_upgradeable_program_accounts(program_id, &elf, &Rent::default());
         for (address, account) in program_accounts {
             self.add_genesis_account(address, account);
         }

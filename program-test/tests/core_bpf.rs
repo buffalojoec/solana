@@ -1,5 +1,5 @@
 use {
-    solana_program_test::{find_file, read_file, ProgramTest},
+    solana_program_test::ProgramTest,
     solana_sdk::{
         bpf_loader_upgradeable, instruction::Instruction, signature::Signer,
         transaction::Transaction,
@@ -12,13 +12,9 @@ async fn test_add_bpf_program() {
 
     // Core BPF program: Address Lookup Lable.
     let program_id = solana_sdk::address_lookup_table::program::id();
-    let program_name = "noop_program";
-
-    let program_file = find_file(&format!("{program_name}.so")).unwrap();
-    let elf = read_file(&program_file);
 
     let mut program_test = ProgramTest::default();
-    program_test.add_upgradeable_program_to_genesis(&program_id, &elf);
+    program_test.add_upgradeable_program_to_genesis("noop_program", &program_id);
 
     let mut context = program_test.start_with_context().await;
 
