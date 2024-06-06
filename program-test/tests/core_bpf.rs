@@ -8,8 +8,6 @@ use {
 
 #[tokio::test]
 async fn test_add_bpf_program() {
-    std::env::set_var("SBF_OUT_DIR", "./tests/fixtures");
-
     // Core BPF program: Address Lookup Lable.
     let program_id = solana_sdk::address_lookup_table::program::id();
 

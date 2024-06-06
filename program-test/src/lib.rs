@@ -614,6 +614,18 @@ impl ProgramTest {
         self.add_account(address, account.into());
     }
 
+    /// Add a BPF Upgradeable program to the test environment's genesis config.
+    ///
+    /// When testing BPF programs using the program ID of a runtime builtin
+    /// program - such as Core BPF programs - the program accounts must be
+    /// added to the genesis config in order to make them available to the new
+    /// Bank as it's being initialized.
+    ///
+    /// The presence of these program accounts will cause Bank to skip adding
+    /// the builtin version of the program, allowing the provided BPF program
+    /// to be used at the designated program ID instead.
+    ///
+    /// See https://github.com/anza-xyz/agave/blob/c038908600b8a1b0080229dea015d7fc9939c418/runtime/src/bank.rs#L5109-L5126.
     pub fn add_upgradeable_program_to_genesis(
         &mut self,
         program_name: &'static str,
