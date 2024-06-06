@@ -39,7 +39,7 @@ use {
     solana_vote::vote_account::VoteAccountsHashMap,
     std::{
         alloc::Layout,
-        cell::{Ref, RefCell},
+        cell::RefCell,
         fmt::{self, Debug},
         rc::Rc,
         sync::{atomic::Ordering, Arc},
@@ -599,11 +599,6 @@ impl<'a> InvokeContext<'a> {
     /// Get this invocation's compute budget
     pub fn get_compute_budget(&self) -> &ComputeBudget {
         &self.compute_budget
-    }
-
-    /// Get this invocation's compute meter.
-    pub fn get_compute_meter(&self) -> Ref<u64> {
-        self.compute_meter.borrow()
     }
 
     /// Get the current feature set.

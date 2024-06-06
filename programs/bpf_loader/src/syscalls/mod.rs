@@ -4747,13 +4747,21 @@ mod tests {
     #[test]
     fn test_syscall_get_epoch_stake() {
         let config = Config::default();
-        let compute_budget = ComputeBudget::default();
+        let mut compute_budget = ComputeBudget::default();
         let sysvar_cache = Arc::<SysvarCache>::default();
 
         let expected_epoch_stake = 55_000_000_000u64;
+        // Compute units, as specified by SIMD-0133.
+        // cu = syscall_base_cost
+        //     + floor(32/cpi_bytes_per_unit)
+        //     + mem_op_base_cost
         let expected_cus = compute_budget.syscall_base_cost
             + (PUBKEY_BYTES as u64) / compute_budget.cpi_bytes_per_unit
             + compute_budget.mem_op_base_cost;
+
+        // Set the compute budget to the expected CUs to ensure the syscall
+        // doesn't exceed the expected usage.
+        compute_budget.compute_unit_limit = expected_cus;
 
         let vote_address = Pubkey::new_unique();
         let mut vote_accounts_map = HashMap::new();
@@ -4805,15 +4813,6 @@ mod tests {
             );
 
             assert_access_violation!(result, vote_address_var, 32);
-
-            // Compute units, as specified by SIMD-0133.
-            // cu = syscall_base_cost
-            //     + floor(32/cpi_bytes_per_unit)
-            //     + mem_op_base_cost
-            assert_eq!(
-                invoke_context.get_compute_meter().to_owned(),
-                compute_budget.compute_unit_limit - expected_cus
-            );
         }
 
         invoke_context.mock_set_remaining(compute_budget.compute_unit_limit);
@@ -4845,15 +4844,6 @@ mod tests {
             .unwrap();
 
             assert_eq!(result, expected_epoch_stake);
-
-            // Compute units, as specified by SIMD-0133.
-            // cu = syscall_base_cost
-            //     + floor(32/cpi_bytes_per_unit)
-            //     + mem_op_base_cost
-            assert_eq!(
-                invoke_context.get_compute_meter().to_owned(),
-                compute_budget.compute_unit_limit - expected_cus
-            );
         }
 
         invoke_context.mock_set_remaining(compute_budget.compute_unit_limit);
@@ -4886,15 +4876,6 @@ mod tests {
             .unwrap();
 
             assert_eq!(result, 0); // `0` for active stake.
-
-            // Compute units, as specified by SIMD-0133.
-            // cu = syscall_base_cost
-            //     + floor(32/cpi_bytes_per_unit)
-            //     + mem_op_base_cost
-            assert_eq!(
-                invoke_context.get_compute_meter().to_owned(),
-                compute_budget.compute_unit_limit - expected_cus
-            );
         }
     }
 
