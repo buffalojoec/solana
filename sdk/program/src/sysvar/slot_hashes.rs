@@ -78,11 +78,13 @@ struct PodSlotHash {
     hash: Hash,
 }
 
-/// Trait for querying the `SlotHashes` sysvar.
-pub trait SlotHashesSysvar {
+/// API for querying the `SlotHashes` sysvar.
+pub struct SlotHashesSysvar;
+
+impl SlotHashesSysvar {
     /// Get a value from the sysvar entries by its key.
     /// Returns `None` if the key is not found.
-    fn get(slot: &Slot) -> Result<Option<Hash>, ProgramError> {
+    pub fn get(slot: &Slot) -> Result<Option<Hash>, ProgramError> {
         let data_len = SlotHashes::size_of();
         let mut data = vec![0u8; data_len];
         get_sysvar(&mut data, &SlotHashes::id(), 0, data_len as u64)?;
@@ -97,7 +99,7 @@ pub trait SlotHashesSysvar {
 
     /// Get the position of an entry in the sysvar by its key.
     /// Returns `None` if the key is not found.
-    fn position(slot: &Slot) -> Result<Option<usize>, ProgramError> {
+    pub fn position(slot: &Slot) -> Result<Option<usize>, ProgramError> {
         let data_len = SlotHashes::size_of();
         let mut data = vec![0u8; data_len];
         get_sysvar(&mut data, &SlotHashes::id(), 0, data_len as u64)?;
@@ -109,8 +111,6 @@ pub trait SlotHashesSysvar {
             .ok())
     }
 }
-
-impl SlotHashesSysvar for SlotHashes {}
 
 #[cfg(test)]
 mod tests {
@@ -190,45 +190,39 @@ mod tests {
 
         // `get`:
         assert_eq!(
-            <SlotHashes as SlotHashesSysvar>::get(&0).unwrap().as_ref(),
+            SlotHashesSysvar::get(&0).unwrap().as_ref(),
             check_slot_hashes.get(&0),
         );
         assert_eq!(
-            <SlotHashes as SlotHashesSysvar>::get(&256)
-                .unwrap()
-                .as_ref(),
+            SlotHashesSysvar::get(&256).unwrap().as_ref(),
             check_slot_hashes.get(&256),
         );
         assert_eq!(
-            <SlotHashes as SlotHashesSysvar>::get(&511)
-                .unwrap()
-                .as_ref(),
+            SlotHashesSysvar::get(&511).unwrap().as_ref(),
             check_slot_hashes.get(&511),
         );
         // `None`.
         assert_eq!(
-            <SlotHashes as SlotHashesSysvar>::get(&600)
-                .unwrap()
-                .as_ref(),
+            SlotHashesSysvar::get(&600).unwrap().as_ref(),
             check_slot_hashes.get(&600),
         );
 
         // `position`:
         assert_eq!(
-            <SlotHashes as SlotHashesSysvar>::position(&0).unwrap(),
+            SlotHashesSysvar::position(&0).unwrap(),
             check_slot_hashes.position(&0),
         );
         assert_eq!(
-            <SlotHashes as SlotHashesSysvar>::position(&256).unwrap(),
+            SlotHashesSysvar::position(&256).unwrap(),
             check_slot_hashes.position(&256),
         );
         assert_eq!(
-            <SlotHashes as SlotHashesSysvar>::position(&511).unwrap(),
+            SlotHashesSysvar::position(&511).unwrap(),
             check_slot_hashes.position(&511),
         );
         // `None`.
         assert_eq!(
-            <SlotHashes as SlotHashesSysvar>::position(&600).unwrap(),
+            SlotHashesSysvar::position(&600).unwrap(),
             check_slot_hashes.position(&600),
         );
     }
