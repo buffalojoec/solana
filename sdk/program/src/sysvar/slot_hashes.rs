@@ -87,6 +87,13 @@ impl SlotHashesSysvar {
     pub fn get(slot: &Slot) -> Result<Option<Hash>, ProgramError> {
         let data_len = SlotHashes::size_of();
         let mut data = vec![0u8; data_len];
+
+        // Ensure the created buffer is aligned to 8.
+        // This should never throw unless `SlotHashes::size_of` changes.
+        if data.as_ptr().align_offset(8) != 0 {
+            return Err(ProgramError::InvalidAccountData);
+        }
+
         get_sysvar(&mut data, &SlotHashes::id(), 0, data_len as u64)?;
         let pod_hashes: &[PodSlotHash] =
             bytemuck::try_cast_slice(&data[8..]).map_err(|_| ProgramError::InvalidAccountData)?;
@@ -102,6 +109,13 @@ impl SlotHashesSysvar {
     pub fn position(slot: &Slot) -> Result<Option<usize>, ProgramError> {
         let data_len = SlotHashes::size_of();
         let mut data = vec![0u8; data_len];
+
+        // Ensure the created buffer is aligned to 8.
+        // This should never throw unless `SlotHashes::size_of` changes.
+        if data.as_ptr().align_offset(8) != 0 {
+            return Err(ProgramError::InvalidAccountData);
+        }
+
         get_sysvar(&mut data, &SlotHashes::id(), 0, data_len as u64)?;
         let pod_hashes: &[PodSlotHash] =
             bytemuck::try_cast_slice(&data[8..]).map_err(|_| ProgramError::InvalidAccountData)?;
