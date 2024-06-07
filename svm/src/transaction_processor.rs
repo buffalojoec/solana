@@ -44,14 +44,17 @@ use {
             remove_rounding_in_fee_calculation, FeatureSet,
         },
         fee::{FeeDetails, FeeStructure},
+        hash::Hash,
         inner_instruction::{InnerInstruction, InnerInstructionsList},
         instruction::{CompiledInstruction, TRANSACTION_LEVEL_STACK_HEIGHT},
         message::SanitizedMessage,
         pubkey::Pubkey,
+        rent_collector::RentCollector,
         saturating_add_assign,
         transaction::{self, SanitizedTransaction, TransactionError},
         transaction_context::{ExecutionRecord, TransactionContext},
     },
+    solana_vote::vote_account::VoteAccountsHashMap,
     std::{
         cell::RefCell,
         collections::{hash_map::Entry, HashMap, HashSet},
@@ -116,6 +119,23 @@ pub struct TransactionProcessingConfig<'a> {
     pub recording_config: ExecutionRecordingConfig,
     /// The max number of accounts that a transaction may lock.
     pub transaction_account_lock_limit: Option<usize>,
+}
+
+/// Runtime environment for transaction batch processing.
+#[derive(Default)]
+pub struct TransactionProcessingEnvironment<'a> {
+    /// The blockhash to use for the transaction batch.
+    pub blockhash: Hash,
+    /// The total stake for the current epoch.
+    pub epoch_total_stake: Option<u64>,
+    /// The vote accounts for the current epoch.
+    pub epoch_vote_accounts: Option<&'a VoteAccountsHashMap>,
+    /// Runtime feature set to use for the transaction batch.
+    pub feature_set: Arc<FeatureSet>,
+    /// Lamports per signature to charge per transaction.
+    pub lamports_per_signature: u64,
+    /// Rent collector to use for the transaction batch.
+    pub rent_collector: Option<&'a RentCollector>,
 }
 
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
@@ -220,6 +240,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         callbacks: &CB,
         sanitized_txs: &[SanitizedTransaction],
         check_results: Vec<TransactionCheckResult>,
+        environment: &TransactionProcessingEnvironment,
         config: &TransactionProcessingConfig,
     ) -> LoadAndExecuteSanitizedTransactionsOutput {
         // Initialize metrics.
@@ -312,6 +333,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         &mut execute_timings,
                         &mut error_metrics,
                         &program_cache_for_tx_batch.borrow(),
+                        environment,
                         config,
                     );
 
@@ -679,6 +701,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
     /// Execute a transaction using the provided loaded accounts and update
     /// the executors cache if the transaction was successful.
+    #[allow(clippy::too_many_arguments)]
     fn execute_loaded_transaction<CB: TransactionProcessingCallback>(
         &self,
         callback: &CB,
@@ -688,6 +711,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         execute_timings: &mut ExecuteTimings,
         error_metrics: &mut TransactionErrorMetrics,
         program_cache_for_tx_batch: &ProgramCacheForTxBatch,
+        _environment: &TransactionProcessingEnvironment,
         config: &TransactionProcessingConfig,
     ) -> TransactionExecutionResult {
         let transaction_accounts = std::mem::take(&mut loaded_transaction.accounts);
@@ -1157,6 +1181,8 @@ mod tests {
             loaded_accounts_data_size: 32,
         };
 
+        let processing_environment = TransactionProcessingEnvironment::default();
+
         let mut processing_config = TransactionProcessingConfig::default();
         processing_config.recording_config.enable_log_recording = true;
 
@@ -1168,6 +1194,7 @@ mod tests {
             &mut ExecuteTimings::default(),
             &mut TransactionErrorMetrics::default(),
             &program_cache_for_tx_batch,
+            &processing_environment,
             &processing_config,
         );
 
@@ -1190,6 +1217,7 @@ mod tests {
             &mut ExecuteTimings::default(),
             &mut TransactionErrorMetrics::default(),
             &program_cache_for_tx_batch,
+            &processing_environment,
             &processing_config,
         );
 
@@ -1220,6 +1248,7 @@ mod tests {
             &mut ExecuteTimings::default(),
             &mut TransactionErrorMetrics::default(),
             &program_cache_for_tx_batch,
+            &processing_environment,
             &processing_config,
         );
 
@@ -1297,6 +1326,7 @@ mod tests {
             &mut ExecuteTimings::default(),
             &mut error_metrics,
             &program_cache_for_tx_batch,
+            &TransactionProcessingEnvironment::default(),
             &processing_config,
         );
 

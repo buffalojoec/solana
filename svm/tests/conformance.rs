@@ -41,6 +41,7 @@ use {
         transaction_processing_callback::TransactionProcessingCallback,
         transaction_processor::{
             ExecutionRecordingConfig, TransactionBatchProcessor, TransactionProcessingConfig,
+            TransactionProcessingEnvironment,
         },
     },
     std::{
@@ -313,6 +314,11 @@ fn run_fixture(fixture: InstrFixture, filename: OsString, execute_as_instr: bool
         &mock_bank,
         &transactions,
         transaction_check,
+        &TransactionProcessingEnvironment {
+            blockhash,
+            lamports_per_signature,
+            ..Default::default()
+        },
         &processor_config,
     );
 

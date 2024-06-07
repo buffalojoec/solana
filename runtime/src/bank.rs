@@ -176,7 +176,7 @@ use {
         transaction_processing_callback::TransactionProcessingCallback,
         transaction_processor::{
             ExecutionRecordingConfig, TransactionBatchProcessor, TransactionLogMessages,
-            TransactionProcessingConfig,
+            TransactionProcessingConfig, TransactionProcessingEnvironment,
         },
         transaction_results::{
             TransactionExecutionDetails, TransactionExecutionResult,
@@ -3712,12 +3712,23 @@ impl Bank {
         debug!("check: {}us", check_time.as_us());
         timings.saturating_add_in_place(ExecuteTimingType::CheckUs, check_time.as_us());
 
+        let (blockhash, lamports_per_signature) = self.last_blockhash_and_lamports_per_signature();
+        let processing_environment = TransactionProcessingEnvironment {
+            blockhash,
+            epoch_total_stake: self.epoch_total_stake(self.epoch()),
+            epoch_vote_accounts: self.epoch_vote_accounts(self.epoch()),
+            feature_set: Arc::clone(&self.feature_set),
+            lamports_per_signature,
+            rent_collector: Some(&self.rent_collector),
+        };
+
         let sanitized_output = self
             .transaction_processor
             .load_and_execute_sanitized_transactions(
                 self,
                 sanitized_txs,
                 check_results,
+                &processing_environment,
                 &processing_config,
             );
 
