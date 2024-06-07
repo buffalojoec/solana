@@ -56,19 +56,6 @@ impl TransactionProcessingCallback for MockBankCallback {
         self.account_shared_data.borrow().get(pubkey).cloned()
     }
 
-    fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64) {
-        // Mock a hash and a value
-        (self.blockhash, self.lamports_per_sginature)
-    }
-
-    fn get_rent_collector(&self) -> &RentCollector {
-        &self.rent_collector
-    }
-
-    fn get_feature_set(&self) -> Arc<FeatureSet> {
-        self.feature_set.clone()
-    }
-
     fn add_builtin_account(&self, name: &str, program_id: &Pubkey) {
         let account_data = native_loader::create_loadable_account_with_fields(name, (5000, 0));
 

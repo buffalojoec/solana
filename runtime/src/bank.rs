@@ -36,6 +36,7 @@
 #[allow(deprecated)]
 use solana_sdk::recent_blockhashes_account;
 pub use solana_sdk::reward_type::RewardType;
+use solana_svm::transaction_processor::TransactionProcessingEnvironment;
 use {
     crate::{
         bank::{
@@ -3697,6 +3698,13 @@ impl Bank {
         debug!("check: {}us", check_time.as_us());
         timings.saturating_add_in_place(ExecuteTimingType::CheckUs, check_time.as_us());
 
+        let (blockhash, lamports_per_signature) = self.last_blockhash_and_lamports_per_signature();
+        let processing_environment = TransactionProcessingEnvironment {
+            blockhash,
+            feature_set: Arc::clone(&self.feature_set),
+            lamports_per_signature,
+            rent_collector: Some(&self.rent_collector),
+        };
         let sanitized_output = self
             .transaction_processor
             .load_and_execute_sanitized_transactions(
@@ -3704,6 +3712,7 @@ impl Bank {
                 sanitized_txs,
                 &mut check_results,
                 timings,
+                &processing_environment,
                 &processing_config,
             );
 
@@ -6824,18 +6833,6 @@ impl TransactionProcessingCallback for Bank {
             .accounts_db
             .load_with_fixed_root(&self.ancestors, pubkey)
             .map(|(acc, _)| acc)
-    }
-
-    fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64) {
-        self.last_blockhash_and_lamports_per_signature()
-    }
-
-    fn get_rent_collector(&self) -> &RentCollector {
-        &self.rent_collector
-    }
-
-    fn get_feature_set(&self) -> Arc<FeatureSet> {
-        self.feature_set.clone()
     }
 
     fn get_program_match_criteria(&self, program: &Pubkey) -> ProgramCacheMatchCriteria {

@@ -34,10 +34,12 @@ use {
         epoch_schedule::EpochSchedule,
         feature_set::FeatureSet,
         fee::FeeStructure,
+        hash::Hash,
         inner_instruction::{InnerInstruction, InnerInstructionsList},
         instruction::{CompiledInstruction, TRANSACTION_LEVEL_STACK_HEIGHT},
         message::SanitizedMessage,
         pubkey::Pubkey,
+        rent_collector::RentCollector,
         saturating_add_assign,
         transaction::{SanitizedTransaction, TransactionError},
         transaction_context::{ExecutionRecord, TransactionContext},
@@ -100,6 +102,19 @@ pub struct TransactionProcessingConfig<'a> {
     pub limit_to_load_programs: bool,
     /// Recording capabilities for transaction execution.
     pub recording_config: ExecutionRecordingConfig,
+}
+
+/// Runtime environment for transaction batch processing.
+#[derive(Default)]
+pub struct TransactionProcessingEnvironment<'a> {
+    /// The blockhash to use for the transaction batch.
+    pub blockhash: Hash,
+    /// Runtime feature set to use for the transaction batch.
+    pub feature_set: Arc<FeatureSet>,
+    /// Lamports per signature to charge per transaction.
+    pub lamports_per_signature: u64,
+    /// Rent collector to use for the transaction batch.
+    pub rent_collector: Option<&'a RentCollector>,
 }
 
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
@@ -211,6 +226,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         sanitized_txs: &[SanitizedTransaction],
         check_results: &mut [TransactionCheckResult],
         timings: &mut ExecuteTimings,
+        environment: &TransactionProcessingEnvironment,
         config: &TransactionProcessingConfig,
     ) -> LoadAndExecuteSanitizedTransactionsOutput {
         // Initialize metrics.
@@ -255,6 +271,10 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             &self.fee_structure,
             config.account_overrides,
             &program_cache_for_tx_batch.borrow(),
+            &environment.feature_set,
+            environment
+                .rent_collector
+                .unwrap_or(&RentCollector::default()),
         );
         load_time.stop();
 
@@ -296,6 +316,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         timings,
                         &mut error_metrics,
                         &program_cache_for_tx_batch.borrow(),
+                        environment,
                         config,
                     );
 
@@ -564,9 +585,15 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         timings: &mut ExecuteTimings,
         error_metrics: &mut TransactionErrorMetrics,
         program_cache_for_tx_batch: &ProgramCacheForTxBatch,
+        environment: &TransactionProcessingEnvironment,
         config: &TransactionProcessingConfig,
     ) -> TransactionExecutionResult {
         let transaction_accounts = std::mem::take(&mut loaded_transaction.accounts);
+
+        let rent = environment
+            .rent_collector
+            .map(|rent_collector| rent_collector.rent.clone())
+            .unwrap_or_default();
 
         fn transaction_accounts_lamports_sum(
             accounts: &[(Pubkey, AccountSharedData)],
@@ -585,18 +612,15 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut transaction_context = TransactionContext::new(
             transaction_accounts,
-            callback.get_rent_collector().rent.clone(),
+            rent.clone(),
             compute_budget.max_invoke_stack_height,
             compute_budget.max_instruction_trace_length,
         );
         #[cfg(debug_assertions)]
         transaction_context.set_signature(tx.signature());
 
-        let pre_account_state_info = TransactionAccountStateInfo::new(
-            &callback.get_rent_collector().rent,
-            &transaction_context,
-            tx.message(),
-        );
+        let pre_account_state_info =
+            TransactionAccountStateInfo::new(&rent, &transaction_context, tx.message());
 
         let log_collector = if config.recording_config.enable_log_recording {
             match config.log_messages_bytes_limit {
@@ -609,8 +633,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             None
         };
 
-        let (blockhash, lamports_per_signature) =
-            callback.get_last_blockhash_and_lamports_per_signature();
+        let blockhash = environment.blockhash;
+        let lamports_per_signature = environment.lamports_per_signature;
 
         let mut executed_units = 0u64;
         let mut programs_modified_by_tx = ProgramCacheForTxBatch::new(
@@ -626,7 +650,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             program_cache_for_tx_batch,
             EnvironmentConfig::new(
                 blockhash,
-                callback.get_feature_set(),
+                Arc::clone(&environment.feature_set),
                 lamports_per_signature,
                 sysvar_cache,
             ),
@@ -654,11 +678,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut status = process_result
             .and_then(|info| {
-                let post_account_state_info = TransactionAccountStateInfo::new(
-                    &callback.get_rent_collector().rent,
-                    &transaction_context,
-                    tx.message(),
-                );
+                let post_account_state_info =
+                    TransactionAccountStateInfo::new(&rent, &transaction_context, tx.message());
                 TransactionAccountStateInfo::verify_changes(
                     &pre_account_state_info,
                     &post_account_state_info,
@@ -909,18 +930,6 @@ mod tests {
                 .cloned()
         }
 
-        fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64) {
-            (Hash::new_unique(), 2)
-        }
-
-        fn get_rent_collector(&self) -> &RentCollector {
-            &self.rent_collector
-        }
-
-        fn get_feature_set(&self) -> Arc<FeatureSet> {
-            self.feature_set.clone()
-        }
-
         fn add_builtin_account(&self, name: &str, program_id: &Pubkey) {
             let mut account_data = AccountSharedData::default();
             account_data.set_data(name.as_bytes().to_vec());
@@ -1016,6 +1025,8 @@ mod tests {
             loaded_accounts_data_size: 32,
         };
 
+        let processing_environment = TransactionProcessingEnvironment::default();
+
         let mut processing_config = TransactionProcessingConfig::default();
         processing_config.recording_config.enable_log_recording = true;
 
@@ -1027,6 +1038,7 @@ mod tests {
             &mut ExecuteTimings::default(),
             &mut TransactionErrorMetrics::default(),
             &program_cache_for_tx_batch,
+            &processing_environment,
             &processing_config,
         );
 
@@ -1049,6 +1061,7 @@ mod tests {
             &mut ExecuteTimings::default(),
             &mut TransactionErrorMetrics::default(),
             &program_cache_for_tx_batch,
+            &processing_environment,
             &processing_config,
         );
 
@@ -1079,6 +1092,7 @@ mod tests {
             &mut ExecuteTimings::default(),
             &mut TransactionErrorMetrics::default(),
             &program_cache_for_tx_batch,
+            &processing_environment,
             &processing_config,
         );
 
@@ -1146,6 +1160,7 @@ mod tests {
             recording_config: ExecutionRecordingConfig::new_single_setting(false),
             ..Default::default()
         };
+        let processing_environment = TransactionProcessingEnvironment::default();
         let mut error_metrics = TransactionErrorMetrics::new();
 
         let _ = batch_processor.execute_loaded_transaction(
@@ -1156,6 +1171,7 @@ mod tests {
             &mut ExecuteTimings::default(),
             &mut error_metrics,
             &program_cache_for_tx_batch,
+            &processing_environment,
             &processing_config,
         );
 

@@ -158,8 +158,9 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
     fee_structure: &FeeStructure,
     account_overrides: Option<&AccountOverrides>,
     loaded_programs: &ProgramCacheForTxBatch,
+    feature_set: &FeatureSet,
+    rent_collector: &RentCollector,
 ) -> Vec<TransactionLoadResult> {
-    let feature_set = callbacks.get_feature_set();
     txs.iter()
         .zip(check_results)
         .map(|etx| match etx {
@@ -191,6 +192,8 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
                     error_metrics,
                     account_overrides,
                     loaded_programs,
+                    feature_set,
+                    rent_collector,
                 )
             }
             (_, Err(e)) => Err(e.clone()),
@@ -206,9 +209,9 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
     error_metrics: &mut TransactionErrorMetrics,
     account_overrides: Option<&AccountOverrides>,
     loaded_programs: &ProgramCacheForTxBatch,
+    feature_set: &FeatureSet,
+    rent_collector: &RentCollector,
 ) -> Result<LoadedTransaction> {
-    let feature_set = callbacks.get_feature_set();
-
     // There is no way to predict what program will execute without an error
     // If a fee can pay for execution then the program will be scheduled
     let mut validated_fee_payer = false;
@@ -216,7 +219,6 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
     let account_keys = message.account_keys();
     let mut accounts_found = Vec::with_capacity(account_keys.len());
     let mut rent_debits = RentDebits::default();
-    let rent_collector = callbacks.get_rent_collector();
 
     let requested_loaded_accounts_data_size_limit =
         get_requested_loaded_accounts_data_size_limit(message)?;
@@ -519,7 +521,6 @@ mod tests {
     #[derive(Default)]
     struct TestCallbacks {
         accounts_map: HashMap<Pubkey, AccountSharedData>,
-        rent_collector: RentCollector,
         feature_set: Arc<FeatureSet>,
     }
 
@@ -530,18 +531,6 @@ mod tests {
 
         fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.accounts_map.get(pubkey).cloned()
-        }
-
-        fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64) {
-            (Hash::new_unique(), 0)
-        }
-
-        fn get_rent_collector(&self) -> &RentCollector {
-            &self.rent_collector
-        }
-
-        fn get_feature_set(&self) -> Arc<FeatureSet> {
-            self.feature_set.clone()
         }
     }
 
@@ -562,7 +551,6 @@ mod tests {
         }
         let callbacks = TestCallbacks {
             accounts_map,
-            rent_collector: rent_collector.clone(),
             feature_set: Arc::new(feature_set.clone()),
         };
         load_accounts(
@@ -576,6 +564,8 @@ mod tests {
             fee_structure,
             None,
             &ProgramCacheForTxBatch::default(),
+            &feature_set,
+            rent_collector,
         )
     }
 
@@ -1043,6 +1033,7 @@ mod tests {
     ) -> Vec<TransactionLoadResult> {
         let tx = SanitizedTransaction::from_transaction_for_tests(tx);
 
+        let feature_set = FeatureSet::all_enabled();
         let mut error_metrics = TransactionErrorMetrics::default();
         let mut accounts_map = HashMap::new();
         for (pubkey, account) in ka {
@@ -1050,8 +1041,7 @@ mod tests {
         }
         let callbacks = TestCallbacks {
             accounts_map,
-            rent_collector: RentCollector::default(),
-            feature_set: Arc::new(FeatureSet::all_enabled()),
+            feature_set: Arc::new(feature_set.clone()),
         };
         load_accounts(
             &callbacks,
@@ -1064,6 +1054,8 @@ mod tests {
             &FeeStructure::default(),
             account_overrides,
             &ProgramCacheForTxBatch::default(),
+            &feature_set,
+            &RentCollector::default(),
         )
     }
 
@@ -1469,6 +1461,8 @@ mod tests {
             &mut error_metrics,
             None,
             &loaded_programs,
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
 
         assert_eq!(result.err(), Some(TransactionError::AccountNotFound));
@@ -1514,6 +1508,8 @@ mod tests {
             &mut error_metrics,
             None,
             &loaded_programs,
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
         mock_bank
             .accounts_map
@@ -1583,6 +1579,8 @@ mod tests {
             &mut error_metrics,
             None,
             &loaded_programs,
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
 
         assert_eq!(result.err(), Some(TransactionError::AccountNotFound));
@@ -1626,6 +1624,8 @@ mod tests {
             &mut error_metrics,
             None,
             &loaded_programs,
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
 
         assert_eq!(result.err(), Some(TransactionError::ProgramAccountNotFound));
@@ -1669,6 +1669,8 @@ mod tests {
             &mut error_metrics,
             None,
             &loaded_programs,
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
 
         assert_eq!(
@@ -1720,6 +1722,8 @@ mod tests {
             &mut error_metrics,
             None,
             &loaded_programs,
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
         mock_bank
             .accounts_map
@@ -1791,6 +1795,8 @@ mod tests {
             &mut error_metrics,
             None,
             &loaded_programs,
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
 
         assert_eq!(result.err(), Some(TransactionError::ProgramAccountNotFound));
@@ -1843,6 +1849,8 @@ mod tests {
             &mut error_metrics,
             None,
             &loaded_programs,
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
 
         assert_eq!(
@@ -1901,6 +1909,8 @@ mod tests {
             &mut error_metrics,
             None,
             &loaded_programs,
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
         mock_bank
             .accounts_map
@@ -1993,6 +2003,8 @@ mod tests {
             &mut error_metrics,
             None,
             &loaded_programs,
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
         mock_bank
             .accounts_map
@@ -2070,6 +2082,8 @@ mod tests {
             &FeeStructure::default(),
             None,
             &ProgramCacheForTxBatch::default(),
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
 
         let compute_budget = ComputeBudget::new(u64::from(
@@ -2155,6 +2169,8 @@ mod tests {
             &FeeStructure::default(),
             None,
             &loaded_programs,
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
 
         let mut account_data = AccountSharedData::default();
@@ -2229,6 +2245,8 @@ mod tests {
             &fee_structure,
             None,
             &ProgramCacheForTxBatch::default(),
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
 
         assert_eq!(result, vec![Err(TransactionError::AccountNotFound)]);
@@ -2243,6 +2261,8 @@ mod tests {
             &fee_structure,
             None,
             &ProgramCacheForTxBatch::default(),
+            &FeatureSet::default(),
+            &RentCollector::default(),
         );
 
         assert_eq!(result, vec![Err(TransactionError::InvalidWritableAccount)]);

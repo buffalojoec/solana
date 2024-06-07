@@ -13,12 +13,6 @@ pub trait TransactionProcessingCallback {
 
     fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData>;
 
-    fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64);
-
-    fn get_rent_collector(&self) -> &RentCollector;
-
-    fn get_feature_set(&self) -> Arc<FeatureSet>;
-
     fn get_program_match_criteria(&self, _program: &Pubkey) -> ProgramCacheMatchCriteria {
         ProgramCacheMatchCriteria::NoCriteria
     }

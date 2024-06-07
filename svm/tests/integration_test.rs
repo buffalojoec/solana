@@ -23,9 +23,11 @@ use {
         bpf_loader_upgradeable::{self, UpgradeableLoaderState},
         clock::{Clock, Epoch, Slot, UnixTimestamp},
         epoch_schedule::EpochSchedule,
+        feature_set::FeatureSet,
         hash::Hash,
         instruction::AccountMeta,
         pubkey::Pubkey,
+        rent_collector::RentCollector,
         signature::Signature,
         sysvar::SysvarId,
         transaction::{SanitizedTransaction, TransactionError},
@@ -36,6 +38,7 @@ use {
         transaction_processing_callback::TransactionProcessingCallback,
         transaction_processor::{
             ExecutionRecordingConfig, TransactionBatchProcessor, TransactionProcessingConfig,
+            TransactionProcessingEnvironment,
         },
         transaction_results::TransactionExecutionResult,
     },
@@ -475,6 +478,7 @@ fn svm_integration() {
         &transactions,
         check_results.as_mut_slice(),
         &mut timings,
+        &TransactionProcessingEnvironment::default(),
         &processing_config,
     );
 

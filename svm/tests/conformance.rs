@@ -28,6 +28,7 @@ use {
         message::SanitizedMessage,
         pubkey::Pubkey,
         rent::Rent,
+        rent_collector::RentCollector,
         signature::Signature,
         transaction::TransactionError,
         transaction_context::{
@@ -42,6 +43,7 @@ use {
         transaction_processing_callback::TransactionProcessingCallback,
         transaction_processor::{
             ExecutionRecordingConfig, TransactionBatchProcessor, TransactionProcessingConfig,
+            TransactionProcessingEnvironment,
         },
     },
     std::{
@@ -295,6 +297,11 @@ fn run_fixture(fixture: InstrFixture, filename: OsString, execute_as_instr: bool
         limit_to_load_programs: true,
         recording_config,
     };
+    let processor_environment = TransactionProcessingEnvironment {
+        blockhash,
+        lamports_per_signature,
+        ..Default::default()
+    };
     let mut timings = ExecuteTimings::default();
 
     if execute_as_instr {
@@ -315,6 +322,7 @@ fn run_fixture(fixture: InstrFixture, filename: OsString, execute_as_instr: bool
         &transactions,
         transaction_check.as_mut_slice(),
         &mut timings,
+        &processor_environment,
         &processor_config,
     );
 

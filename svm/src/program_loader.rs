@@ -273,18 +273,6 @@ mod tests {
             self.account_shared_data.borrow().get(pubkey).cloned()
         }
 
-        fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64) {
-            (Hash::new_unique(), 2)
-        }
-
-        fn get_rent_collector(&self) -> &RentCollector {
-            &self.rent_collector
-        }
-
-        fn get_feature_set(&self) -> Arc<FeatureSet> {
-            self.feature_set.clone()
-        }
-
         fn add_builtin_account(&self, name: &str, program_id: &Pubkey) {
             let mut account_data = AccountSharedData::default();
             account_data.set_data(name.as_bytes().to_vec());
