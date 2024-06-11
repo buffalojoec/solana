@@ -52,6 +52,7 @@ use {
         clock::Slot,
         hash::Hash,
         program_error::ProgramError,
+        slot_hashes::MAX_ENTRIES,
         sysvar::{get_sysvar, Sysvar, SysvarId},
     },
     bytemuck::{Pod, Zeroable},
@@ -71,7 +72,7 @@ impl Sysvar for SlotHashes {
     }
 }
 
-#[derive(Copy, Clone, Pod, Zeroable)]
+#[derive(Copy, Clone, Default, Pod, Zeroable)]
 #[repr(C)]
 struct PodSlotHash {
     slot: Slot,
@@ -85,19 +86,20 @@ impl SlotHashesSysvar {
     /// Get a value from the sysvar entries by its key.
     /// Returns `None` if the key is not found.
     pub fn get(slot: &Slot) -> Result<Option<Hash>, ProgramError> {
-        let data_len = SlotHashes::size_of();
-        let mut data = vec![0u8; data_len];
+        let mut pod_hashes = vec![PodSlotHash::default(); MAX_ENTRIES];
+        {
+            let data = bytemuck::try_cast_slice_mut::<PodSlotHash, u8>(&mut pod_hashes)
+                .map_err(|_| ProgramError::InvalidAccountData)?;
 
-        // Ensure the created buffer is aligned to 8.
-        // This should never throw unless `SlotHashes::size_of` changes.
-        if data.as_ptr().align_offset(8) != 0 {
-            return Err(ProgramError::InvalidAccountData);
+            // Ensure the created buffer is aligned to 8.
+            if data.as_ptr().align_offset(8) != 0 {
+                return Err(ProgramError::InvalidAccountData);
+            }
+
+            let offset = 8; // Vector length as `u64`.
+            let length = (SlotHashes::size_of() as u64).saturating_sub(offset);
+            get_sysvar(data, &SlotHashes::id(), offset, length)?;
         }
-
-        get_sysvar(&mut data, &SlotHashes::id(), 0, data_len as u64)?;
-        let pod_hashes: &[PodSlotHash] =
-            bytemuck::try_cast_slice(&data[8..]).map_err(|_| ProgramError::InvalidAccountData)?;
-
         Ok(pod_hashes
             .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
             .map(|idx| pod_hashes[idx].hash)
@@ -107,19 +109,20 @@ impl SlotHashesSysvar {
     /// Get the position of an entry in the sysvar by its key.
     /// Returns `None` if the key is not found.
     pub fn position(slot: &Slot) -> Result<Option<usize>, ProgramError> {
-        let data_len = SlotHashes::size_of();
-        let mut data = vec![0u8; data_len];
+        let mut pod_hashes = vec![PodSlotHash::default(); MAX_ENTRIES];
+        {
+            let data = bytemuck::try_cast_slice_mut::<PodSlotHash, u8>(&mut pod_hashes)
+                .map_err(|_| ProgramError::InvalidAccountData)?;
 
-        // Ensure the created buffer is aligned to 8.
-        // This should never throw unless `SlotHashes::size_of` changes.
-        if data.as_ptr().align_offset(8) != 0 {
-            return Err(ProgramError::InvalidAccountData);
+            // Ensure the created buffer is aligned to 8.
+            if data.as_ptr().align_offset(8) != 0 {
+                return Err(ProgramError::InvalidAccountData);
+            }
+
+            let offset = 8; // Vector length as `u64`.
+            let length = (SlotHashes::size_of() as u64).saturating_sub(offset);
+            get_sysvar(data, &SlotHashes::id(), offset, length)?;
         }
-
-        get_sysvar(&mut data, &SlotHashes::id(), 0, data_len as u64)?;
-        let pod_hashes: &[PodSlotHash] =
-            bytemuck::try_cast_slice(&data[8..]).map_err(|_| ProgramError::InvalidAccountData)?;
-
         Ok(pod_hashes
             .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
             .ok())
