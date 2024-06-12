@@ -229,7 +229,6 @@ mod tests {
             solana_rbpf::program::BuiltinProgram,
         },
         solana_sdk::{account::WritableAccount, bpf_loader, bpf_loader_upgradeable},
-        solana_vote::vote_account::VoteAccountsHashMap,
         std::{
             cell::RefCell,
             collections::HashMap,
@@ -267,14 +266,6 @@ mod tests {
 
         fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.account_shared_data.borrow().get(pubkey).cloned()
-        }
-
-        fn get_epoch_total_stake(&self) -> Option<u64> {
-            None
-        }
-
-        fn get_epoch_vote_accounts(&self) -> Option<&VoteAccountsHashMap> {
-            None
         }
 
         fn add_builtin_account(&self, name: &str, program_id: &Pubkey) {

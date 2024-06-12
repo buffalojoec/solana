@@ -6889,14 +6889,6 @@ impl TransactionProcessingCallback for Bank {
             .map(|(acc, _)| acc)
     }
 
-    fn get_epoch_total_stake(&self) -> Option<u64> {
-        self.epoch_total_stake(self.epoch())
-    }
-
-    fn get_epoch_vote_accounts(&self) -> Option<&VoteAccountsHashMap> {
-        self.epoch_vote_accounts(self.epoch())
-    }
-
     fn get_program_match_criteria(&self, program: &Pubkey) -> ProgramCacheMatchCriteria {
         if self.check_program_modification_slot {
             self.program_modification_slot(program)

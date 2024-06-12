@@ -334,7 +334,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     };
 
                     let result = self.execute_loaded_transaction(
-                        callbacks,
                         tx,
                         loaded_transaction,
                         compute_budget,
@@ -713,9 +712,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     /// Execute a transaction using the provided loaded accounts and update
     /// the executors cache if the transaction was successful.
     #[allow(clippy::too_many_arguments)]
-    fn execute_loaded_transaction<CB: TransactionProcessingCallback>(
+    fn execute_loaded_transaction(
         &self,
-        callback: &CB,
         tx: &SanitizedTransaction,
         loaded_transaction: &mut LoadedTransaction,
         compute_budget: ComputeBudget,
@@ -787,8 +785,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             program_cache_for_tx_batch,
             EnvironmentConfig::new(
                 blockhash,
-                callback.get_epoch_total_stake(),
-                callback.get_epoch_vote_accounts(),
+                environment.epoch_total_stake,
+                environment.epoch_vote_accounts,
                 Arc::clone(&environment.feature_set),
                 lamports_per_signature,
                 sysvar_cache,
@@ -1024,7 +1022,6 @@ mod tests {
             transaction::{SanitizedTransaction, Transaction, TransactionError},
             transaction_context::TransactionContext,
         },
-        solana_vote::vote_account::VoteAccountsHashMap,
         std::{
             env,
             fs::{self, File},
@@ -1072,14 +1069,6 @@ mod tests {
                 .unwrap()
                 .get(pubkey)
                 .cloned()
-        }
-
-        fn get_epoch_total_stake(&self) -> Option<u64> {
-            None
-        }
-
-        fn get_epoch_vote_accounts(&self) -> Option<&VoteAccountsHashMap> {
-            None
         }
 
         fn add_builtin_account(&self, name: &str, program_id: &Pubkey) {
@@ -1158,7 +1147,6 @@ mod tests {
 
         let sanitized_message = new_unchecked_sanitized_message(message);
         let program_cache_for_tx_batch = ProgramCacheForTxBatch::default();
-        let mock_bank = MockBankCallback::default();
         let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
 
         let sanitized_transaction = SanitizedTransaction::new_for_tests(
@@ -1183,7 +1171,6 @@ mod tests {
         processing_config.recording_config.enable_log_recording = true;
 
         let result = batch_processor.execute_loaded_transaction(
-            &mock_bank,
             &sanitized_transaction,
             &mut loaded_transaction,
             ComputeBudget::default(),
@@ -1206,7 +1193,6 @@ mod tests {
         processing_config.log_messages_bytes_limit = Some(2);
 
         let result = batch_processor.execute_loaded_transaction(
-            &mock_bank,
             &sanitized_transaction,
             &mut loaded_transaction,
             ComputeBudget::default(),
@@ -1237,7 +1223,6 @@ mod tests {
         processing_config.log_messages_bytes_limit = None;
 
         let result = batch_processor.execute_loaded_transaction(
-            &mock_bank,
             &sanitized_transaction,
             &mut loaded_transaction,
             ComputeBudget::default(),
@@ -1284,7 +1269,6 @@ mod tests {
 
         let sanitized_message = new_unchecked_sanitized_message(message);
         let program_cache_for_tx_batch = ProgramCacheForTxBatch::default();
-        let mock_bank = MockBankCallback::default();
         let batch_processor = TransactionBatchProcessor::<TestForkGraph>::default();
 
         let sanitized_transaction = SanitizedTransaction::new_for_tests(
@@ -1315,7 +1299,6 @@ mod tests {
         let mut error_metrics = TransactionErrorMetrics::new();
 
         let _ = batch_processor.execute_loaded_transaction(
-            &mock_bank,
             &sanitized_transaction,
             &mut loaded_transaction,
             ComputeBudget::default(),
