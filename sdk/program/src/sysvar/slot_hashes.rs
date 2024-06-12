@@ -86,47 +86,41 @@ impl SlotHashesSysvar {
     /// Get a value from the sysvar entries by its key.
     /// Returns `None` if the key is not found.
     pub fn get(slot: &Slot) -> Result<Option<Hash>, ProgramError> {
-        let mut pod_hashes = vec![PodSlotHash::default(); MAX_ENTRIES];
-        {
-            let data = bytemuck::try_cast_slice_mut::<PodSlotHash, u8>(&mut pod_hashes)
-                .map_err(|_| ProgramError::InvalidAccountData)?;
-
-            // Ensure the created buffer is aligned to 8.
-            if data.as_ptr().align_offset(8) != 0 {
-                return Err(ProgramError::InvalidAccountData);
-            }
-
-            let offset = 8; // Vector length as `u64`.
-            let length = (SlotHashes::size_of() as u64).saturating_sub(offset);
-            get_sysvar(data, &SlotHashes::id(), offset, length)?;
-        }
-        Ok(pod_hashes
-            .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
-            .map(|idx| pod_hashes[idx].hash)
-            .ok())
+        get_pod_slot_hashes().map(|pod_hashes| {
+            pod_hashes
+                .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
+                .map(|idx| pod_hashes[idx].hash)
+                .ok()
+        })
     }
 
     /// Get the position of an entry in the sysvar by its key.
     /// Returns `None` if the key is not found.
     pub fn position(slot: &Slot) -> Result<Option<usize>, ProgramError> {
-        let mut pod_hashes = vec![PodSlotHash::default(); MAX_ENTRIES];
-        {
-            let data = bytemuck::try_cast_slice_mut::<PodSlotHash, u8>(&mut pod_hashes)
-                .map_err(|_| ProgramError::InvalidAccountData)?;
-
-            // Ensure the created buffer is aligned to 8.
-            if data.as_ptr().align_offset(8) != 0 {
-                return Err(ProgramError::InvalidAccountData);
-            }
-
-            let offset = 8; // Vector length as `u64`.
-            let length = (SlotHashes::size_of() as u64).saturating_sub(offset);
-            get_sysvar(data, &SlotHashes::id(), offset, length)?;
-        }
-        Ok(pod_hashes
-            .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
-            .ok())
+        get_pod_slot_hashes().map(|pod_hashes| {
+            pod_hashes
+                .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
+                .ok()
+        })
     }
+}
+
+fn get_pod_slot_hashes() -> Result<Vec<PodSlotHash>, ProgramError> {
+    let mut pod_hashes = vec![PodSlotHash::default(); MAX_ENTRIES];
+    {
+        let data = bytemuck::try_cast_slice_mut::<PodSlotHash, u8>(&mut pod_hashes)
+            .map_err(|_| ProgramError::InvalidAccountData)?;
+
+        // Ensure the created buffer is aligned to 8.
+        if data.as_ptr().align_offset(8) != 0 {
+            return Err(ProgramError::InvalidAccountData);
+        }
+
+        let offset = 8; // Vector length as `u64`.
+        let length = (SlotHashes::size_of() as u64).saturating_sub(offset);
+        get_sysvar(data, &SlotHashes::id(), offset, length)?;
+    }
+    Ok(pod_hashes)
 }
 
 #[cfg(test)]
@@ -173,9 +167,12 @@ mod tests {
     }
 
     fn mock_get_sysvar_syscall(slot_hashes: &[SlotHash]) {
-        set_syscall_stubs(Box::new(MockSlotHashesSyscall {
-            slot_hashes: SlotHashes::new(slot_hashes),
-        }));
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            set_syscall_stubs(Box::new(MockSlotHashesSyscall {
+                slot_hashes: SlotHashes::new(slot_hashes),
+            }));
+        });
     }
 
     #[test]
