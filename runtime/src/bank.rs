@@ -6889,10 +6889,6 @@ impl TransactionProcessingCallback for Bank {
             .map(|(acc, _)| acc)
     }
 
-    fn get_rent_collector(&self) -> &RentCollector {
-        &self.rent_collector
-    }
-
     fn get_feature_set(&self) -> Arc<FeatureSet> {
         self.feature_set.clone()
     }

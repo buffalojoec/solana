@@ -163,6 +163,7 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
     validation_results: Vec<TransactionValidationResult>,
     error_metrics: &mut TransactionErrorMetrics,
     account_overrides: Option<&AccountOverrides>,
+    rent_collector: &RentCollector,
     loaded_programs: &ProgramCacheForTxBatch,
 ) -> Vec<TransactionLoadResult> {
     txs.iter()
@@ -178,6 +179,7 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
                     tx_details,
                     error_metrics,
                     account_overrides,
+                    rent_collector,
                     loaded_programs,
                 )
             }
@@ -192,6 +194,7 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
     tx_details: ValidatedTransactionDetails,
     error_metrics: &mut TransactionErrorMetrics,
     account_overrides: Option<&AccountOverrides>,
+    rent_collector: &RentCollector,
     loaded_programs: &ProgramCacheForTxBatch,
 ) -> Result<LoadedTransaction> {
     let feature_set = callbacks.get_feature_set();
@@ -200,7 +203,6 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
     let account_keys = message.account_keys();
     let mut accounts_found = Vec::with_capacity(account_keys.len());
     let mut rent_debits = RentDebits::default();
-    let rent_collector = callbacks.get_rent_collector();
 
     let requested_loaded_accounts_data_size_limit =
         get_requested_loaded_accounts_data_size_limit(message)?;
@@ -473,7 +475,6 @@ mod tests {
     #[derive(Default)]
     struct TestCallbacks {
         accounts_map: HashMap<Pubkey, AccountSharedData>,
-        rent_collector: RentCollector,
         feature_set: Arc<FeatureSet>,
     }
 
@@ -484,10 +485,6 @@ mod tests {
 
         fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.accounts_map.get(pubkey).cloned()
-        }
-
-        fn get_rent_collector(&self) -> &RentCollector {
-            &self.rent_collector
         }
 
         fn get_feature_set(&self) -> Arc<FeatureSet> {
@@ -519,7 +516,6 @@ mod tests {
         }
         let callbacks = TestCallbacks {
             accounts_map,
-            rent_collector: rent_collector.clone(),
             feature_set: Arc::new(feature_set.clone()),
         };
         load_accounts(
@@ -531,6 +527,7 @@ mod tests {
             })],
             error_metrics,
             None,
+            rent_collector,
             &ProgramCacheForTxBatch::default(),
         )
     }
@@ -809,7 +806,6 @@ mod tests {
         }
         let callbacks = TestCallbacks {
             accounts_map,
-            rent_collector: RentCollector::default(),
             feature_set: Arc::new(FeatureSet::all_enabled()),
         };
         load_accounts(
@@ -818,6 +814,7 @@ mod tests {
             vec![Ok(ValidatedTransactionDetails::default())],
             &mut error_metrics,
             account_overrides,
+            &RentCollector::default(),
             &ProgramCacheForTxBatch::default(),
         )
     }
@@ -1179,6 +1176,7 @@ mod tests {
             },
             &mut error_metrics,
             None,
+            &RentCollector::default(),
             &loaded_programs,
         );
 
@@ -1242,6 +1240,7 @@ mod tests {
             ValidatedTransactionDetails::default(),
             &mut error_metrics,
             None,
+            &RentCollector::default(),
             &loaded_programs,
         );
 
@@ -1284,6 +1283,7 @@ mod tests {
             ValidatedTransactionDetails::default(),
             &mut error_metrics,
             None,
+            &RentCollector::default(),
             &loaded_programs,
         );
 
@@ -1326,6 +1326,7 @@ mod tests {
             ValidatedTransactionDetails::default(),
             &mut error_metrics,
             None,
+            &RentCollector::default(),
             &loaded_programs,
         );
 
@@ -1383,6 +1384,7 @@ mod tests {
             },
             &mut error_metrics,
             None,
+            &RentCollector::default(),
             &loaded_programs,
         );
 
@@ -1448,6 +1450,7 @@ mod tests {
             ValidatedTransactionDetails::default(),
             &mut error_metrics,
             None,
+            &RentCollector::default(),
             &loaded_programs,
         );
 
@@ -1499,6 +1502,7 @@ mod tests {
             ValidatedTransactionDetails::default(),
             &mut error_metrics,
             None,
+            &RentCollector::default(),
             &loaded_programs,
         );
 
@@ -1563,6 +1567,7 @@ mod tests {
             },
             &mut error_metrics,
             None,
+            &RentCollector::default(),
             &loaded_programs,
         );
 
@@ -1656,6 +1661,7 @@ mod tests {
             },
             &mut error_metrics,
             None,
+            &RentCollector::default(),
             &loaded_programs,
         );
 
@@ -1724,6 +1730,7 @@ mod tests {
             vec![Ok(ValidatedTransactionDetails::default())],
             &mut error_metrics,
             None,
+            &RentCollector::default(),
             &ProgramCacheForTxBatch::default(),
         );
 
@@ -1812,6 +1819,7 @@ mod tests {
             vec![validation_result],
             &mut error_metrics,
             None,
+            &RentCollector::default(),
             &loaded_programs,
         );
 
@@ -1851,6 +1859,8 @@ mod tests {
     #[test]
     fn test_load_accounts_error() {
         let mock_bank = TestCallbacks::default();
+        let rent_collector = RentCollector::default();
+
         let message = Message {
             account_keys: vec![Pubkey::new_from_array([0; 32])],
             header: MessageHeader::default(),
@@ -1882,6 +1892,7 @@ mod tests {
             vec![validation_result.clone()],
             &mut TransactionErrorMetrics::default(),
             None,
+            &rent_collector,
             &ProgramCacheForTxBatch::default(),
         );
 
@@ -1898,6 +1909,7 @@ mod tests {
             vec![validation_result],
             &mut TransactionErrorMetrics::default(),
             None,
+            &rent_collector,
             &ProgramCacheForTxBatch::default(),
         );
 

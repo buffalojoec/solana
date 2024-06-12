@@ -251,6 +251,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             callbacks,
             sanitized_txs,
             check_results,
+            environment
+                .rent_collector
+                .unwrap_or(&RentCollector::default()),
             &mut error_metrics
         ));
 
@@ -292,6 +295,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             validation_results,
             &mut error_metrics,
             config.account_overrides,
+            environment
+                .rent_collector
+                .unwrap_or(&RentCollector::default()),
             &program_cache_for_tx_batch.borrow(),
         );
         load_time.stop();
@@ -407,6 +413,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         callbacks: &CB,
         sanitized_txs: &[impl core::borrow::Borrow<SanitizedTransaction>],
         check_results: Vec<TransactionCheckResult>,
+        rent_collector: &RentCollector,
         error_counters: &mut TransactionErrorMetrics,
     ) -> Vec<TransactionValidationResult> {
         sanitized_txs
@@ -424,6 +431,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                                 callbacks,
                                 message,
                                 lamports_per_signature,
+                                rent_collector,
                                 error_counters,
                             )?;
 
@@ -458,10 +466,10 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         callbacks: &CB,
         message: &SanitizedMessage,
         lamports_per_signature: u64,
+        rent_collector: &RentCollector,
         error_counters: &mut TransactionErrorMetrics,
     ) -> transaction::Result<(FeeDetails, AccountSharedData, u64)> {
         let feature_set = callbacks.get_feature_set();
-        let rent_collector = callbacks.get_rent_collector();
 
         let fee_payer_address = message.fee_payer();
         let Some(mut fee_payer_account) = callbacks.get_account_shared_data(fee_payer_address)
@@ -728,23 +736,25 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             Some(lamports_sum)
         }
 
+        let rent = environment
+            .rent_collector
+            .map(|rent_collector| rent_collector.rent.clone())
+            .unwrap_or_default();
+
         let lamports_before_tx =
             transaction_accounts_lamports_sum(&transaction_accounts, tx.message()).unwrap_or(0);
 
         let mut transaction_context = TransactionContext::new(
             transaction_accounts,
-            callback.get_rent_collector().rent.clone(),
+            rent.clone(),
             compute_budget.max_invoke_stack_height,
             compute_budget.max_instruction_trace_length,
         );
         #[cfg(debug_assertions)]
         transaction_context.set_signature(tx.signature());
 
-        let pre_account_state_info = TransactionAccountStateInfo::new(
-            &callback.get_rent_collector().rent,
-            &transaction_context,
-            tx.message(),
-        );
+        let pre_account_state_info =
+            TransactionAccountStateInfo::new(&rent, &transaction_context, tx.message());
 
         let log_collector = if config.recording_config.enable_log_recording {
             match config.log_messages_bytes_limit {
@@ -804,11 +814,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut status = process_result
             .and_then(|info| {
-                let post_account_state_info = TransactionAccountStateInfo::new(
-                    &callback.get_rent_collector().rent,
-                    &transaction_context,
-                    tx.message(),
-                );
+                let post_account_state_info =
+                    TransactionAccountStateInfo::new(&rent, &transaction_context, tx.message());
                 TransactionAccountStateInfo::verify_changes(
                     &pre_account_state_info,
                     &post_account_state_info,
@@ -1040,7 +1047,6 @@ mod tests {
 
     #[derive(Default, Clone)]
     pub struct MockBankCallback {
-        rent_collector: RentCollector,
         feature_set: Arc<FeatureSet>,
         pub account_shared_data: Arc<RwLock<HashMap<Pubkey, AccountSharedData>>>,
     }
@@ -1064,10 +1070,6 @@ mod tests {
                 .unwrap()
                 .get(pubkey)
                 .cloned()
-        }
-
-        fn get_rent_collector(&self) -> &RentCollector {
-            &self.rent_collector
         }
 
         fn get_feature_set(&self) -> Arc<FeatureSet> {
@@ -2004,7 +2006,6 @@ mod tests {
         mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
         let mock_bank = MockBankCallback {
             account_shared_data: Arc::new(RwLock::new(mock_accounts)),
-            rent_collector,
             ..MockBankCallback::default()
         };
 
@@ -2014,6 +2015,7 @@ mod tests {
             &mock_bank,
             &message,
             lamports_per_signature,
+            &rent_collector,
             &mut error_counters,
         );
 
@@ -2062,7 +2064,6 @@ mod tests {
         mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
         let mock_bank = MockBankCallback {
             account_shared_data: Arc::new(RwLock::new(mock_accounts)),
-            rent_collector,
             ..MockBankCallback::default()
         };
 
@@ -2072,6 +2073,7 @@ mod tests {
             &mock_bank,
             &message,
             lamports_per_signature,
+            &rent_collector,
             &mut error_counters,
         );
 
@@ -2105,6 +2107,7 @@ mod tests {
             &mock_bank,
             &message,
             lamports_per_signature,
+            &RentCollector::default(),
             &mut error_counters,
         );
 
@@ -2132,6 +2135,7 @@ mod tests {
             &mock_bank,
             &message,
             lamports_per_signature,
+            &RentCollector::default(),
             &mut error_counters,
         );
 
@@ -2154,7 +2158,6 @@ mod tests {
         mock_accounts.insert(*fee_payer_address, fee_payer_account.clone());
         let mock_bank = MockBankCallback {
             account_shared_data: Arc::new(RwLock::new(mock_accounts)),
-            rent_collector,
             ..MockBankCallback::default()
         };
 
@@ -2164,6 +2167,7 @@ mod tests {
             &mock_bank,
             &message,
             lamports_per_signature,
+            &rent_collector,
             &mut error_counters,
         );
 
@@ -2193,6 +2197,7 @@ mod tests {
             &mock_bank,
             &message,
             lamports_per_signature,
+            &RentCollector::default(),
             &mut error_counters,
         );
 
@@ -2203,6 +2208,7 @@ mod tests {
     #[test]
     fn test_validate_transaction_fee_payer_is_nonce() {
         let lamports_per_signature = 5000;
+        let rent_collector = RentCollector::default();
         let compute_unit_limit = 2 * solana_compute_budget_program::DEFAULT_COMPUTE_UNITS;
         let message = new_unchecked_sanitized_message(Message::new_with_blockhash(
             &[
@@ -2241,6 +2247,7 @@ mod tests {
                 &mock_bank,
                 &message,
                 lamports_per_signature,
+                &rent_collector,
                 &mut error_counters,
             );
 
@@ -2285,6 +2292,7 @@ mod tests {
                 &mock_bank,
                 &message,
                 lamports_per_signature,
+                &rent_collector,
                 &mut error_counters,
             );
 

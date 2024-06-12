@@ -6,7 +6,6 @@ use {
         feature_set::FeatureSet,
         native_loader,
         pubkey::Pubkey,
-        rent_collector::RentCollector,
         slot_hashes::Slot,
     },
     solana_svm::transaction_processing_callback::TransactionProcessingCallback,
@@ -32,7 +31,6 @@ impl ForkGraph for MockForkGraph {
 
 #[derive(Default)]
 pub struct MockBankCallback {
-    rent_collector: RentCollector,
     pub feature_set: Arc<FeatureSet>,
     pub account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
 }
@@ -52,10 +50,6 @@ impl TransactionProcessingCallback for MockBankCallback {
 
     fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
         self.account_shared_data.borrow().get(pubkey).cloned()
-    }
-
-    fn get_rent_collector(&self) -> &RentCollector {
-        &self.rent_collector
     }
 
     fn get_feature_set(&self) -> Arc<FeatureSet> {
