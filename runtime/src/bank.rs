@@ -6889,10 +6889,6 @@ impl TransactionProcessingCallback for Bank {
             .map(|(acc, _)| acc)
     }
 
-    fn get_feature_set(&self) -> Arc<FeatureSet> {
-        self.feature_set.clone()
-    }
-
     fn get_epoch_total_stake(&self) -> Option<u64> {
         self.epoch_total_stake(self.epoch())
     }

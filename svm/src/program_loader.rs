@@ -228,9 +228,7 @@ mod tests {
             loaded_programs::{BlockRelation, ForkGraph, ProgramRuntimeEnvironments},
             solana_rbpf::program::BuiltinProgram,
         },
-        solana_sdk::{
-            account::WritableAccount, bpf_loader, bpf_loader_upgradeable, feature_set::FeatureSet,
-        },
+        solana_sdk::{account::WritableAccount, bpf_loader, bpf_loader_upgradeable},
         solana_vote::vote_account::VoteAccountsHashMap,
         std::{
             cell::RefCell,
@@ -251,7 +249,6 @@ mod tests {
 
     #[derive(Default, Clone)]
     pub struct MockBankCallback {
-        feature_set: Arc<FeatureSet>,
         pub account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
     }
 
@@ -270,10 +267,6 @@ mod tests {
 
         fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.account_shared_data.borrow().get(pubkey).cloned()
-        }
-
-        fn get_feature_set(&self) -> Arc<FeatureSet> {
-            self.feature_set.clone()
         }
 
         fn get_epoch_total_stake(&self) -> Option<u64> {

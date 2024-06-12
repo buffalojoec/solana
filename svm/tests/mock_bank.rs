@@ -52,10 +52,6 @@ impl TransactionProcessingCallback for MockBankCallback {
         self.account_shared_data.borrow().get(pubkey).cloned()
     }
 
-    fn get_feature_set(&self) -> Arc<FeatureSet> {
-        self.feature_set.clone()
-    }
-
     fn get_epoch_total_stake(&self) -> Option<u64> {
         None
     }
