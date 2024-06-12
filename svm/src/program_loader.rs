@@ -230,7 +230,7 @@ mod tests {
         },
         solana_sdk::{
             account::WritableAccount, bpf_loader, bpf_loader_upgradeable, feature_set::FeatureSet,
-            hash::Hash, rent_collector::RentCollector,
+            rent_collector::RentCollector,
         },
         solana_vote::vote_account::VoteAccountsHashMap,
         std::{
@@ -272,10 +272,6 @@ mod tests {
 
         fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.account_shared_data.borrow().get(pubkey).cloned()
-        }
-
-        fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64) {
-            (Hash::new_unique(), 2)
         }
 
         fn get_rent_collector(&self) -> &RentCollector {

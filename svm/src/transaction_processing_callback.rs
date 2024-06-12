@@ -1,7 +1,7 @@
 use {
     solana_program_runtime::loaded_programs::ProgramCacheMatchCriteria,
     solana_sdk::{
-        account::AccountSharedData, feature_set::FeatureSet, hash::Hash, pubkey::Pubkey,
+        account::AccountSharedData, feature_set::FeatureSet, pubkey::Pubkey,
         rent_collector::RentCollector,
     },
     solana_vote::vote_account::VoteAccountsHashMap,
@@ -13,8 +13,6 @@ pub trait TransactionProcessingCallback {
     fn account_matches_owners(&self, account: &Pubkey, owners: &[Pubkey]) -> Option<usize>;
 
     fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData>;
-
-    fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64);
 
     fn get_rent_collector(&self) -> &RentCollector;
 

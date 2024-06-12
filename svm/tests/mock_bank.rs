@@ -4,7 +4,6 @@ use {
         account::{AccountSharedData, ReadableAccount},
         clock::Epoch,
         feature_set::FeatureSet,
-        hash::Hash,
         native_loader,
         pubkey::Pubkey,
         rent_collector::RentCollector,
@@ -35,8 +34,6 @@ impl ForkGraph for MockForkGraph {
 pub struct MockBankCallback {
     rent_collector: RentCollector,
     pub feature_set: Arc<FeatureSet>,
-    pub blockhash: Hash,
-    pub lamports_per_sginature: u64,
     pub account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
 }
 
@@ -55,11 +52,6 @@ impl TransactionProcessingCallback for MockBankCallback {
 
     fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
         self.account_shared_data.borrow().get(pubkey).cloned()
-    }
-
-    fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64) {
-        // Mock a hash and a value
-        (self.blockhash, self.lamports_per_sginature)
     }
 
     fn get_rent_collector(&self) -> &RentCollector {

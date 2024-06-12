@@ -711,7 +711,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         execute_timings: &mut ExecuteTimings,
         error_metrics: &mut TransactionErrorMetrics,
         program_cache_for_tx_batch: &ProgramCacheForTxBatch,
-        _environment: &TransactionProcessingEnvironment,
+        environment: &TransactionProcessingEnvironment,
         config: &TransactionProcessingConfig,
     ) -> TransactionExecutionResult {
         let transaction_accounts = std::mem::take(&mut loaded_transaction.accounts);
@@ -757,8 +757,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             None
         };
 
-        let (blockhash, lamports_per_signature) =
-            callback.get_last_blockhash_and_lamports_per_signature();
+        let blockhash = environment.blockhash;
+        let lamports_per_signature = environment.lamports_per_signature;
 
         let mut executed_units = 0u64;
         let mut programs_modified_by_tx = ProgramCacheForTxBatch::new(
@@ -1064,10 +1064,6 @@ mod tests {
                 .unwrap()
                 .get(pubkey)
                 .cloned()
-        }
-
-        fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64) {
-            (Hash::new_unique(), 2)
         }
 
         fn get_rent_collector(&self) -> &RentCollector {

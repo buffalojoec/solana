@@ -6889,10 +6889,6 @@ impl TransactionProcessingCallback for Bank {
             .map(|(acc, _)| acc)
     }
 
-    fn get_last_blockhash_and_lamports_per_signature(&self) -> (Hash, u64) {
-        self.last_blockhash_and_lamports_per_signature()
-    }
-
     fn get_rent_collector(&self) -> &RentCollector {
         &self.rent_collector
     }
