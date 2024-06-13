@@ -31,8 +31,7 @@ use {
         transaction::{self, AddressLoader, SanitizedTransaction, TransactionError},
     },
     solana_svm::{
-        account_loader::TransactionCheckResult,
-        loader::Loader,
+        loader::{Loader, TransactionCheckResult},
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_processor::{ExecutionRecordingConfig, TransactionProcessingConfig},
     },
@@ -890,7 +889,7 @@ mod tests {
             system_instruction, system_program, system_transaction,
             transaction::{MessageHash, Transaction, VersionedTransaction},
         },
-        solana_svm::account_loader::CheckedTransactionDetails,
+        solana_svm::loader::CheckedTransactionDetails,
         solana_transaction_status::{TransactionStatusMeta, VersionedTransactionWithStatusMeta},
         std::{
             borrow::Cow,

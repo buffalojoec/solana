@@ -14,7 +14,7 @@ use {
     },
     solana_sdk::{hash::Hash, pubkey::Pubkey, saturating_add_assign},
     solana_svm::{
-        account_loader::TransactionLoadResult,
+        loader::TransactionLoadResult,
         transaction_results::{TransactionExecutionResult, TransactionResults},
     },
     solana_transaction_status::{

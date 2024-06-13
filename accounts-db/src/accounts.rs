@@ -29,7 +29,7 @@ use {
         transaction_context::TransactionAccount,
     },
     solana_svm::{
-        account_loader::TransactionLoadResult,
+        loader::TransactionLoadResult,
         nonce_info::{NonceFull, NonceInfo},
         transaction_results::TransactionExecutionResult,
     },
@@ -839,9 +839,7 @@ mod tests {
             system_instruction, system_program,
             transaction::{Transaction, MAX_TX_ACCOUNT_LOCKS},
         },
-        solana_svm::{
-            account_loader::LoadedTransaction, transaction_results::TransactionExecutionDetails,
-        },
+        solana_svm::{loader::LoadedTransaction, transaction_results::TransactionExecutionDetails},
         std::{
             borrow::Cow,
             iter,

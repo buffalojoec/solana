@@ -30,8 +30,7 @@ use {
         transaction::{SanitizedTransaction, TransactionError},
     },
     solana_svm::{
-        account_loader::{CheckedTransactionDetails, TransactionCheckResult},
-        loader::Loader,
+        loader::{CheckedTransactionDetails, Loader, TransactionCheckResult},
         transaction_processor::{
             ExecutionRecordingConfig, TransactionBatchProcessor, TransactionProcessingConfig,
             TransactionProcessingEnvironment,

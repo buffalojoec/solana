@@ -166,11 +166,10 @@ use {
         stake_state::StakeStateV2,
     },
     solana_svm::{
-        account_loader::{
-            CheckedTransactionDetails, TransactionCheckResult, TransactionLoadResult,
-        },
         account_overrides::AccountOverrides,
-        loader::Loader,
+        loader::{
+            CheckedTransactionDetails, Loader, TransactionCheckResult, TransactionLoadResult,
+        },
         nonce_info::NoncePartial,
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_processor::{

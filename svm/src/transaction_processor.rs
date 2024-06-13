@@ -2,12 +2,11 @@
 use qualifier_attr::qualifiers;
 use {
     crate::{
-        account_loader::{
-            load_accounts, CheckedTransactionDetails, LoadedTransaction, TransactionCheckResult,
+        account_overrides::AccountOverrides,
+        loader::{
+            CheckedTransactionDetails, LoadedTransaction, Loader, TransactionCheckResult,
             TransactionLoadResult, TransactionValidationResult, ValidatedTransactionDetails,
         },
-        account_overrides::AccountOverrides,
-        loader::Loader,
         message_processor::MessageProcessor,
         nonce_info::NonceFull,
         program_loader::load_program_with_pubkey,
@@ -289,8 +288,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         program_cache_time.stop();
 
         let mut load_time = Measure::start("accounts_load");
-        let mut loaded_transactions = load_accounts(
-            loader,
+        let mut loaded_transactions = loader.load_accounts(
             sanitized_txs,
             validation_results,
             &mut error_metrics,
@@ -993,7 +991,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 mod tests {
     use {
         super::*,
-        crate::account_loader::ValidatedTransactionDetails,
+        crate::loader::ValidatedTransactionDetails,
         solana_program_runtime::loaded_programs::{BlockRelation, ProgramCacheEntryType},
         solana_sdk::{
             account::{create_account_shared_data_for_test, WritableAccount},

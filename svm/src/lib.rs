@@ -1,7 +1,6 @@
 #![cfg_attr(RUSTC_WITH_SPECIALIZATION, feature(min_specialization))]
 #![allow(clippy::arithmetic_side_effects)]
 
-pub mod account_loader;
 pub mod account_overrides;
 pub mod account_rent_state;
 pub mod loader;

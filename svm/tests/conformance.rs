@@ -36,8 +36,7 @@ use {
         },
     },
     solana_svm::{
-        account_loader::CheckedTransactionDetails,
-        loader::Loader,
+        loader::{CheckedTransactionDetails, Loader},
         program_loader,
         transaction_processor::{
             ExecutionRecordingConfig, TransactionBatchProcessor, TransactionProcessingConfig,
