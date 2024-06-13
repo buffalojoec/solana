@@ -8,10 +8,12 @@ use {
     itertools::Itertools,
     solana_compute_budget::compute_budget_processor::process_compute_budget_instructions,
     solana_program_runtime::loaded_programs::{
-        ProgramCacheEntry, ProgramCacheForTxBatch, ProgramCacheMatchCriteria,
+        LoadProgramMetrics, ProgramCacheEntry, ProgramCacheForTxBatch, ProgramCacheMatchCriteria,
+        ProgramRuntimeEnvironment, DELAY_VISIBILITY_SLOT_OFFSET,
     },
     solana_sdk::{
         account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
+        clock::Slot,
         feature_set::{self, FeatureSet},
         fee::FeeDetails,
         message::SanitizedMessage,
@@ -404,6 +406,46 @@ pub trait Loader {
         })
     }
 
+    /// Load a program from bytes.
+    ///
+    /// This function has a default implementation, but projects can override
+    /// it if they want to provide a custom implementation.
+    fn load_program_from_bytes(
+        &self,
+        load_program_metrics: &mut LoadProgramMetrics,
+        programdata: &[u8],
+        loader_key: &Pubkey,
+        account_size: usize,
+        deployment_slot: Slot,
+        program_runtime_environment: ProgramRuntimeEnvironment,
+        reloading: bool,
+    ) -> std::result::Result<ProgramCacheEntry, Box<dyn std::error::Error>> {
+        if reloading {
+            // Safety: this is safe because the program is being reloaded in the cache.
+            unsafe {
+                ProgramCacheEntry::reload(
+                    loader_key,
+                    program_runtime_environment.clone(),
+                    deployment_slot,
+                    deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
+                    programdata,
+                    account_size,
+                    load_program_metrics,
+                )
+            }
+        } else {
+            ProgramCacheEntry::new(
+                loader_key,
+                program_runtime_environment.clone(),
+                deployment_slot,
+                deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
+                programdata,
+                account_size,
+                load_program_metrics,
+            )
+        }
+    }
+
     fn get_program_match_criteria(&self, _program: &Pubkey) -> ProgramCacheMatchCriteria {
         ProgramCacheMatchCriteria::NoCriteria
     }
@@ -481,6 +523,7 @@ mod tests {
         crate::transaction_account_state_info::TransactionAccountStateInfo,
         nonce::state::Versions as NonceVersions,
         solana_compute_budget::{compute_budget::ComputeBudget, compute_budget_processor},
+        solana_program_runtime::solana_rbpf::program::BuiltinProgram,
         solana_sdk::{
             bpf_loader_upgradeable,
             epoch_schedule::EpochSchedule,
@@ -499,7 +542,14 @@ mod tests {
             transaction::{SanitizedTransaction, Transaction},
             transaction_context::TransactionContext,
         },
-        std::{borrow::Cow, collections::HashMap, sync::Arc},
+        std::{
+            borrow::Cow,
+            collections::HashMap,
+            env,
+            fs::{self, File},
+            io::Read,
+            sync::Arc,
+        },
     };
 
     struct SimpleMockLoader;
@@ -2022,5 +2072,53 @@ mod tests {
             ..Account::default()
         });
         assert_eq!(shared_data, expected);
+    }
+
+    fn load_test_program() -> Vec<u8> {
+        let mut dir = env::current_dir().unwrap();
+        dir.push("tests");
+        dir.push("example-programs");
+        dir.push("hello-solana");
+        dir.push("hello_solana_program.so");
+        let mut file = File::open(dir.clone()).expect("file not found");
+        let metadata = fs::metadata(dir).expect("Unable to read metadata");
+        let mut buffer = vec![0; metadata.len() as usize];
+        file.read_exact(&mut buffer).expect("Buffer overflow");
+        buffer
+    }
+
+    #[test]
+    fn test_load_program_from_bytes() {
+        let buffer = load_test_program();
+
+        let mut metrics = LoadProgramMetrics::default();
+        let loader = bpf_loader_upgradeable::id();
+        let size = buffer.len();
+        let slot = 2;
+        let environment = ProgramRuntimeEnvironment::new(BuiltinProgram::new_mock());
+
+        let result = SimpleMockLoader.load_program_from_bytes(
+            &mut metrics,
+            &buffer,
+            &loader,
+            size,
+            slot,
+            environment.clone(),
+            false,
+        );
+
+        assert!(result.is_ok());
+
+        let result = SimpleMockLoader.load_program_from_bytes(
+            &mut metrics,
+            &buffer,
+            &loader,
+            size,
+            slot,
+            environment,
+            true,
+        );
+
+        assert!(result.is_ok());
     }
 }

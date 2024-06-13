@@ -3,7 +3,7 @@ use {
     solana_program_runtime::{
         loaded_programs::{
             LoadProgramMetrics, ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType,
-            ProgramRuntimeEnvironment, ProgramRuntimeEnvironments, DELAY_VISIBILITY_SLOT_OFFSET,
+            ProgramRuntimeEnvironments,
         },
         timings::ExecuteDetailsTimings,
     },
@@ -28,41 +28,6 @@ pub(crate) enum ProgramAccountLoadResult {
     ProgramOfLoaderV2(AccountSharedData),
     ProgramOfLoaderV3(AccountSharedData, AccountSharedData, Slot),
     ProgramOfLoaderV4(AccountSharedData, Slot),
-}
-
-pub(crate) fn load_program_from_bytes(
-    load_program_metrics: &mut LoadProgramMetrics,
-    programdata: &[u8],
-    loader_key: &Pubkey,
-    account_size: usize,
-    deployment_slot: Slot,
-    program_runtime_environment: ProgramRuntimeEnvironment,
-    reloading: bool,
-) -> std::result::Result<ProgramCacheEntry, Box<dyn std::error::Error>> {
-    if reloading {
-        // Safety: this is safe because the program is being reloaded in the cache.
-        unsafe {
-            ProgramCacheEntry::reload(
-                loader_key,
-                program_runtime_environment.clone(),
-                deployment_slot,
-                deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
-                programdata,
-                account_size,
-                load_program_metrics,
-            )
-        }
-    } else {
-        ProgramCacheEntry::new(
-            loader_key,
-            program_runtime_environment.clone(),
-            deployment_slot,
-            deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
-            programdata,
-            account_size,
-            load_program_metrics,
-        )
-    }
 }
 
 pub(crate) fn load_program_accounts<L: Loader>(
@@ -139,27 +104,29 @@ pub fn load_program_with_pubkey<L: Loader>(
             ProgramCacheEntry::new_tombstone(slot, owner, ProgramCacheEntryType::Closed),
         ),
 
-        ProgramAccountLoadResult::ProgramOfLoaderV1(program_account) => load_program_from_bytes(
-            &mut load_program_metrics,
-            program_account.data(),
-            program_account.owner(),
-            program_account.data().len(),
-            0,
-            environments.program_runtime_v1.clone(),
-            reload,
-        )
-        .map_err(|_| (0, ProgramCacheEntryOwner::LoaderV1)),
+        ProgramAccountLoadResult::ProgramOfLoaderV1(program_account) => loader
+            .load_program_from_bytes(
+                &mut load_program_metrics,
+                program_account.data(),
+                program_account.owner(),
+                program_account.data().len(),
+                0,
+                environments.program_runtime_v1.clone(),
+                reload,
+            )
+            .map_err(|_| (0, ProgramCacheEntryOwner::LoaderV1)),
 
-        ProgramAccountLoadResult::ProgramOfLoaderV2(program_account) => load_program_from_bytes(
-            &mut load_program_metrics,
-            program_account.data(),
-            program_account.owner(),
-            program_account.data().len(),
-            0,
-            environments.program_runtime_v1.clone(),
-            reload,
-        )
-        .map_err(|_| (0, ProgramCacheEntryOwner::LoaderV2)),
+        ProgramAccountLoadResult::ProgramOfLoaderV2(program_account) => loader
+            .load_program_from_bytes(
+                &mut load_program_metrics,
+                program_account.data(),
+                program_account.owner(),
+                program_account.data().len(),
+                0,
+                environments.program_runtime_v1.clone(),
+                reload,
+            )
+            .map_err(|_| (0, ProgramCacheEntryOwner::LoaderV2)),
 
         ProgramAccountLoadResult::ProgramOfLoaderV3(program_account, programdata_account, slot) => {
             programdata_account
@@ -167,7 +134,7 @@ pub fn load_program_with_pubkey<L: Loader>(
                 .get(UpgradeableLoaderState::size_of_programdata_metadata()..)
                 .ok_or(Box::new(InstructionError::InvalidAccountData).into())
                 .and_then(|programdata| {
-                    load_program_from_bytes(
+                    loader.load_program_from_bytes(
                         &mut load_program_metrics,
                         programdata,
                         program_account.owner(),
@@ -188,7 +155,7 @@ pub fn load_program_with_pubkey<L: Loader>(
             .get(LoaderV4State::program_data_offset()..)
             .ok_or(Box::new(InstructionError::InvalidAccountData).into())
             .and_then(|elf_bytes| {
-                load_program_from_bytes(
+                loader.load_program_from_bytes(
                     &mut load_program_metrics,
                     elf_bytes,
                     &loader_v4::id(),
@@ -224,9 +191,8 @@ mod tests {
     use {
         super::*,
         crate::transaction_processor::TransactionBatchProcessor,
-        solana_program_runtime::{
-            loaded_programs::{BlockRelation, ForkGraph, ProgramRuntimeEnvironments},
-            solana_rbpf::program::BuiltinProgram,
+        solana_program_runtime::loaded_programs::{
+            BlockRelation, ForkGraph, ProgramRuntimeEnvironments,
         },
         solana_sdk::{account::WritableAccount, bpf_loader, bpf_loader_upgradeable},
         std::{
@@ -449,41 +415,6 @@ mod tests {
     }
 
     #[test]
-    fn test_load_program_from_bytes() {
-        let buffer = load_test_program();
-
-        let mut metrics = LoadProgramMetrics::default();
-        let loader = bpf_loader_upgradeable::id();
-        let size = buffer.len();
-        let slot = 2;
-        let environment = ProgramRuntimeEnvironment::new(BuiltinProgram::new_mock());
-
-        let result = load_program_from_bytes(
-            &mut metrics,
-            &buffer,
-            &loader,
-            size,
-            slot,
-            environment.clone(),
-            false,
-        );
-
-        assert!(result.is_ok());
-
-        let result = load_program_from_bytes(
-            &mut metrics,
-            &buffer,
-            &loader,
-            size,
-            slot,
-            environment,
-            true,
-        );
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
     fn test_load_program_not_found() {
         let mock_bank = MockBankCallback::default();
         let key = Pubkey::new_unique();
@@ -585,7 +516,7 @@ mod tests {
         );
 
         let environments = ProgramRuntimeEnvironments::default();
-        let expected = load_program_from_bytes(
+        let expected = mock_bank.load_program_from_bytes(
             &mut LoadProgramMetrics::default(),
             account_data.data(),
             account_data.owner(),
@@ -681,7 +612,7 @@ mod tests {
             .set_data(data[UpgradeableLoaderState::size_of_programdata_metadata()..].to_vec());
 
         let environments = ProgramRuntimeEnvironments::default();
-        let expected = load_program_from_bytes(
+        let expected = mock_bank.load_program_from_bytes(
             &mut LoadProgramMetrics::default(),
             account_data.data(),
             account_data.owner(),
@@ -768,7 +699,7 @@ mod tests {
             .insert(key, account_data.clone());
 
         let environments = ProgramRuntimeEnvironments::default();
-        let expected = load_program_from_bytes(
+        let expected = mock_bank.load_program_from_bytes(
             &mut LoadProgramMetrics::default(),
             account_data.data(),
             account_data.owner(),
