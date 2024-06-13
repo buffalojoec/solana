@@ -1,17 +1,22 @@
 use {
     crate::{account_rent_state::RentState, transaction_error_metrics::TransactionErrorMetrics},
-    solana_program_runtime::loaded_programs::ProgramCacheMatchCriteria,
+    solana_compute_budget::compute_budget_processor::process_compute_budget_instructions,
+    solana_program_runtime::loaded_programs::{ProgramCacheEntry, ProgramCacheMatchCriteria},
     solana_sdk::{
-        account::{AccountSharedData, ReadableAccount, WritableAccount},
+        account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
         feature_set::{self, FeatureSet},
+        message::SanitizedMessage,
         nonce::State as NonceState,
         pubkey::Pubkey,
         rent::RentDue,
         rent_collector::{CollectedInfo, RentCollector, RENT_EXEMPT_RENT_EPOCH},
+        saturating_add_assign,
+        sysvar::{self, instructions::construct_instructions_data},
         transaction::{Result, TransactionError},
         transaction_context::IndexOfAccount,
     },
     solana_system_program::{get_system_account_kind, SystemAccountKind},
+    std::num::NonZeroUsize,
 };
 
 /// The "loader" required by the transaction batch processor, responsible
@@ -130,19 +135,95 @@ pub trait Loader {
     fn add_builtin_account(&self, _name: &str, _program_id: &Pubkey) {}
 }
 
+// Temporarily `pub(crate)`.
+/// Total accounts data a transaction can load is limited to
+///   if `set_tx_loaded_accounts_data_size` instruction is not activated or not used, then
+///     default value of 64MiB to not break anyone in Mainnet-beta today
+///   else
+///     user requested loaded accounts size.
+///     Note, requesting zero bytes will result transaction error
+pub(crate) fn get_requested_loaded_accounts_data_size_limit(
+    sanitized_message: &SanitizedMessage,
+) -> Result<Option<NonZeroUsize>> {
+    let compute_budget_limits =
+        process_compute_budget_instructions(sanitized_message.program_instructions_iter())
+            .unwrap_or_default();
+    // sanitize against setting size limit to zero
+    NonZeroUsize::new(
+        usize::try_from(compute_budget_limits.loaded_accounts_bytes).unwrap_or_default(),
+    )
+    .map_or(
+        Err(TransactionError::InvalidLoadedAccountsDataSizeLimit),
+        |v| Ok(Some(v)),
+    )
+}
+
+// Temporarily `pub(crate)`.
+pub(crate) fn account_shared_data_from_program(
+    loaded_program: &ProgramCacheEntry,
+) -> AccountSharedData {
+    // It's an executable program account. The program is already loaded in the cache.
+    // So the account data is not needed. Return a dummy AccountSharedData with meta
+    // information.
+    let mut program_account = AccountSharedData::default();
+    program_account.set_owner(loaded_program.account_owner());
+    program_account.set_executable(true);
+    program_account
+}
+
+// Temporarily `pub(crate)`.
+/// Accumulate loaded account data size into `accumulated_accounts_data_size`.
+/// Returns TransactionErr::MaxLoadedAccountsDataSizeExceeded if
+/// `requested_loaded_accounts_data_size_limit` is specified and
+/// `accumulated_accounts_data_size` exceeds it.
+pub(crate) fn accumulate_and_check_loaded_account_data_size(
+    accumulated_loaded_accounts_data_size: &mut usize,
+    account_data_size: usize,
+    requested_loaded_accounts_data_size_limit: Option<NonZeroUsize>,
+    error_metrics: &mut TransactionErrorMetrics,
+) -> Result<()> {
+    if let Some(requested_loaded_accounts_data_size) = requested_loaded_accounts_data_size_limit {
+        saturating_add_assign!(*accumulated_loaded_accounts_data_size, account_data_size);
+        if *accumulated_loaded_accounts_data_size > requested_loaded_accounts_data_size.get() {
+            error_metrics.max_loaded_accounts_data_size_exceeded += 1;
+            Err(TransactionError::MaxLoadedAccountsDataSizeExceeded)
+        } else {
+            Ok(())
+        }
+    } else {
+        Ok(())
+    }
+}
+
+// Temporarily `pub(crate)`.
+pub(crate) fn construct_instructions_account(message: &SanitizedMessage) -> AccountSharedData {
+    AccountSharedData::from(Account {
+        data: construct_instructions_data(&message.decompile_instructions()),
+        owner: sysvar::id(),
+        ..Account::default()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use {
         super::*,
         nonce::state::Versions as NonceVersions,
+        solana_compute_budget::compute_budget_processor,
         solana_sdk::{
-            account::Account,
             epoch_schedule::EpochSchedule,
+            hash::Hash,
+            message::{
+                v0::{LoadedAddresses, LoadedMessage},
+                Message,
+            },
             nonce,
             rent::Rent,
             signature::{Keypair, Signer},
             system_program,
+            transaction::{SanitizedTransaction, Transaction},
         },
+        std::borrow::Cow,
     };
 
     struct SimpleMockLoader;
@@ -392,5 +473,126 @@ mod tests {
             },
             &rent_collector,
         );
+    }
+
+    #[test]
+    fn test_accumulate_and_check_loaded_account_data_size() {
+        let mut error_metrics = TransactionErrorMetrics::default();
+
+        // assert check is OK if data limit is not enabled
+        {
+            let mut accumulated_data_size: usize = 0;
+            let data_size = usize::MAX;
+            let requested_data_size_limit = None;
+
+            assert!(accumulate_and_check_loaded_account_data_size(
+                &mut accumulated_data_size,
+                data_size,
+                requested_data_size_limit,
+                &mut error_metrics
+            )
+            .is_ok());
+        }
+
+        // assert check will fail with correct error if loaded data exceeds limit
+        {
+            let mut accumulated_data_size: usize = 0;
+            let data_size: usize = 123;
+            let requested_data_size_limit = NonZeroUsize::new(data_size);
+
+            // OK - loaded data size is up to limit
+            assert!(accumulate_and_check_loaded_account_data_size(
+                &mut accumulated_data_size,
+                data_size,
+                requested_data_size_limit,
+                &mut error_metrics
+            )
+            .is_ok());
+            assert_eq!(data_size, accumulated_data_size);
+
+            // fail - loading more data that would exceed limit
+            let another_byte: usize = 1;
+            assert_eq!(
+                accumulate_and_check_loaded_account_data_size(
+                    &mut accumulated_data_size,
+                    another_byte,
+                    requested_data_size_limit,
+                    &mut error_metrics
+                ),
+                Err(TransactionError::MaxLoadedAccountsDataSizeExceeded)
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_requested_loaded_accounts_data_size_limit() {
+        // an prrivate helper function
+        fn test(
+            instructions: &[solana_sdk::instruction::Instruction],
+            expected_result: &Result<Option<NonZeroUsize>>,
+        ) {
+            let payer_keypair = Keypair::new();
+            let tx = SanitizedTransaction::from_transaction_for_tests(Transaction::new(
+                &[&payer_keypair],
+                Message::new(instructions, Some(&payer_keypair.pubkey())),
+                Hash::default(),
+            ));
+            assert_eq!(
+                *expected_result,
+                get_requested_loaded_accounts_data_size_limit(tx.message())
+            );
+        }
+
+        let tx_not_set_limit = &[solana_sdk::instruction::Instruction::new_with_bincode(
+            Pubkey::new_unique(),
+            &0_u8,
+            vec![],
+        )];
+        let tx_set_limit_99 =
+            &[
+                solana_sdk::compute_budget::ComputeBudgetInstruction::set_loaded_accounts_data_size_limit(99u32),
+                solana_sdk::instruction::Instruction::new_with_bincode(Pubkey::new_unique(), &0_u8, vec![]),
+            ];
+        let tx_set_limit_0 =
+            &[
+                solana_sdk::compute_budget::ComputeBudgetInstruction::set_loaded_accounts_data_size_limit(0u32),
+                solana_sdk::instruction::Instruction::new_with_bincode(Pubkey::new_unique(), &0_u8, vec![]),
+            ];
+
+        let result_default_limit = Ok(Some(
+            NonZeroUsize::new(
+                usize::try_from(compute_budget_processor::MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES)
+                    .unwrap(),
+            )
+            .unwrap(),
+        ));
+        let result_requested_limit: Result<Option<NonZeroUsize>> =
+            Ok(Some(NonZeroUsize::new(99).unwrap()));
+        let result_invalid_limit = Err(TransactionError::InvalidLoadedAccountsDataSizeLimit);
+
+        // the results should be:
+        //    if tx doesn't set limit, then default limit (64MiB)
+        //    if tx sets limit, then requested limit
+        //    if tx sets limit to zero, then TransactionError::InvalidLoadedAccountsDataSizeLimit
+        test(tx_not_set_limit, &result_default_limit);
+        test(tx_set_limit_99, &result_requested_limit);
+        test(tx_set_limit_0, &result_invalid_limit);
+    }
+
+    #[test]
+    fn test_construct_instructions_account() {
+        let loaded_message = LoadedMessage {
+            message: Cow::Owned(solana_sdk::message::v0::Message::default()),
+            loaded_addresses: Cow::Owned(LoadedAddresses::default()),
+            is_writable_account_cache: vec![false],
+        };
+        let message = SanitizedMessage::V0(loaded_message);
+        let shared_data = construct_instructions_account(&message);
+        let expected = AccountSharedData::from(Account {
+            data: construct_instructions_data(&message.decompile_instructions()),
+            owner: sysvar::id(),
+            ..Account::default()
+        });
+        assert_eq!(shared_data, expected);
     }
 }
