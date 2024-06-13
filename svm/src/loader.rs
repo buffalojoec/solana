@@ -3,9 +3,11 @@ use {
     solana_program_runtime::loaded_programs::ProgramCacheMatchCriteria,
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount, WritableAccount},
+        feature_set::{self, FeatureSet},
         nonce::State as NonceState,
         pubkey::Pubkey,
-        rent_collector::RentCollector,
+        rent::RentDue,
+        rent_collector::{CollectedInfo, RentCollector, RENT_EXEMPT_RENT_EPOCH},
         transaction::{Result, TransactionError},
         transaction_context::IndexOfAccount,
     },
@@ -27,6 +29,40 @@ pub trait Loader {
     fn account_matches_owners(&self, account: &Pubkey, owners: &[Pubkey]) -> Option<usize> {
         self.load_account(account)
             .and_then(|account| owners.iter().position(|entry| account.owner() == entry))
+    }
+
+    /// Collect rent from an account if rent is still enabled and regardless of
+    /// whether rent is enabled, set the rent epoch to u64::MAX if the account is
+    /// rent exempt.
+    ///
+    /// This function has a default implementation, but projects can override
+    /// it if they want to provide a custom implementation.
+    fn collect_rent_from_account(
+        &self,
+        feature_set: &FeatureSet,
+        rent_collector: &RentCollector,
+        address: &Pubkey,
+        account: &mut AccountSharedData,
+    ) -> CollectedInfo {
+        if !feature_set.is_active(&feature_set::disable_rent_fees_collection::id()) {
+            rent_collector.collect_from_existing_account(address, account)
+        } else {
+            // When rent fee collection is disabled, we won't collect rent for any account. If there
+            // are any rent paying accounts, their `rent_epoch` won't change either. However, if the
+            // account itself is rent-exempted but its `rent_epoch` is not u64::MAX, we will set its
+            // `rent_epoch` to u64::MAX. In such case, the behavior stays the same as before.
+            if account.rent_epoch() != RENT_EXEMPT_RENT_EPOCH
+                && rent_collector.get_rent_due(
+                    account.lamports(),
+                    account.data().len(),
+                    account.rent_epoch(),
+                ) == RentDue::Exempt
+            {
+                account.set_rent_epoch(RENT_EXEMPT_RENT_EPOCH);
+            }
+
+            CollectedInfo::default()
+        }
     }
 
     /// Check whether the payer_account is capable of paying the fee. The
@@ -100,6 +136,7 @@ mod tests {
         super::*,
         nonce::state::Versions as NonceVersions,
         solana_sdk::{
+            account::Account,
             epoch_schedule::EpochSchedule,
             nonce,
             rent::Rent,
@@ -114,6 +151,102 @@ mod tests {
         fn load_account(&self, _pubkey: &Pubkey) -> Option<AccountSharedData> {
             None
         }
+    }
+
+    /// get a feature set with all features activated
+    /// with the optional except of 'exclude'
+    fn all_features_except(exclude: Option<&[Pubkey]>) -> FeatureSet {
+        let mut features = FeatureSet::all_enabled();
+        if let Some(exclude) = exclude {
+            features.active.retain(|k, _v| !exclude.contains(k));
+        }
+        features
+    }
+
+    #[test]
+    fn test_collect_rent_from_account() {
+        let feature_set = FeatureSet::all_enabled();
+        let rent_collector = RentCollector {
+            epoch: 1,
+            ..RentCollector::default()
+        };
+
+        let address = Pubkey::new_unique();
+        let min_exempt_balance = rent_collector.rent.minimum_balance(0);
+        let mut account = AccountSharedData::from(Account {
+            lamports: min_exempt_balance,
+            ..Account::default()
+        });
+
+        assert_eq!(
+            SimpleMockLoader.collect_rent_from_account(
+                &feature_set,
+                &rent_collector,
+                &address,
+                &mut account
+            ),
+            CollectedInfo::default()
+        );
+        assert_eq!(account.rent_epoch(), RENT_EXEMPT_RENT_EPOCH);
+    }
+
+    #[test]
+    fn test_collect_rent_from_account_rent_paying() {
+        let feature_set = FeatureSet::all_enabled();
+        let rent_collector = RentCollector {
+            epoch: 1,
+            ..RentCollector::default()
+        };
+
+        let address = Pubkey::new_unique();
+        let mut account = AccountSharedData::from(Account {
+            lamports: 1,
+            ..Account::default()
+        });
+
+        assert_eq!(
+            SimpleMockLoader.collect_rent_from_account(
+                &feature_set,
+                &rent_collector,
+                &address,
+                &mut account
+            ),
+            CollectedInfo::default()
+        );
+        assert_eq!(account.rent_epoch(), 0);
+        assert_eq!(account.lamports(), 1);
+    }
+
+    #[test]
+    fn test_collect_rent_from_account_rent_enabled() {
+        let feature_set =
+            all_features_except(Some(&[feature_set::disable_rent_fees_collection::id()]));
+        let rent_collector = RentCollector {
+            epoch: 1,
+            ..RentCollector::default()
+        };
+
+        let address = Pubkey::new_unique();
+        let mut account = AccountSharedData::from(Account {
+            lamports: 1,
+            data: vec![0],
+            ..Account::default()
+        });
+
+        assert_eq!(
+            SimpleMockLoader.collect_rent_from_account(
+                &feature_set,
+                &rent_collector,
+                &address,
+                &mut account
+            ),
+            CollectedInfo {
+                rent_amount: 1,
+                account_data_len_reclaimed: 1
+            }
+        );
+        assert_eq!(account.rent_epoch(), 0);
+        assert_eq!(account.lamports(), 0);
     }
 
     struct ValidateFeePayerTestParameter {

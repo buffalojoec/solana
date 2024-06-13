@@ -10,13 +10,11 @@ use {
     solana_program_runtime::loaded_programs::{ProgramCacheEntry, ProgramCacheForTxBatch},
     solana_sdk::{
         account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
-        feature_set::{self, FeatureSet},
+        feature_set::FeatureSet,
         fee::FeeDetails,
         message::SanitizedMessage,
         native_loader,
-        pubkey::Pubkey,
-        rent::RentDue,
-        rent_collector::{CollectedInfo, RentCollector, RENT_EXEMPT_RENT_EPOCH},
+        rent_collector::{RentCollector, RENT_EXEMPT_RENT_EPOCH},
         rent_debits::RentDebits,
         saturating_add_assign,
         sysvar::{self, instructions::construct_instructions_data},
@@ -62,36 +60,6 @@ pub struct LoadedTransaction {
 impl LoadedTransaction {
     pub fn fee_payer_account(&self) -> Option<&TransactionAccount> {
         self.accounts.first()
-    }
-}
-
-/// Collect rent from an account if rent is still enabled and regardless of
-/// whether rent is enabled, set the rent epoch to u64::MAX if the account is
-/// rent exempt.
-pub fn collect_rent_from_account(
-    feature_set: &FeatureSet,
-    rent_collector: &RentCollector,
-    address: &Pubkey,
-    account: &mut AccountSharedData,
-) -> CollectedInfo {
-    if !feature_set.is_active(&feature_set::disable_rent_fees_collection::id()) {
-        rent_collector.collect_from_existing_account(address, account)
-    } else {
-        // When rent fee collection is disabled, we won't collect rent for any account. If there
-        // are any rent paying accounts, their `rent_epoch` won't change either. However, if the
-        // account itself is rent-exempted but its `rent_epoch` is not u64::MAX, we will set its
-        // `rent_epoch` to u64::MAX. In such case, the behavior stays the same as before.
-        if account.rent_epoch() != RENT_EXEMPT_RENT_EPOCH
-            && rent_collector.get_rent_due(
-                account.lamports(),
-                account.data().len(),
-                account.rent_epoch(),
-            ) == RentDue::Exempt
-        {
-            account.set_rent_epoch(RENT_EXEMPT_RENT_EPOCH);
-        }
-
-        CollectedInfo::default()
     }
 }
 
@@ -198,13 +166,14 @@ fn load_transaction_accounts<L: Loader>(
                         .load_account(key)
                         .map(|mut account| {
                             if message.is_writable(i) {
-                                let rent_due = collect_rent_from_account(
-                                    feature_set,
-                                    rent_collector,
-                                    key,
-                                    &mut account,
-                                )
-                                .rent_amount;
+                                let rent_due = loader
+                                    .collect_rent_from_account(
+                                        feature_set,
+                                        rent_collector,
+                                        key,
+                                        &mut account,
+                                    )
+                                    .rent_amount;
 
                                 (account.data().len(), account, rent_due)
                             } else {
@@ -390,7 +359,7 @@ mod tests {
         solana_sdk::{
             account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
             bpf_loader_upgradeable,
-            feature_set::FeatureSet,
+            feature_set::{self, FeatureSet},
             hash::Hash,
             instruction::CompiledInstruction,
             message::{
@@ -1708,76 +1677,5 @@ mod tests {
         );
 
         assert_eq!(result, vec![Err(TransactionError::InvalidWritableAccount)]);
-    }
-
-    #[test]
-    fn test_collect_rent_from_account() {
-        let feature_set = FeatureSet::all_enabled();
-        let rent_collector = RentCollector {
-            epoch: 1,
-            ..RentCollector::default()
-        };
-
-        let address = Pubkey::new_unique();
-        let min_exempt_balance = rent_collector.rent.minimum_balance(0);
-        let mut account = AccountSharedData::from(Account {
-            lamports: min_exempt_balance,
-            ..Account::default()
-        });
-
-        assert_eq!(
-            collect_rent_from_account(&feature_set, &rent_collector, &address, &mut account),
-            CollectedInfo::default()
-        );
-        assert_eq!(account.rent_epoch(), RENT_EXEMPT_RENT_EPOCH);
-    }
-
-    #[test]
-    fn test_collect_rent_from_account_rent_paying() {
-        let feature_set = FeatureSet::all_enabled();
-        let rent_collector = RentCollector {
-            epoch: 1,
-            ..RentCollector::default()
-        };
-
-        let address = Pubkey::new_unique();
-        let mut account = AccountSharedData::from(Account {
-            lamports: 1,
-            ..Account::default()
-        });
-
-        assert_eq!(
-            collect_rent_from_account(&feature_set, &rent_collector, &address, &mut account),
-            CollectedInfo::default()
-        );
-        assert_eq!(account.rent_epoch(), 0);
-        assert_eq!(account.lamports(), 1);
-    }
-
-    #[test]
-    fn test_collect_rent_from_account_rent_enabled() {
-        let feature_set =
-            all_features_except(Some(&[feature_set::disable_rent_fees_collection::id()]));
-        let rent_collector = RentCollector {
-            epoch: 1,
-            ..RentCollector::default()
-        };
-
-        let address = Pubkey::new_unique();
-        let mut account = AccountSharedData::from(Account {
-            lamports: 1,
-            data: vec![0],
-            ..Account::default()
-        });
-
-        assert_eq!(
-            collect_rent_from_account(&feature_set, &rent_collector, &address, &mut account),
-            CollectedInfo {
-                rent_amount: 1,
-                account_data_len_reclaimed: 1
-            }
-        );
-        assert_eq!(account.rent_epoch(), 0);
-        assert_eq!(account.lamports(), 0);
     }
 }

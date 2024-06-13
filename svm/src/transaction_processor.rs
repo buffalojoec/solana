@@ -3,9 +3,8 @@ use qualifier_attr::qualifiers;
 use {
     crate::{
         account_loader::{
-            collect_rent_from_account, load_accounts, CheckedTransactionDetails, LoadedTransaction,
-            TransactionCheckResult, TransactionLoadResult, TransactionValidationResult,
-            ValidatedTransactionDetails,
+            load_accounts, CheckedTransactionDetails, LoadedTransaction, TransactionCheckResult,
+            TransactionLoadResult, TransactionValidationResult, ValidatedTransactionDetails,
         },
         account_overrides::AccountOverrides,
         loader::Loader,
@@ -479,13 +478,14 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             return Err(TransactionError::AccountNotFound);
         };
 
-        let fee_payer_rent_debit = collect_rent_from_account(
-            feature_set,
-            rent_collector,
-            fee_payer_address,
-            &mut fee_payer_account,
-        )
-        .rent_amount;
+        let fee_payer_rent_debit = loader
+            .collect_rent_from_account(
+                feature_set,
+                rent_collector,
+                fee_payer_address,
+                &mut fee_payer_account,
+            )
+            .rent_amount;
 
         let fee_details = self.fee_structure.calculate_fee_details(
             message,

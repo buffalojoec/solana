@@ -167,8 +167,7 @@ use {
     },
     solana_svm::{
         account_loader::{
-            collect_rent_from_account, CheckedTransactionDetails, TransactionCheckResult,
-            TransactionLoadResult,
+            CheckedTransactionDetails, TransactionCheckResult, TransactionLoadResult,
         },
         account_overrides::AccountOverrides,
         loader::Loader,
@@ -4483,7 +4482,7 @@ impl Bank {
                 .test_skip_rewrites_but_include_in_bank_hash;
         let mut skipped_rewrites = Vec::default();
         for (pubkey, account, _loaded_slot) in accounts.iter_mut() {
-            let (rent_collected_info, measure) = measure!(collect_rent_from_account(
+            let (rent_collected_info, measure) = measure!(self.collect_rent_from_account(
                 &self.feature_set,
                 &self.rent_collector,
                 pubkey,
