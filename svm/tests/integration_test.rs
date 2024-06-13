@@ -31,7 +31,7 @@ use {
     },
     solana_svm::{
         account_loader::{CheckedTransactionDetails, TransactionCheckResult},
-        transaction_processing_callback::TransactionProcessingCallback,
+        loader::Loader,
         transaction_processor::{
             ExecutionRecordingConfig, TransactionBatchProcessor, TransactionProcessingConfig,
             TransactionProcessingEnvironment,

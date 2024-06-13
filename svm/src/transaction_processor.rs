@@ -8,12 +8,12 @@ use {
             TransactionLoadResult, TransactionValidationResult, ValidatedTransactionDetails,
         },
         account_overrides::AccountOverrides,
+        loader::Loader,
         message_processor::MessageProcessor,
         nonce_info::NonceFull,
         program_loader::load_program_with_pubkey,
         transaction_account_state_info::TransactionAccountStateInfo,
         transaction_error_metrics::TransactionErrorMetrics,
-        transaction_processing_callback::TransactionProcessingCallback,
         transaction_results::{TransactionExecutionDetails, TransactionExecutionResult},
     },
     log::debug,
@@ -235,9 +235,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     }
 
     /// Main entrypoint to the SVM.
-    pub fn load_and_execute_sanitized_transactions<CB: TransactionProcessingCallback>(
+    pub fn load_and_execute_sanitized_transactions<L: Loader>(
         &self,
-        callbacks: &CB,
+        loader: &L,
         sanitized_txs: &[SanitizedTransaction],
         check_results: Vec<TransactionCheckResult>,
         environment: &TransactionProcessingEnvironment,
@@ -248,7 +248,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         let mut execute_timings = ExecuteTimings::default();
 
         let (validation_results, validate_fees_time) = measure!(self.validate_fees(
-            callbacks,
+            loader,
             sanitized_txs,
             check_results,
             &environment.feature_set,
@@ -260,7 +260,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut program_cache_time = Measure::start("program_cache");
         let mut program_accounts_map = Self::filter_executable_program_accounts(
-            callbacks,
+            loader,
             sanitized_txs,
             &validation_results,
             PROGRAM_OWNERS,
@@ -270,7 +270,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         }
 
         let program_cache_for_tx_batch = Rc::new(RefCell::new(self.replenish_program_cache(
-            callbacks,
+            loader,
             &program_accounts_map,
             config.limit_to_load_programs,
         )));
@@ -291,7 +291,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut load_time = Measure::start("accounts_load");
         let mut loaded_transactions = load_accounts(
-            callbacks,
+            loader,
             sanitized_txs,
             validation_results,
             &mut error_metrics,
@@ -409,9 +409,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         }
     }
 
-    fn validate_fees<CB: TransactionProcessingCallback>(
+    fn validate_fees<L: Loader>(
         &self,
-        callbacks: &CB,
+        loader: &L,
         sanitized_txs: &[impl core::borrow::Borrow<SanitizedTransaction>],
         check_results: Vec<TransactionCheckResult>,
         feature_set: &FeatureSet,
@@ -430,7 +430,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         let message = sanitized_tx.borrow().message();
                         let (fee_details, fee_payer_account, fee_payer_rent_debit) = self
                             .validate_transaction_fee_payer(
-                                callbacks,
+                                loader,
                                 message,
                                 feature_set,
                                 lamports_per_signature,
@@ -464,9 +464,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     // Loads transaction fee payer, collects rent if necessary, then calculates
     // transaction fees, and deducts them from the fee payer balance. If the
     // account is not found or has insufficient funds, an error is returned.
-    fn validate_transaction_fee_payer<CB: TransactionProcessingCallback>(
+    fn validate_transaction_fee_payer<L: Loader>(
         &self,
-        callbacks: &CB,
+        loader: &L,
         message: &SanitizedMessage,
         feature_set: &FeatureSet,
         lamports_per_signature: u64,
@@ -474,8 +474,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         error_counters: &mut TransactionErrorMetrics,
     ) -> transaction::Result<(FeeDetails, AccountSharedData, u64)> {
         let fee_payer_address = message.fee_payer();
-        let Some(mut fee_payer_account) = callbacks.get_account_shared_data(fee_payer_address)
-        else {
+        let Some(mut fee_payer_account) = loader.get_account_shared_data(fee_payer_address) else {
             error_counters.account_not_found += 1;
             return Err(TransactionError::AccountNotFound);
         };
@@ -513,8 +512,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
     /// Returns a map from executable program accounts (all accounts owned by any loader)
     /// to their usage counters, for the transactions with a valid blockhash or nonce.
-    fn filter_executable_program_accounts<CB: TransactionProcessingCallback>(
-        callbacks: &CB,
+    fn filter_executable_program_accounts<L: Loader>(
+        loader: &L,
         txs: &[SanitizedTransaction],
         validation_results: &[TransactionValidationResult],
         program_owners: &[Pubkey],
@@ -531,10 +530,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                             saturating_add_assign!(*count, 1);
                         }
                         Entry::Vacant(entry) => {
-                            if callbacks
-                                .account_matches_owners(key, program_owners)
-                                .is_some()
-                            {
+                            if loader.account_matches_owners(key, program_owners).is_some() {
                                 entry.insert(1);
                             }
                         }
@@ -544,9 +540,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         result
     }
 
-    fn replenish_program_cache<CB: TransactionProcessingCallback>(
+    fn replenish_program_cache<L: Loader>(
         &self,
-        callback: &CB,
+        loader: &L,
         program_accounts_map: &HashMap<Pubkey, u64>,
         limit_to_load_programs: bool,
     ) -> ProgramCacheForTxBatch {
@@ -554,10 +550,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             program_accounts_map
                 .iter()
                 .map(|(pubkey, count)| {
-                    (
-                        *pubkey,
-                        (callback.get_program_match_criteria(pubkey), *count),
-                    )
+                    (*pubkey, (loader.get_program_match_criteria(pubkey), *count))
                 })
                 .collect();
 
@@ -585,7 +578,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 let program_to_store = program_to_load.map(|(key, count)| {
                     // Load, verify and compile one program.
                     let program = load_program_with_pubkey(
-                        callback,
+                        loader,
                         &program_cache.get_environments_for_epoch(self.epoch),
                         &key,
                         self.slot,
@@ -632,9 +625,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         loaded_programs_for_txs.unwrap()
     }
 
-    pub fn prepare_program_cache_for_upcoming_feature_set<CB: TransactionProcessingCallback>(
+    pub fn prepare_program_cache_for_upcoming_feature_set<L: Loader>(
         &self,
-        callbacks: &CB,
+        loader: &L,
         upcoming_feature_set: &FeatureSet,
         compute_budget: &ComputeBudget,
     ) {
@@ -657,7 +650,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     .unwrap()
                     .get_environments_for_epoch(effective_epoch);
                 if let Some(recompiled) = load_program_with_pubkey(
-                    callbacks,
+                    loader,
                     &environments_for_epoch,
                     &key,
                     self.slot,
@@ -959,13 +952,10 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         outer_instructions
     }
 
-    pub fn fill_missing_sysvar_cache_entries<CB: TransactionProcessingCallback>(
-        &self,
-        callbacks: &CB,
-    ) {
+    pub fn fill_missing_sysvar_cache_entries<L: Loader>(&self, loader: &L) {
         let mut sysvar_cache = self.sysvar_cache.write().unwrap();
         sysvar_cache.fill_missing_entries(|pubkey, set_sysvar| {
-            if let Some(account) = callbacks.get_account_shared_data(pubkey) {
+            if let Some(account) = loader.get_account_shared_data(pubkey) {
                 set_sysvar(account.data());
             }
         });
@@ -981,15 +971,15 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     }
 
     /// Add a built-in program
-    pub fn add_builtin<CB: TransactionProcessingCallback>(
+    pub fn add_builtin<L: Loader>(
         &self,
-        callbacks: &CB,
+        loader: &L,
         program_id: Pubkey,
         name: &str,
         builtin: ProgramCacheEntry,
     ) {
         debug!("Adding program {} under {:?}", name, program_id);
-        callbacks.add_builtin_account(name, &program_id);
+        loader.add_builtin_account(name, &program_id);
         self.builtin_program_ids.write().unwrap().insert(program_id);
         self.program_cache
             .write()
@@ -1053,7 +1043,7 @@ mod tests {
         pub account_shared_data: Arc<RwLock<HashMap<Pubkey, AccountSharedData>>>,
     }
 
-    impl TransactionProcessingCallback for MockBankCallback {
+    impl Loader for MockBankCallback {
         fn account_matches_owners(&self, account: &Pubkey, owners: &[Pubkey]) -> Option<usize> {
             if let Some(data) = self.account_shared_data.read().unwrap().get(account) {
                 if data.lamports() == 0 {

@@ -8,7 +8,7 @@ use {
         pubkey::Pubkey,
         slot_hashes::Slot,
     },
-    solana_svm::transaction_processing_callback::TransactionProcessingCallback,
+    solana_svm::loader::Loader,
     std::{cell::RefCell, cmp::Ordering, collections::HashMap, sync::Arc},
 };
 
@@ -34,7 +34,7 @@ pub struct MockBankCallback {
     pub account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
 }
 
-impl TransactionProcessingCallback for MockBankCallback {
+impl Loader for MockBankCallback {
     fn account_matches_owners(&self, account: &Pubkey, owners: &[Pubkey]) -> Option<usize> {
         if let Some(data) = self.account_shared_data.borrow().get(account) {
             if data.lamports() == 0 {

@@ -171,9 +171,9 @@ use {
             TransactionLoadResult,
         },
         account_overrides::AccountOverrides,
+        loader::Loader,
         nonce_info::NoncePartial,
         transaction_error_metrics::TransactionErrorMetrics,
-        transaction_processing_callback::TransactionProcessingCallback,
         transaction_processor::{
             ExecutionRecordingConfig, TransactionBatchProcessor, TransactionLogMessages,
             TransactionProcessingConfig, TransactionProcessingEnvironment,
@@ -6872,7 +6872,7 @@ impl Bank {
     }
 }
 
-impl TransactionProcessingCallback for Bank {
+impl Loader for Bank {
     fn account_matches_owners(&self, account: &Pubkey, owners: &[Pubkey]) -> Option<usize> {
         self.rc
             .accounts

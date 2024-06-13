@@ -120,7 +120,7 @@ The main entry point to the SVM is the method
 
 The method `load_and_execute_sanitized_transactions` takes the
 following arguments
-    - `callbacks` is a `TransactionProcessingCallback` trait instance
+    - `loader` is a `TransactionProcessingCallback` trait instance
       that enables access to data available from accounts-db and from
       Bank,
     - `sanitized_txs` a slice of `SanitizedTransaction`

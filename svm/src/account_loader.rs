@@ -2,9 +2,9 @@ use {
     crate::{
         account_overrides::AccountOverrides,
         account_rent_state::RentState,
+        loader::Loader,
         nonce_info::{NonceFull, NoncePartial},
         transaction_error_metrics::TransactionErrorMetrics,
-        transaction_processing_callback::TransactionProcessingCallback,
     },
     itertools::Itertools,
     solana_compute_budget::compute_budget_processor::process_compute_budget_instructions,
@@ -157,8 +157,8 @@ pub fn validate_fee_payer(
 /// batch. Each tuple contains struct of information about accounts as
 /// its first element and an optional transaction nonce info as its
 /// second element.
-pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
-    callbacks: &CB,
+pub(crate) fn load_accounts<L: Loader>(
+    loader: &L,
     txs: &[SanitizedTransaction],
     validation_results: Vec<TransactionValidationResult>,
     error_metrics: &mut TransactionErrorMetrics,
@@ -175,7 +175,7 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
 
                 // load transactions
                 load_transaction_accounts(
-                    callbacks,
+                    loader,
                     message,
                     tx_details,
                     error_metrics,
@@ -190,8 +190,8 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
         .collect()
 }
 
-fn load_transaction_accounts<CB: TransactionProcessingCallback>(
-    callbacks: &CB,
+fn load_transaction_accounts<L: Loader>(
+    loader: &L,
     message: &SanitizedMessage,
     tx_details: ValidatedTransactionDetails,
     error_metrics: &mut TransactionErrorMetrics,
@@ -243,7 +243,7 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
                     .then_some(())
                     .and_then(|_| loaded_programs.find(key))
                 {
-                    callbacks
+                    loader
                         .get_account_shared_data(key)
                         .ok_or(TransactionError::AccountNotFound)?;
                     // Optimization to skip loading of accounts which are only used as
@@ -251,7 +251,7 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
                     let program_account = account_shared_data_from_program(&program);
                     (program.account_size, program_account, 0)
                 } else {
-                    callbacks
+                    loader
                         .get_account_shared_data(key)
                         .map(|mut account| {
                             if message.is_writable(i) {
@@ -335,7 +335,7 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
                 builtins_start_index.saturating_add(owner_index)
             } else {
                 let owner_index = accounts.len();
-                if let Some(owner_account) = callbacks.get_account_shared_data(owner_id) {
+                if let Some(owner_account) = loader.get_account_shared_data(owner_id) {
                     if !native_loader::check_id(owner_account.owner())
                         || !owner_account.executable()
                     {
@@ -439,8 +439,8 @@ mod tests {
     use {
         super::*,
         crate::{
-            nonce_info::NonceFull, transaction_account_state_info::TransactionAccountStateInfo,
-            transaction_processing_callback::TransactionProcessingCallback,
+            loader::Loader, nonce_info::NonceFull,
+            transaction_account_state_info::TransactionAccountStateInfo,
         },
         nonce::state::Versions as NonceVersions,
         solana_compute_budget::{compute_budget::ComputeBudget, compute_budget_processor},
@@ -477,7 +477,7 @@ mod tests {
         accounts_map: HashMap<Pubkey, AccountSharedData>,
     }
 
-    impl TransactionProcessingCallback for TestCallbacks {
+    impl Loader for TestCallbacks {
         fn account_matches_owners(&self, _account: &Pubkey, _owners: &[Pubkey]) -> Option<usize> {
             None
         }
@@ -501,9 +501,9 @@ mod tests {
         for (pubkey, account) in accounts {
             accounts_map.insert(*pubkey, account.clone());
         }
-        let callbacks = TestCallbacks { accounts_map };
+        let loader = TestCallbacks { accounts_map };
         load_accounts(
-            &callbacks,
+            &loader,
             &[sanitized_tx],
             vec![Ok(ValidatedTransactionDetails {
                 fee_payer_account,
@@ -789,9 +789,9 @@ mod tests {
         for (pubkey, account) in accounts {
             accounts_map.insert(*pubkey, account.clone());
         }
-        let callbacks = TestCallbacks { accounts_map };
+        let loader = TestCallbacks { accounts_map };
         load_accounts(
-            &callbacks,
+            &loader,
             &[tx],
             vec![Ok(ValidatedTransactionDetails::default())],
             &mut error_metrics,

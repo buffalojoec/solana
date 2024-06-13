@@ -20,7 +20,7 @@ use {
         signature::{Keypair, Signer},
         transaction::Transaction,
     },
-    solana_svm::transaction_processing_callback::TransactionProcessingCallback,
+    solana_svm::loader::Loader,
     std::{sync::Arc, thread::sleep, time::Duration},
     test::Bencher,
 };

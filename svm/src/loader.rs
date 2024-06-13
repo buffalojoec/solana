@@ -3,11 +3,13 @@ use {
     solana_sdk::{account::AccountSharedData, pubkey::Pubkey},
 };
 
-/// Runtime callbacks for transaction processing.
-pub trait TransactionProcessingCallback {
-    fn account_matches_owners(&self, account: &Pubkey, owners: &[Pubkey]) -> Option<usize>;
-
+/// The "loader" required by the transaction batch processor, responsible
+/// mainly for loading accounts.
+pub trait Loader {
+    /// Load the account at the provided address.
     fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData>;
+
+    fn account_matches_owners(&self, account: &Pubkey, owners: &[Pubkey]) -> Option<usize>;
 
     fn get_program_match_criteria(&self, _program: &Pubkey) -> ProgramCacheMatchCriteria {
         ProgramCacheMatchCriteria::NoCriteria

@@ -1,5 +1,5 @@
 use {
-    crate::transaction_processing_callback::TransactionProcessingCallback,
+    crate::loader::Loader,
     solana_program_runtime::{
         loaded_programs::{
             LoadProgramMetrics, ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType,
@@ -65,11 +65,11 @@ pub(crate) fn load_program_from_bytes(
     }
 }
 
-pub(crate) fn load_program_accounts<CB: TransactionProcessingCallback>(
-    callbacks: &CB,
+pub(crate) fn load_program_accounts<L: Loader>(
+    loader: &L,
     pubkey: &Pubkey,
 ) -> Option<ProgramAccountLoadResult> {
-    let program_account = callbacks.get_account_shared_data(pubkey)?;
+    let program_account = loader.get_account_shared_data(pubkey)?;
 
     if loader_v4::check_id(program_account.owner()) {
         return Some(
@@ -97,7 +97,7 @@ pub(crate) fn load_program_accounts<CB: TransactionProcessingCallback>(
         programdata_address,
     }) = program_account.state()
     {
-        if let Some(programdata_account) = callbacks.get_account_shared_data(&programdata_address) {
+        if let Some(programdata_account) = loader.get_account_shared_data(&programdata_address) {
             if let Ok(UpgradeableLoaderState::ProgramData {
                 slot,
                 upgrade_authority_address: _,
@@ -121,8 +121,8 @@ pub(crate) fn load_program_accounts<CB: TransactionProcessingCallback>(
 /// If the account doesn't exist it returns `None`. If the account does exist, it must be a program
 /// account (belong to one of the program loaders). Returns `Some(InvalidAccountData)` if the program
 /// account is `Closed`, contains invalid data or any of the programdata accounts are invalid.
-pub fn load_program_with_pubkey<CB: TransactionProcessingCallback>(
-    callbacks: &CB,
+pub fn load_program_with_pubkey<L: Loader>(
+    loader: &L,
     environments: &ProgramRuntimeEnvironments,
     pubkey: &Pubkey,
     slot: Slot,
@@ -134,7 +134,7 @@ pub fn load_program_with_pubkey<CB: TransactionProcessingCallback>(
         ..LoadProgramMetrics::default()
     };
 
-    let loaded_program = match load_program_accounts(callbacks, pubkey)? {
+    let loaded_program = match load_program_accounts(loader, pubkey)? {
         ProgramAccountLoadResult::InvalidAccountData(owner) => Ok(
             ProgramCacheEntry::new_tombstone(slot, owner, ProgramCacheEntryType::Closed),
         ),
@@ -251,7 +251,7 @@ mod tests {
         pub account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
     }
 
-    impl TransactionProcessingCallback for MockBankCallback {
+    impl Loader for MockBankCallback {
         fn account_matches_owners(&self, account: &Pubkey, owners: &[Pubkey]) -> Option<usize> {
             if let Some(data) = self.account_shared_data.borrow().get(account) {
                 if data.lamports() == 0 {
