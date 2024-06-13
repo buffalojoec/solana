@@ -244,7 +244,7 @@ fn load_transaction_accounts<L: Loader>(
                     .and_then(|_| loaded_programs.find(key))
                 {
                     loader
-                        .get_account_shared_data(key)
+                        .load_account(key)
                         .ok_or(TransactionError::AccountNotFound)?;
                     // Optimization to skip loading of accounts which are only used as
                     // programs in top-level instructions and not passed as instruction accounts.
@@ -252,7 +252,7 @@ fn load_transaction_accounts<L: Loader>(
                     (program.account_size, program_account, 0)
                 } else {
                     loader
-                        .get_account_shared_data(key)
+                        .load_account(key)
                         .map(|mut account| {
                             if message.is_writable(i) {
                                 let rent_due = collect_rent_from_account(
@@ -335,7 +335,7 @@ fn load_transaction_accounts<L: Loader>(
                 builtins_start_index.saturating_add(owner_index)
             } else {
                 let owner_index = accounts.len();
-                if let Some(owner_account) = loader.get_account_shared_data(owner_id) {
+                if let Some(owner_account) = loader.load_account(owner_id) {
                     if !native_loader::check_id(owner_account.owner())
                         || !owner_account.executable()
                     {
@@ -482,7 +482,7 @@ mod tests {
             None
         }
 
-        fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
+        fn load_account(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.accounts_map.get(pubkey).cloned()
         }
     }

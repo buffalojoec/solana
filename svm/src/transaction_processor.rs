@@ -474,7 +474,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         error_counters: &mut TransactionErrorMetrics,
     ) -> transaction::Result<(FeeDetails, AccountSharedData, u64)> {
         let fee_payer_address = message.fee_payer();
-        let Some(mut fee_payer_account) = loader.get_account_shared_data(fee_payer_address) else {
+        let Some(mut fee_payer_account) = loader.load_account(fee_payer_address) else {
             error_counters.account_not_found += 1;
             return Err(TransactionError::AccountNotFound);
         };
@@ -955,7 +955,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     pub fn fill_missing_sysvar_cache_entries<L: Loader>(&self, loader: &L) {
         let mut sysvar_cache = self.sysvar_cache.write().unwrap();
         sysvar_cache.fill_missing_entries(|pubkey, set_sysvar| {
-            if let Some(account) = loader.get_account_shared_data(pubkey) {
+            if let Some(account) = loader.load_account(pubkey) {
                 set_sysvar(account.data());
             }
         });
@@ -1056,7 +1056,7 @@ mod tests {
             }
         }
 
-        fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
+        fn load_account(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.account_shared_data
                 .read()
                 .unwrap()

@@ -415,7 +415,7 @@ fn execute_fixture_as_instr(
     let transaction_accounts: Vec<TransactionAccount> = sanitized_message
         .account_keys()
         .iter()
-        .map(|key| (*key, mock_bank.get_account_shared_data(key).unwrap()))
+        .map(|key| (*key, mock_bank.load_account(key).unwrap()))
         .collect();
 
     let mut transaction_context = TransactionContext::new(

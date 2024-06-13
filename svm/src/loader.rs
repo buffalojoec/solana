@@ -7,7 +7,7 @@ use {
 /// mainly for loading accounts.
 pub trait Loader {
     /// Load the account at the provided address.
-    fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData>;
+    fn load_account(&self, pubkey: &Pubkey) -> Option<AccountSharedData>;
 
     fn account_matches_owners(&self, account: &Pubkey, owners: &[Pubkey]) -> Option<usize>;
 

@@ -69,7 +69,7 @@ pub(crate) fn load_program_accounts<L: Loader>(
     loader: &L,
     pubkey: &Pubkey,
 ) -> Option<ProgramAccountLoadResult> {
-    let program_account = loader.get_account_shared_data(pubkey)?;
+    let program_account = loader.load_account(pubkey)?;
 
     if loader_v4::check_id(program_account.owner()) {
         return Some(
@@ -97,7 +97,7 @@ pub(crate) fn load_program_accounts<L: Loader>(
         programdata_address,
     }) = program_account.state()
     {
-        if let Some(programdata_account) = loader.get_account_shared_data(&programdata_address) {
+        if let Some(programdata_account) = loader.load_account(&programdata_address) {
             if let Ok(UpgradeableLoaderState::ProgramData {
                 slot,
                 upgrade_authority_address: _,
@@ -264,7 +264,7 @@ mod tests {
             }
         }
 
-        fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
+        fn load_account(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
             self.account_shared_data.borrow().get(pubkey).cloned()
         }
 

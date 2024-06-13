@@ -47,7 +47,7 @@ impl Loader for MockBankCallback {
         }
     }
 
-    fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
+    fn load_account(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
         self.account_shared_data.borrow().get(pubkey).cloned()
     }
 

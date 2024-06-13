@@ -513,7 +513,7 @@ fn svm_integration() {
         .as_ref()
         .unwrap();
     let time = i64::from_be_bytes(return_data.data[0..8].try_into().unwrap());
-    let clock_data = mock_bank.get_account_shared_data(&Clock::id()).unwrap();
+    let clock_data = mock_bank.load_account(&Clock::id()).unwrap();
     let clock_info: Clock = bincode::deserialize(clock_data.data()).unwrap();
     assert_eq!(clock_info.unix_timestamp, time);
 
