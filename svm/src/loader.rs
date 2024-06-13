@@ -203,7 +203,7 @@ pub trait Loader {
                     let message = tx.message();
 
                     // load transactions
-                    self.load_transaction_accounts(
+                    self.load_accounts_for_transaction(
                         message,
                         tx_details,
                         error_metrics,
@@ -218,7 +218,12 @@ pub trait Loader {
             .collect()
     }
 
-    fn load_transaction_accounts(
+    /// Collect information about accounts used in a transaction and return
+    /// a struct of information about accounts.
+    ///
+    /// This function has a default implementation, but projects can override
+    /// it if they want to provide a custom implementation.
+    fn load_accounts_for_transaction(
         &self,
         message: &SanitizedMessage,
         tx_details: ValidatedTransactionDetails,
@@ -1146,7 +1151,7 @@ mod tests {
             false,
         );
         let fee_details = FeeDetails::new_for_tests(32, 0, false);
-        let result = mock_bank.load_transaction_accounts(
+        let result = mock_bank.load_accounts_for_transaction(
             sanitized_transaction.message(),
             ValidatedTransactionDetails {
                 nonce: None,
@@ -1215,7 +1220,7 @@ mod tests {
             vec![Signature::new_unique()],
             false,
         );
-        let result = mock_bank.load_transaction_accounts(
+        let result = mock_bank.load_accounts_for_transaction(
             sanitized_transaction.message(),
             ValidatedTransactionDetails::default(),
             &mut error_metrics,
@@ -1258,7 +1263,7 @@ mod tests {
             vec![Signature::new_unique()],
             false,
         );
-        let result = mock_bank.load_transaction_accounts(
+        let result = mock_bank.load_accounts_for_transaction(
             sanitized_transaction.message(),
             ValidatedTransactionDetails::default(),
             &mut error_metrics,
@@ -1301,7 +1306,7 @@ mod tests {
             vec![Signature::new_unique()],
             false,
         );
-        let result = mock_bank.load_transaction_accounts(
+        let result = mock_bank.load_accounts_for_transaction(
             sanitized_transaction.message(),
             ValidatedTransactionDetails::default(),
             &mut error_metrics,
@@ -1354,7 +1359,7 @@ mod tests {
             false,
         );
         let fee_details = FeeDetails::new_for_tests(32, 0, false);
-        let result = mock_bank.load_transaction_accounts(
+        let result = mock_bank.load_accounts_for_transaction(
             sanitized_transaction.message(),
             ValidatedTransactionDetails {
                 nonce: None,
@@ -1425,7 +1430,7 @@ mod tests {
             vec![Signature::new_unique()],
             false,
         );
-        let result = mock_bank.load_transaction_accounts(
+        let result = mock_bank.load_accounts_for_transaction(
             sanitized_transaction.message(),
             ValidatedTransactionDetails::default(),
             &mut error_metrics,
@@ -1477,7 +1482,7 @@ mod tests {
             vec![Signature::new_unique()],
             false,
         );
-        let result = mock_bank.load_transaction_accounts(
+        let result = mock_bank.load_accounts_for_transaction(
             sanitized_transaction.message(),
             ValidatedTransactionDetails::default(),
             &mut error_metrics,
@@ -1537,7 +1542,7 @@ mod tests {
             false,
         );
         let fee_details = FeeDetails::new_for_tests(32, 0, false);
-        let result = mock_bank.load_transaction_accounts(
+        let result = mock_bank.load_accounts_for_transaction(
             sanitized_transaction.message(),
             ValidatedTransactionDetails {
                 nonce: None,
@@ -1631,7 +1636,7 @@ mod tests {
             false,
         );
         let fee_details = FeeDetails::new_for_tests(32, 0, false);
-        let result = mock_bank.load_transaction_accounts(
+        let result = mock_bank.load_accounts_for_transaction(
             sanitized_transaction.message(),
             ValidatedTransactionDetails {
                 nonce: None,
