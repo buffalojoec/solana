@@ -288,7 +288,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         program_cache_time.stop();
 
         let mut load_time = Measure::start("accounts_load");
-        let mut loaded_transactions = loader.load_accounts(
+        let mut loaded_transactions = loader.load_accounts_for_transaction_batch(
             sanitized_txs,
             validation_results,
             &mut error_metrics,

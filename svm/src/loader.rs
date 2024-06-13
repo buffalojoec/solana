@@ -178,15 +178,15 @@ pub trait Loader {
         )
     }
 
-    /// Collect information about accounts used in txs transactions and
-    /// return vector of tuples, one for each transaction in the
-    /// batch. Each tuple contains struct of information about accounts as
+    /// Collect information about accounts used in a transaction batch and
+    /// return a vector of tuples, one for each transaction in the
+    /// batch. Each tuple contains a struct of information about accounts as
     /// its first element and an optional transaction nonce info as its
     /// second element.
     ///
     /// This function has a default implementation, but projects can override
     /// it if they want to provide a custom implementation.
-    fn load_accounts(
+    fn load_accounts_for_transaction_batch(
         &self,
         txs: &[SanitizedTransaction],
         validation_results: Vec<TransactionValidationResult>,
@@ -535,7 +535,7 @@ mod tests {
             accounts_map.insert(*pubkey, account.clone());
         }
         let loader = TestCallbacks { accounts_map };
-        loader.load_accounts(
+        loader.load_accounts_for_transaction_batch(
             &[sanitized_tx],
             vec![Ok(ValidatedTransactionDetails {
                 fee_payer_account,
@@ -1053,7 +1053,7 @@ mod tests {
             accounts_map.insert(*pubkey, account.clone());
         }
         let loader = TestCallbacks { accounts_map };
-        loader.load_accounts(
+        loader.load_accounts_for_transaction_batch(
             &[tx],
             vec![Ok(ValidatedTransactionDetails::default())],
             &mut error_metrics,
@@ -1705,7 +1705,7 @@ mod tests {
         let num_accounts = tx.message().account_keys.len();
         let sanitized_tx = SanitizedTransaction::from_transaction_for_tests(tx);
         let mut error_metrics = TransactionErrorMetrics::default();
-        let loaded_txs = bank.load_accounts(
+        let loaded_txs = bank.load_accounts_for_transaction_batch(
             &[sanitized_tx.clone()],
             vec![Ok(ValidatedTransactionDetails::default())],
             &mut error_metrics,
@@ -1794,7 +1794,7 @@ mod tests {
             fee_payer_rent_debit: 0,
         });
 
-        let results = mock_bank.load_accounts(
+        let results = mock_bank.load_accounts_for_transaction_batch(
             &[sanitized_transaction],
             vec![validation_result],
             &mut error_metrics,
@@ -1868,7 +1868,7 @@ mod tests {
             fee_payer_rent_debit: 0,
         });
 
-        let result = mock_bank.load_accounts(
+        let result = mock_bank.load_accounts_for_transaction_batch(
             &[sanitized_transaction.clone()],
             vec![validation_result.clone()],
             &mut TransactionErrorMetrics::default(),
@@ -1885,7 +1885,7 @@ mod tests {
 
         let validation_result = Err(TransactionError::InvalidWritableAccount);
 
-        let result = mock_bank.load_accounts(
+        let result = mock_bank.load_accounts_for_transaction_batch(
             &[sanitized_transaction.clone()],
             vec![validation_result],
             &mut TransactionErrorMetrics::default(),
