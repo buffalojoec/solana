@@ -3,9 +3,9 @@ use qualifier_attr::qualifiers;
 use {
     crate::{
         account_loader::{
-            collect_rent_from_account, load_accounts, validate_fee_payer,
-            CheckedTransactionDetails, LoadedTransaction, TransactionCheckResult,
-            TransactionLoadResult, TransactionValidationResult, ValidatedTransactionDetails,
+            collect_rent_from_account, load_accounts, CheckedTransactionDetails, LoadedTransaction,
+            TransactionCheckResult, TransactionLoadResult, TransactionValidationResult,
+            ValidatedTransactionDetails,
         },
         account_overrides::AccountOverrides,
         loader::Loader,
@@ -498,7 +498,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         );
 
         let fee_payer_index = 0;
-        validate_fee_payer(
+        loader.validate_fee_payer(
             fee_payer_address,
             &mut fee_payer_account,
             fee_payer_index,
