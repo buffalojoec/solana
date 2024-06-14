@@ -1,5 +1,5 @@
 use {
-    crate::loader::Loader,
+    crate::loader::{Loader, ProgramAccountLoadResult},
     solana_program_runtime::{
         loaded_programs::{
             LoadProgramMetrics, ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType,
@@ -8,78 +8,16 @@ use {
         timings::ExecuteDetailsTimings,
     },
     solana_sdk::{
-        account::{AccountSharedData, ReadableAccount},
-        account_utils::StateMut,
-        bpf_loader, bpf_loader_deprecated,
+        account::ReadableAccount,
         bpf_loader_upgradeable::UpgradeableLoaderState,
         clock::Slot,
         epoch_schedule::EpochSchedule,
         instruction::InstructionError,
-        loader_v4::{self, LoaderV4State, LoaderV4Status},
+        loader_v4::{self, LoaderV4State},
         pubkey::Pubkey,
     },
     std::sync::Arc,
 };
-
-#[derive(Debug)]
-pub(crate) enum ProgramAccountLoadResult {
-    InvalidAccountData(ProgramCacheEntryOwner),
-    ProgramOfLoaderV1(AccountSharedData),
-    ProgramOfLoaderV2(AccountSharedData),
-    ProgramOfLoaderV3(AccountSharedData, AccountSharedData, Slot),
-    ProgramOfLoaderV4(AccountSharedData, Slot),
-}
-
-pub(crate) fn load_program_accounts<L: Loader>(
-    loader: &L,
-    pubkey: &Pubkey,
-) -> Option<ProgramAccountLoadResult> {
-    let program_account = loader.load_account(pubkey)?;
-
-    if loader_v4::check_id(program_account.owner()) {
-        return Some(
-            solana_loader_v4_program::get_state(program_account.data())
-                .ok()
-                .and_then(|state| {
-                    (!matches!(state.status, LoaderV4Status::Retracted)).then_some(state.slot)
-                })
-                .map(|slot| ProgramAccountLoadResult::ProgramOfLoaderV4(program_account, slot))
-                .unwrap_or(ProgramAccountLoadResult::InvalidAccountData(
-                    ProgramCacheEntryOwner::LoaderV4,
-                )),
-        );
-    }
-
-    if bpf_loader_deprecated::check_id(program_account.owner()) {
-        return Some(ProgramAccountLoadResult::ProgramOfLoaderV1(program_account));
-    }
-
-    if bpf_loader::check_id(program_account.owner()) {
-        return Some(ProgramAccountLoadResult::ProgramOfLoaderV2(program_account));
-    }
-
-    if let Ok(UpgradeableLoaderState::Program {
-        programdata_address,
-    }) = program_account.state()
-    {
-        if let Some(programdata_account) = loader.load_account(&programdata_address) {
-            if let Ok(UpgradeableLoaderState::ProgramData {
-                slot,
-                upgrade_authority_address: _,
-            }) = programdata_account.state()
-            {
-                return Some(ProgramAccountLoadResult::ProgramOfLoaderV3(
-                    program_account,
-                    programdata_account,
-                    slot,
-                ));
-            }
-        }
-    }
-    Some(ProgramAccountLoadResult::InvalidAccountData(
-        ProgramCacheEntryOwner::LoaderV3,
-    ))
-}
 
 /// Loads the program with the given pubkey.
 ///
@@ -99,7 +37,7 @@ pub fn load_program_with_pubkey<L: Loader>(
         ..LoadProgramMetrics::default()
     };
 
-    let loaded_program = match load_program_accounts(loader, pubkey)? {
+    let loaded_program = match loader.load_program_accounts(pubkey)? {
         ProgramAccountLoadResult::InvalidAccountData(owner) => Ok(
             ProgramCacheEntry::new_tombstone(slot, owner, ProgramCacheEntryType::Closed),
         ),
@@ -194,7 +132,11 @@ mod tests {
         solana_program_runtime::loaded_programs::{
             BlockRelation, ForkGraph, ProgramRuntimeEnvironments,
         },
-        solana_sdk::{account::WritableAccount, bpf_loader, bpf_loader_upgradeable},
+        solana_sdk::{
+            account::{AccountSharedData, WritableAccount},
+            bpf_loader, bpf_loader_upgradeable,
+            loader_v4::{self, LoaderV4Status},
+        },
         std::{
             cell::RefCell,
             collections::HashMap,
@@ -240,164 +182,6 @@ mod tests {
             self.account_shared_data
                 .borrow_mut()
                 .insert(*program_id, account_data);
-        }
-    }
-
-    #[test]
-    fn test_load_program_accounts_account_not_found() {
-        let mock_bank = MockBankCallback::default();
-        let key = Pubkey::new_unique();
-
-        let result = load_program_accounts(&mock_bank, &key);
-        assert!(result.is_none());
-
-        let mut account_data = AccountSharedData::default();
-        account_data.set_owner(bpf_loader_upgradeable::id());
-        let state = UpgradeableLoaderState::Program {
-            programdata_address: Pubkey::new_unique(),
-        };
-        account_data.set_data(bincode::serialize(&state).unwrap());
-        mock_bank
-            .account_shared_data
-            .borrow_mut()
-            .insert(key, account_data.clone());
-
-        let result = load_program_accounts(&mock_bank, &key);
-        assert!(matches!(
-            result,
-            Some(ProgramAccountLoadResult::InvalidAccountData(_))
-        ));
-
-        account_data.set_data(Vec::new());
-        mock_bank
-            .account_shared_data
-            .borrow_mut()
-            .insert(key, account_data);
-
-        let result = load_program_accounts(&mock_bank, &key);
-
-        assert!(matches!(
-            result,
-            Some(ProgramAccountLoadResult::InvalidAccountData(_))
-        ));
-    }
-
-    #[test]
-    fn test_load_program_accounts_loader_v4() {
-        let key = Pubkey::new_unique();
-        let mock_bank = MockBankCallback::default();
-        let mut account_data = AccountSharedData::default();
-        account_data.set_owner(loader_v4::id());
-        mock_bank
-            .account_shared_data
-            .borrow_mut()
-            .insert(key, account_data.clone());
-
-        let result = load_program_accounts(&mock_bank, &key);
-        assert!(matches!(
-            result,
-            Some(ProgramAccountLoadResult::InvalidAccountData(_))
-        ));
-
-        account_data.set_data(vec![0; 64]);
-        mock_bank
-            .account_shared_data
-            .borrow_mut()
-            .insert(key, account_data.clone());
-        let result = load_program_accounts(&mock_bank, &key);
-        assert!(matches!(
-            result,
-            Some(ProgramAccountLoadResult::InvalidAccountData(_))
-        ));
-
-        let loader_data = LoaderV4State {
-            slot: 25,
-            authority_address: Pubkey::new_unique(),
-            status: LoaderV4Status::Deployed,
-        };
-        let encoded = unsafe {
-            std::mem::transmute::<&LoaderV4State, &[u8; LoaderV4State::program_data_offset()]>(
-                &loader_data,
-            )
-        };
-        account_data.set_data(encoded.to_vec());
-        mock_bank
-            .account_shared_data
-            .borrow_mut()
-            .insert(key, account_data.clone());
-
-        let result = load_program_accounts(&mock_bank, &key);
-
-        match result {
-            Some(ProgramAccountLoadResult::ProgramOfLoaderV4(data, slot)) => {
-                assert_eq!(data, account_data);
-                assert_eq!(slot, 25);
-            }
-
-            _ => panic!("Invalid result"),
-        }
-    }
-
-    #[test]
-    fn test_load_program_accounts_loader_v1_or_v2() {
-        let key = Pubkey::new_unique();
-        let mock_bank = MockBankCallback::default();
-        let mut account_data = AccountSharedData::default();
-        account_data.set_owner(bpf_loader::id());
-        mock_bank
-            .account_shared_data
-            .borrow_mut()
-            .insert(key, account_data.clone());
-
-        let result = load_program_accounts(&mock_bank, &key);
-        match result {
-            Some(ProgramAccountLoadResult::ProgramOfLoaderV1(data))
-            | Some(ProgramAccountLoadResult::ProgramOfLoaderV2(data)) => {
-                assert_eq!(data, account_data);
-            }
-            _ => panic!("Invalid result"),
-        }
-    }
-
-    #[test]
-    fn test_load_program_accounts_success() {
-        let key1 = Pubkey::new_unique();
-        let key2 = Pubkey::new_unique();
-        let mock_bank = MockBankCallback::default();
-
-        let mut account_data = AccountSharedData::default();
-        account_data.set_owner(bpf_loader_upgradeable::id());
-
-        let state = UpgradeableLoaderState::Program {
-            programdata_address: key2,
-        };
-        account_data.set_data(bincode::serialize(&state).unwrap());
-        mock_bank
-            .account_shared_data
-            .borrow_mut()
-            .insert(key1, account_data.clone());
-
-        let state = UpgradeableLoaderState::ProgramData {
-            slot: 25,
-            upgrade_authority_address: None,
-        };
-        let mut account_data2 = AccountSharedData::default();
-        account_data2.set_data(bincode::serialize(&state).unwrap());
-        mock_bank
-            .account_shared_data
-            .borrow_mut()
-            .insert(key2, account_data2.clone());
-
-        let result = load_program_accounts(&mock_bank, &key1);
-
-        match result {
-            Some(ProgramAccountLoadResult::ProgramOfLoaderV3(data1, data2, slot)) => {
-                assert_eq!(data1, account_data);
-                assert_eq!(data2, account_data2);
-                assert_eq!(slot, 25);
-            }
-
-            _ => panic!("Invalid result"),
         }
     }
 
