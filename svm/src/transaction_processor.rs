@@ -9,7 +9,6 @@ use {
         },
         message_processor::MessageProcessor,
         nonce_info::NonceFull,
-        program_loader::load_program_with_pubkey,
         transaction_account_state_info::TransactionAccountStateInfo,
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_results::{TransactionExecutionDetails, TransactionExecutionResult},
@@ -575,15 +574,15 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
                 let program_to_store = program_to_load.map(|(key, count)| {
                     // Load, verify and compile one program.
-                    let program = load_program_with_pubkey(
-                        loader,
-                        &program_cache.get_environments_for_epoch(self.epoch),
-                        &key,
-                        self.slot,
-                        &self.epoch_schedule,
-                        false,
-                    )
-                    .expect("called load_program_with_pubkey() with nonexistent account");
+                    let program = loader
+                        .load_program_with_pubkey(
+                            &program_cache.get_environments_for_epoch(self.epoch),
+                            &key,
+                            self.slot,
+                            &self.epoch_schedule,
+                            false,
+                        )
+                        .expect("called load_program_with_pubkey() with nonexistent account");
                     program.tx_usage_counter.store(count, Ordering::Relaxed);
                     (key, program)
                 });
@@ -647,8 +646,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     .read()
                     .unwrap()
                     .get_environments_for_epoch(effective_epoch);
-                if let Some(recompiled) = load_program_with_pubkey(
-                    loader,
+                if let Some(recompiled) = loader.load_program_with_pubkey(
                     &environments_for_epoch,
                     &key,
                     self.slot,

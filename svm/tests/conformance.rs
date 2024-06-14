@@ -37,7 +37,6 @@ use {
     },
     solana_svm::{
         loader::{CheckedTransactionDetails, Loader},
-        program_loader,
         transaction_processor::{
             ExecutionRecordingConfig, TransactionBatchProcessor, TransactionProcessingConfig,
             TransactionProcessingEnvironment,
@@ -439,15 +438,15 @@ fn execute_fixture_as_instr(
     let program_idx = sanitized_message.instructions()[0].program_id_index as usize;
     let program_id = *sanitized_message.account_keys().get(program_idx).unwrap();
 
-    let loaded_program = program_loader::load_program_with_pubkey(
-        mock_bank,
-        &batch_processor.get_environments_for_epoch(2).unwrap(),
-        &program_id,
-        42,
-        &batch_processor.epoch_schedule,
-        false,
-    )
-    .unwrap();
+    let loaded_program = mock_bank
+        .load_program_with_pubkey(
+            &batch_processor.get_environments_for_epoch(2).unwrap(),
+            &program_id,
+            42,
+            &batch_processor.epoch_schedule,
+            false,
+        )
+        .unwrap();
 
     loaded_programs.replenish(program_id, loaded_program);
     loaded_programs.replenish(
