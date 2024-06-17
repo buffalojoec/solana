@@ -147,9 +147,6 @@ pub struct TransactionBatchProcessor<FG: ForkGraph> {
     /// Bank epoch
     epoch: Epoch,
 
-    /// Transaction fee structure
-    pub fee_structure: FeeStructure,
-
     /// SysvarCache is a collection of system variables that are
     /// accessible from on chain programs. It is passed to SVM from
     /// client code (e.g. Bank) and forwarded to the MessageProcessor.
@@ -167,7 +164,6 @@ impl<FG: ForkGraph> Debug for TransactionBatchProcessor<FG> {
         f.debug_struct("TransactionBatchProcessor")
             .field("slot", &self.slot)
             .field("epoch", &self.epoch)
-            .field("fee_structure", &self.fee_structure)
             .field("sysvar_cache", &self.sysvar_cache)
             .field("program_cache", &self.program_cache)
             .finish()
@@ -179,7 +175,6 @@ impl<FG: ForkGraph> Default for TransactionBatchProcessor<FG> {
         Self {
             slot: Slot::default(),
             epoch: Epoch::default(),
-            fee_structure: FeeStructure::default(),
             sysvar_cache: RwLock::<SysvarCache>::default(),
             program_cache: Arc::new(RwLock::new(ProgramCache::new(
                 Slot::default(),
@@ -195,7 +190,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         Self {
             slot,
             epoch,
-            fee_structure: FeeStructure::default(),
             sysvar_cache: RwLock::<SysvarCache>::default(),
             program_cache: Arc::new(RwLock::new(ProgramCache::new(slot, epoch))),
             builtin_program_ids: RwLock::new(builtin_program_ids),
@@ -206,7 +200,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         Self {
             slot,
             epoch,
-            fee_structure: self.fee_structure.clone(),
             sysvar_cache: RwLock::<SysvarCache>::default(),
             program_cache: self.program_cache.clone(),
             builtin_program_ids: RwLock::new(self.builtin_program_ids.read().unwrap().clone()),
@@ -241,6 +234,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             sanitized_txs,
             check_results,
             &environment.feature_set,
+            environment
+                .fee_structure
+                .unwrap_or(&FeeStructure::default()),
             environment
                 .rent_collector
                 .unwrap_or(&RentCollector::default()),
@@ -404,6 +400,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         sanitized_txs: &[impl core::borrow::Borrow<SanitizedTransaction>],
         check_results: Vec<TransactionCheckResult>,
         feature_set: &FeatureSet,
+        fee_structure: &FeeStructure,
         rent_collector: &RentCollector,
         error_counters: &mut TransactionErrorMetrics,
     ) -> Vec<TransactionValidationResult> {
@@ -422,6 +419,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                                 callbacks,
                                 message,
                                 feature_set,
+                                fee_structure,
                                 lamports_per_signature,
                                 rent_collector,
                                 error_counters,
@@ -458,6 +456,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         callbacks: &CB,
         message: &SanitizedMessage,
         feature_set: &FeatureSet,
+        fee_structure: &FeeStructure,
         lamports_per_signature: u64,
         rent_collector: &RentCollector,
         error_counters: &mut TransactionErrorMetrics,
@@ -477,7 +476,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         )
         .rent_amount;
 
-        let fee_details = self.fee_structure.calculate_fee_details(
+        let fee_details = fee_structure.calculate_fee_details(
             message,
             lamports_per_signature,
             &process_compute_budget_instructions(message.program_instructions_iter())
@@ -1974,6 +1973,7 @@ mod tests {
             &mock_bank,
             &message,
             &FeatureSet::default(),
+            &FeeStructure::default(),
             lamports_per_signature,
             &rent_collector,
             &mut error_counters,
@@ -2032,6 +2032,7 @@ mod tests {
             &mock_bank,
             &message,
             &FeatureSet::default(),
+            &FeeStructure::default(),
             lamports_per_signature,
             &rent_collector,
             &mut error_counters,
@@ -2067,6 +2068,7 @@ mod tests {
             &mock_bank,
             &message,
             &FeatureSet::default(),
+            &FeeStructure::default(),
             lamports_per_signature,
             &RentCollector::default(),
             &mut error_counters,
@@ -2095,6 +2097,7 @@ mod tests {
             &mock_bank,
             &message,
             &FeatureSet::default(),
+            &FeeStructure::default(),
             lamports_per_signature,
             &RentCollector::default(),
             &mut error_counters,
@@ -2127,6 +2130,7 @@ mod tests {
             &mock_bank,
             &message,
             &FeatureSet::default(),
+            &FeeStructure::default(),
             lamports_per_signature,
             &rent_collector,
             &mut error_counters,
@@ -2157,6 +2161,7 @@ mod tests {
             &mock_bank,
             &message,
             &FeatureSet::default(),
+            &FeeStructure::default(),
             lamports_per_signature,
             &RentCollector::default(),
             &mut error_counters,
@@ -2208,6 +2213,7 @@ mod tests {
                 &mock_bank,
                 &message,
                 &feature_set,
+                &FeeStructure::default(),
                 lamports_per_signature,
                 &rent_collector,
                 &mut error_counters,
@@ -2253,6 +2259,7 @@ mod tests {
                 &mock_bank,
                 &message,
                 &feature_set,
+                &FeeStructure::default(),
                 lamports_per_signature,
                 &rent_collector,
                 &mut error_counters,
