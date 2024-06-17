@@ -232,10 +232,6 @@ impl<'a> InvokeContext<'a> {
         }
     }
 
-    pub fn find_program_in_cache(&self, pubkey: &Pubkey) -> Option<Arc<ProgramCacheEntry>> {
-        self.program_cache_for_tx_batch.find(pubkey)
-    }
-
     pub fn get_environments_for_slot(
         &self,
         effective_slot: Slot,

@@ -152,7 +152,7 @@ macro_rules! deploy_program {
             environments.program_runtime_v1.clone(),
             true,
         )?;
-        if let Some(old_entry) = $invoke_context.find_program_in_cache(&$program_id) {
+        if let Some(old_entry) = $invoke_context.program_cache_for_tx_batch.find(&$program_id) {
             executor.tx_usage_counter.store(
                 old_entry.tx_usage_counter.load(Ordering::Relaxed),
                 Ordering::Relaxed
@@ -437,7 +437,8 @@ pub fn process_instruction_inner(
 
     let mut get_or_create_executor_time = Measure::start("get_or_create_executor_time");
     let executor = invoke_context
-        .find_program_in_cache(program_account.get_key())
+        .program_cache_for_tx_batch
+        .find(program_account.get_key())
         .ok_or_else(|| {
             ic_logger_msg!(log_collector, "Program is not cached");
             InstructionError::InvalidAccountData

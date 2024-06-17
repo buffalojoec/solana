@@ -449,7 +449,10 @@ pub fn process_instruction_deploy(
     state.slot = current_slot;
     state.status = LoaderV4Status::Deployed;
 
-    if let Some(old_entry) = invoke_context.find_program_in_cache(program.get_key()) {
+    if let Some(old_entry) = invoke_context
+        .program_cache_for_tx_batch
+        .find(program.get_key())
+    {
         executor.tx_usage_counter.store(
             old_entry.tx_usage_counter.load(Ordering::Relaxed),
             Ordering::Relaxed,
@@ -592,7 +595,8 @@ pub fn process_instruction_inner(
         }
         let mut get_or_create_executor_time = Measure::start("get_or_create_executor_time");
         let loaded_program = invoke_context
-            .find_program_in_cache(program.get_key())
+            .program_cache_for_tx_batch
+            .find(program.get_key())
             .ok_or_else(|| {
                 ic_logger_msg!(log_collector, "Program is not cached");
                 InstructionError::InvalidAccountData
