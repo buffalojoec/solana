@@ -131,6 +131,8 @@ pub struct TransactionProcessingEnvironment<'a> {
     pub epoch_vote_accounts: Option<&'a VoteAccountsHashMap>,
     /// Runtime feature set to use for the transaction batch.
     pub feature_set: Arc<FeatureSet>,
+    /// Fee structure to use for assessing transaction fees.
+    pub fee_structure: Option<&'a FeeStructure>,
     /// Lamports per signature to charge per transaction.
     pub lamports_per_signature: u64,
     /// Rent collector to use for the transaction batch.
