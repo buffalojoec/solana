@@ -109,8 +109,7 @@ use {
             create_account_shared_data_with_fields as create_account, from_account, Account,
             AccountSharedData, InheritableAccountFields, ReadableAccount, WritableAccount,
         },
-        account_utils::StateMut,
-        bpf_loader_upgradeable::{self, UpgradeableLoaderState},
+        bpf_loader_upgradeable,
         clock::{
             BankId, Epoch, Slot, SlotCount, SlotIndex, UnixTimestamp, DEFAULT_HASHES_PER_TICK,
             DEFAULT_TICKS_PER_SECOND, INITIAL_RENT_EPOCH, MAX_PROCESSING_AGE,
@@ -133,7 +132,6 @@ use {
         incinerator,
         inflation::Inflation,
         inner_instruction::InnerInstructions,
-        loader_v4,
         message::{AccountKeys, SanitizedMessage},
         native_loader,
         native_token::LAMPORTS_PER_SOL,
@@ -6771,40 +6769,6 @@ impl Bank {
         self.transaction_processor
             .add_builtin(self, program_id, name, builtin)
     }
-
-    /// Find the slot in which the program was most recently modified.
-    /// Returns slot 0 for programs deployed with v1/v2 loaders, since programs deployed
-    /// with those loaders do not retain deployment slot information.
-    /// Returns an error if the program's account state can not be found or parsed.
-    fn program_modification_slot(&self, pubkey: &Pubkey) -> transaction::Result<Slot> {
-        let program = self
-            .get_account(pubkey)
-            .ok_or(TransactionError::ProgramAccountNotFound)?;
-        if bpf_loader_upgradeable::check_id(program.owner()) {
-            if let Ok(UpgradeableLoaderState::Program {
-                programdata_address,
-            }) = program.state()
-            {
-                let programdata = self
-                    .get_account(&programdata_address)
-                    .ok_or(TransactionError::ProgramAccountNotFound)?;
-                if let Ok(UpgradeableLoaderState::ProgramData {
-                    slot,
-                    upgrade_authority_address: _,
-                }) = programdata.state()
-                {
-                    return Ok(slot);
-                }
-            }
-            Err(TransactionError::ProgramAccountNotFound)
-        } else if loader_v4::check_id(program.owner()) {
-            let state = solana_loader_v4_program::get_state(program.data())
-                .map_err(|_| TransactionError::ProgramAccountNotFound)?;
-            Ok(state.slot)
-        } else {
-            Ok(0)
-        }
-    }
 }
 
 impl TransactionProcessingCallback for Bank {
@@ -6826,7 +6790,7 @@ impl TransactionProcessingCallback for Bank {
 
     fn get_program_match_criteria(&self, program: &Pubkey) -> ProgramCacheMatchCriteria {
         if self.check_program_modification_slot {
-            self.program_modification_slot(program)
+            solana_svm::program_loader::get_program_modification_slot(self, program)
                 .map_or(ProgramCacheMatchCriteria::Tombstone, |slot| {
                     ProgramCacheMatchCriteria::DeployedOnOrAfterSlot(slot)
                 })
