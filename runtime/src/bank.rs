@@ -3405,6 +3405,7 @@ impl Bank {
             &mut timings,
             TransactionProcessingConfig {
                 account_overrides: Some(&account_overrides),
+                check_program_modification_slot: self.check_program_modification_slot,
                 compute_budget: self.compute_budget(),
                 log_messages_bytes_limit: None,
                 limit_to_load_programs: true,
@@ -4842,6 +4843,7 @@ impl Bank {
             timings,
             TransactionProcessingConfig {
                 account_overrides: None,
+                check_program_modification_slot: self.check_program_modification_slot,
                 compute_budget: self.compute_budget(),
                 log_messages_bytes_limit,
                 limit_to_load_programs: false,
@@ -6753,8 +6755,12 @@ impl Bank {
         false
     }
 
-    pub fn check_program_modification_slot(&mut self) {
-        self.check_program_modification_slot = true;
+    pub fn check_program_modification_slot(&self) -> bool {
+        self.check_program_modification_slot
+    }
+
+    pub fn set_check_program_modification_slot(&mut self, check: bool) {
+        self.check_program_modification_slot = check;
     }
 
     pub fn fee_structure(&self) -> &FeeStructure {
