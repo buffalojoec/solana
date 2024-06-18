@@ -98,10 +98,7 @@ use {
     solana_perf::perf_libs,
     solana_program_runtime::{
         invoke_context::BuiltinFunctionWithContext,
-        loaded_programs::{
-            ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType,
-            ProgramCacheMatchCriteria,
-        },
+        loaded_programs::{ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType},
         timings::{ExecuteTimingType, ExecuteTimings},
     },
     solana_sdk::{
@@ -6792,17 +6789,6 @@ impl TransactionProcessingCallback for Bank {
             .accounts_db
             .load_with_fixed_root(&self.ancestors, pubkey)
             .map(|(acc, _)| acc)
-    }
-
-    fn get_program_match_criteria(&self, program: &Pubkey) -> ProgramCacheMatchCriteria {
-        if self.check_program_modification_slot {
-            solana_svm::program_loader::get_program_modification_slot(self, program)
-                .map_or(ProgramCacheMatchCriteria::Tombstone, |slot| {
-                    ProgramCacheMatchCriteria::DeployedOnOrAfterSlot(slot)
-                })
-        } else {
-            ProgramCacheMatchCriteria::NoCriteria
-        }
     }
 
     // NOTE: must hold idempotent for the same set of arguments
