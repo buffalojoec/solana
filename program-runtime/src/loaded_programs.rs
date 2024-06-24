@@ -673,6 +673,20 @@ impl IndexV2 {
             self.entries.remove(&key);
         }
     }
+
+    /// Remove all entries for the provided addresses, for tests.
+    fn remove_programs_for_tests(&mut self, mut keys: impl Iterator<Item = Pubkey>) {
+        let keys_to_remove = self
+            .entries
+            .keys()
+            .filter(|key| keys.any(|k| k == key.address))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for key in keys_to_remove {
+            self.entries.remove(&key);
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1501,7 +1515,9 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     entries.remove(&k);
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index_v2) => {
+                index_v2.remove_programs_for_tests(keys);
+            }
         }
     }
 
@@ -1581,7 +1597,9 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     );
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(_) => {
+                // Index v2 does not keep track of empty entries.
+            }
         }
     }
 }
