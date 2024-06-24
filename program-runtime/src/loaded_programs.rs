@@ -643,6 +643,20 @@ impl IndexV2 {
             entries: HashMap::new(),
         }
     }
+
+    /// Inserts an entry into the cache.
+    fn insert_entry(
+        &mut self,
+        address: &Pubkey,
+        entry: Arc<ProgramCacheEntry>,
+    ) -> Option<Arc<ProgramCacheEntry>> {
+        let key = IndexV2Key::new(
+            address,
+            entry.program.get_environment(),
+            entry.deployment_slot,
+        );
+        self.entries.insert(key, entry)
+    }
 }
 
 #[derive(Debug)]
@@ -938,22 +952,23 @@ impl<FG: ForkGraph> ProgramCache<FG> {
             &entry.program,
             ProgramCacheEntryType::DelayVisibility
         ));
-        // This function always returns `true` during normal operation.
-        // Only during the cache preparation phase this can return `false`
-        // for entries with `upcoming_environments`.
-        fn is_current_env(
-            environments: &ProgramRuntimeEnvironments,
-            env_opt: Option<&ProgramRuntimeEnvironment>,
-        ) -> bool {
-            env_opt
-                .map(|env| {
-                    Arc::ptr_eq(env, &environments.program_runtime_v1)
-                        || Arc::ptr_eq(env, &environments.program_runtime_v2)
-                })
-                .unwrap_or(true)
-        }
         match &mut self.index {
             IndexImplementation::V1 { entries, .. } => {
+                // This function always returns `true` during normal operation.
+                // Only during the cache preparation phase this can return `false`
+                // for entries with `upcoming_environments`.
+                fn is_current_env(
+                    environments: &ProgramRuntimeEnvironments,
+                    env_opt: Option<&ProgramRuntimeEnvironment>,
+                ) -> bool {
+                    env_opt
+                        .map(|env| {
+                            Arc::ptr_eq(env, &environments.program_runtime_v1)
+                                || Arc::ptr_eq(env, &environments.program_runtime_v2)
+                        })
+                        .unwrap_or(true)
+                }
+
                 let slot_versions = &mut entries.entry(key).or_default();
                 match slot_versions.binary_search_by(|at| {
                     at.effective_slot
@@ -1008,7 +1023,69 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     }
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index_v2) => {
+                let slot_last_written_to = entry.deployment_slot;
+
+                let mut existing_entry = None;
+
+                // This is a bug, but the tests don't catch it.
+                // We need to use `None` here in case the existing entry is
+                // `Builtin` or `Closed`, but if the reverse order _has_ an
+                // environment and we attempt to replace it with a `Builtin`,
+                // it won't panic.
+                // It successfully panics in the tests, but that's only because
+                // the cache's environment doesn't change, and is the same as
+                // both the `old` and `new` entries.
+                let potential_environments = [
+                    None,
+                    Some(&self.environments.program_runtime_v1),
+                    Some(&self.environments.program_runtime_v2),
+                ];
+                for env in potential_environments.into_iter() {
+                    let key = IndexV2Key::new(&key, env, slot_last_written_to);
+                    if index_v2.entries.contains_key(&key) {
+                        existing_entry = index_v2.entries.get_mut(&key);
+                        break;
+                    }
+                }
+
+                if let Some(existing) = existing_entry {
+                    // The entry was found, now update it.
+                    match (&entry.program, &existing.program) {
+                        // Only two types of replacements are considered valid.
+                        // * A builtin must replace a builtin.
+                        // * A loaded program must replace an unloaded program.
+                        // Any other replacement is invalid.
+                        (ProgramCacheEntryType::Builtin(_), ProgramCacheEntryType::Builtin(_))
+                        | (ProgramCacheEntryType::Loaded(_), ProgramCacheEntryType::Unloaded(_)) => {
+                        }
+                        _ => {
+                            // This needs to come out. It's a bug.
+                            // We should rearchitect the cache so we never end
+                            // up in this situation.
+                            error!("ProgramCache::assign_program() failed with index v2 key={:?} entry={:?}", key, entry);
+                            debug_assert!(false, "Unexpected replacement of an entry");
+                            self.stats.replacements.fetch_add(1, Ordering::Relaxed);
+                            return true;
+                        }
+                    }
+                    // Copy over the usage counter to the new entry.
+                    entry.tx_usage_counter.fetch_add(
+                        existing.tx_usage_counter.load(Ordering::Relaxed),
+                        Ordering::Relaxed,
+                    );
+                    entry.ix_usage_counter.fetch_add(
+                        existing.ix_usage_counter.load(Ordering::Relaxed),
+                        Ordering::Relaxed,
+                    );
+                    *existing = Arc::clone(&entry);
+                    self.stats.reloads.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    // The entry was not found. Add it.
+                    self.stats.insertions.fetch_add(1, Ordering::Relaxed);
+                    index_v2.insert_entry(&key, entry);
+                }
+            }
         }
         false
     }
@@ -1482,7 +1559,7 @@ mod tests {
                 Arc, RwLock,
             },
         },
-        test_case::{test_case, test_matrix},
+        test_case::test_matrix,
     };
 
     static MOCK_ENVIRONMENT: std::sync::OnceLock<ProgramRuntimeEnvironment> =
@@ -1951,7 +2028,8 @@ mod tests {
             ProgramCacheEntryType::Unloaded(get_mock_env()),
             new_loaded_entry(get_mock_env()),
             ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
-        )
+        ),
+        (false, true) // `use_index_v2`
     )]
     #[test_matrix(
         (
@@ -1962,7 +2040,8 @@ mod tests {
             ProgramCacheEntryType::Closed,
             ProgramCacheEntryType::Unloaded(get_mock_env()),
             ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
-        )
+        ),
+        (false, true) // `use_index_v2`
     )]
     #[test_matrix(
         (ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),),
@@ -1971,11 +2050,16 @@ mod tests {
             ProgramCacheEntryType::Closed,
             ProgramCacheEntryType::Unloaded(get_mock_env()),
             new_loaded_entry(get_mock_env()),
-        )
+        ),
+        (false, true) // `use_index_v2`
     )]
     #[should_panic(expected = "Unexpected replacement of an entry")]
-    fn test_assign_program_failure(old: ProgramCacheEntryType, new: ProgramCacheEntryType) {
-        let mut cache = new_mock_cache::<TestForkGraph>(false);
+    fn test_assign_program_failure(
+        old: ProgramCacheEntryType,
+        new: ProgramCacheEntryType,
+        use_index_v2: bool,
+    ) {
+        let mut cache = new_mock_cache::<TestForkGraph>(use_index_v2);
         let program_id = Pubkey::new_unique();
         assert!(!cache.assign_program(
             program_id,
@@ -2005,16 +2089,22 @@ mod tests {
         );
     }
 
-    #[test_case(
+    #[test_matrix(
         ProgramCacheEntryType::Unloaded(Arc::new(BuiltinProgram::new_mock())),
-        new_loaded_entry(get_mock_env())
+        new_loaded_entry(get_mock_env()),
+        (false, true) // `use_index_v2`
     )]
-    #[test_case(
+    #[test_matrix(
         ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
-        ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock())
+        ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
+        (false, true) // `use_index_v2`
     )]
-    fn test_assign_program_success(old: ProgramCacheEntryType, new: ProgramCacheEntryType) {
-        let mut cache = new_mock_cache::<TestForkGraph>(false);
+    fn test_assign_program_success(
+        old: ProgramCacheEntryType,
+        new: ProgramCacheEntryType,
+        use_index_v2: bool,
+    ) {
+        let mut cache = new_mock_cache::<TestForkGraph>(use_index_v2);
         let program_id = Pubkey::new_unique();
         assert!(!cache.assign_program(
             program_id,
