@@ -1531,7 +1531,32 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     *candidate = Arc::new(unloaded);
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index_v2) => {
+                let candidate_key = IndexV2Key::new(
+                    program,
+                    remove_entry.program.get_environment(),
+                    remove_entry.deployment_slot,
+                );
+                let candidate = index_v2
+                    .entries
+                    .get_mut(&candidate_key)
+                    .expect("Program entry not found");
+
+                // Certain entry types cannot be unloaded, such as tombstones, or already unloaded entries.
+                // For such entries, `to_unloaded()` will return None.
+                // These entry types do not occupy much memory.
+                if let Some(unloaded) = candidate.to_unloaded() {
+                    if candidate.tx_usage_counter.load(Ordering::Relaxed) == 1 {
+                        self.stats.one_hit_wonders.fetch_add(1, Ordering::Relaxed);
+                    }
+                    self.stats
+                        .evictions
+                        .entry(*program)
+                        .and_modify(|c| saturating_add_assign!(*c, 1))
+                        .or_insert(1);
+                    *candidate = Arc::new(unloaded);
+                }
+            }
         }
     }
 
@@ -2781,9 +2806,10 @@ mod tests {
         assert!(match_missing(&missing, &program1, true));
     }
 
-    #[test]
-    fn test_unloaded() {
-        let mut cache = new_mock_cache::<TestForkGraph>(false);
+    #[test_case(false ; "index v1")]
+    #[test_case(true ; "index v2")]
+    fn test_unloaded(use_index_v2: bool) {
+        let mut cache = new_mock_cache::<TestForkGraph>(use_index_v2);
         for program_cache_entry_type in [
             ProgramCacheEntryType::FailedVerification(
                 cache.environments.program_runtime_v1.clone(),
@@ -2808,7 +2834,10 @@ mod tests {
             let program_id = Pubkey::new_unique();
             cache.assign_program(program_id, entry.clone());
             cache.unload_program_entry(&program_id, &entry);
-            assert_eq!(cache.get_slot_versions_for_tests(&program_id).len(), 1);
+            if !use_index_v2 {
+                // Index v2 does not keep slot versions.
+                assert_eq!(cache.get_slot_versions_for_tests(&program_id).len(), 1);
+            }
             assert!(cache.stats.evictions.is_empty());
         }
 
