@@ -72,9 +72,10 @@ impl Sysvar for SlotHashes {
     }
 }
 
+/// A bytemuck-compatible representation of a `SlotHash`.
 #[derive(Copy, Clone, Default, Pod, Zeroable)]
 #[repr(C)]
-struct PodSlotHash {
+pub struct PodSlotHash {
     slot: Slot,
     hash: Hash,
 }
@@ -86,7 +87,7 @@ impl SlotHashesSysvar {
     /// Get a value from the sysvar entries by its key.
     /// Returns `None` if the key is not found.
     pub fn get(slot: &Slot) -> Result<Option<Hash>, ProgramError> {
-        get_pod_slot_hashes().map(|pod_hashes| {
+        Self::get_pod_slot_hashes().map(|pod_hashes| {
             pod_hashes
                 .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
                 .map(|idx| pod_hashes[idx].hash)
@@ -97,30 +98,31 @@ impl SlotHashesSysvar {
     /// Get the position of an entry in the sysvar by its key.
     /// Returns `None` if the key is not found.
     pub fn position(slot: &Slot) -> Result<Option<usize>, ProgramError> {
-        get_pod_slot_hashes().map(|pod_hashes| {
+        Self::get_pod_slot_hashes().map(|pod_hashes| {
             pod_hashes
                 .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
                 .ok()
         })
     }
-}
 
-fn get_pod_slot_hashes() -> Result<Vec<PodSlotHash>, ProgramError> {
-    let mut pod_hashes = vec![PodSlotHash::default(); MAX_ENTRIES];
-    {
-        let data = bytemuck::try_cast_slice_mut::<PodSlotHash, u8>(&mut pod_hashes)
-            .map_err(|_| ProgramError::InvalidAccountData)?;
+    /// Return the slot hashes sysvar as a vector of `PodSlotHash`.
+    pub fn get_pod_slot_hashes() -> Result<Vec<PodSlotHash>, ProgramError> {
+        let mut pod_hashes = vec![PodSlotHash::default(); MAX_ENTRIES];
+        {
+            let data = bytemuck::try_cast_slice_mut::<PodSlotHash, u8>(&mut pod_hashes)
+                .map_err(|_| ProgramError::InvalidAccountData)?;
 
-        // Ensure the created buffer is aligned to 8.
-        if data.as_ptr().align_offset(8) != 0 {
-            return Err(ProgramError::InvalidAccountData);
+            // Ensure the created buffer is aligned to 8.
+            if data.as_ptr().align_offset(8) != 0 {
+                return Err(ProgramError::InvalidAccountData);
+            }
+
+            let offset = 8; // Vector length as `u64`.
+            let length = (SlotHashes::size_of() as u64).saturating_sub(offset);
+            get_sysvar(data, &SlotHashes::id(), offset, length)?;
         }
-
-        let offset = 8; // Vector length as `u64`.
-        let length = (SlotHashes::size_of() as u64).saturating_sub(offset);
-        get_sysvar(data, &SlotHashes::id(), offset, length)?;
+        Ok(pod_hashes)
     }
-    Ok(pod_hashes)
 }
 
 #[cfg(test)]
