@@ -157,6 +157,7 @@ mod tests {
             sysvar::tests::mock_get_sysvar_syscall,
         },
         serial_test::serial,
+        test_case::test_case,
     };
 
     #[test]
@@ -172,11 +173,22 @@ mod tests {
         );
     }
 
+    #[allow(clippy::arithmetic_side_effects)]
+    #[test_case(0)]
+    #[test_case(1)]
+    #[test_case(2)]
+    #[test_case(5)]
+    #[test_case(10)]
+    #[test_case(64)]
+    #[test_case(128)]
+    #[test_case(192)]
+    #[test_case(256)]
+    #[test_case(384)]
+    #[test_case(MAX_ENTRIES)]
     #[serial]
-    #[test]
-    fn test_slot_hashes_sysvar() {
+    fn test_slot_hashes_sysvar(num_entries: usize) {
         let mut slot_hashes = vec![];
-        for i in 0..MAX_ENTRIES {
+        for i in 0..num_entries {
             slot_hashes.push((
                 i as u64,
                 hash(&[(i >> 24) as u8, (i >> 16) as u8, (i >> 8) as u8, i as u8]),
@@ -186,42 +198,44 @@ mod tests {
         let check_slot_hashes = SlotHashes::new(&slot_hashes);
         mock_get_sysvar_syscall(&bincode::serialize(&check_slot_hashes).unwrap());
 
-        // `get`:
-        assert_eq!(
-            SlotHashesSysvar::get(&0).unwrap().as_ref(),
-            check_slot_hashes.get(&0),
-        );
-        assert_eq!(
-            SlotHashesSysvar::get(&256).unwrap().as_ref(),
-            check_slot_hashes.get(&256),
-        );
-        assert_eq!(
-            SlotHashesSysvar::get(&511).unwrap().as_ref(),
-            check_slot_hashes.get(&511),
-        );
-        // `None`.
-        assert_eq!(
-            SlotHashesSysvar::get(&600).unwrap().as_ref(),
-            check_slot_hashes.get(&600),
-        );
+        // `get_pod_slot_hashes` should match the slot hashes.
+        // Note slot hashes are stored largest slot to smallest.
+        for (i, pod_slot_hash) in SlotHashesSysvar::get_pod_slot_hashes()
+            .unwrap()
+            .iter()
+            .enumerate()
+        {
+            let check = slot_hashes[num_entries - 1 - i];
+            assert_eq!(pod_slot_hash.slot, check.0);
+            assert_eq!(pod_slot_hash.hash, check.1);
+        }
 
-        // `position`:
-        assert_eq!(
-            SlotHashesSysvar::position(&0).unwrap(),
-            check_slot_hashes.position(&0),
-        );
-        assert_eq!(
-            SlotHashesSysvar::position(&256).unwrap(),
-            check_slot_hashes.position(&256),
-        );
-        assert_eq!(
-            SlotHashesSysvar::position(&511).unwrap(),
-            check_slot_hashes.position(&511),
-        );
-        // `None`.
-        assert_eq!(
-            SlotHashesSysvar::position(&600).unwrap(),
-            check_slot_hashes.position(&600),
-        );
+        // Check some arbitrary slots in the created slot hashes.
+        let num_entries = num_entries as Slot;
+        let check_slots = if num_entries == 0 {
+            vec![num_entries, num_entries + 100]
+        } else {
+            vec![
+                0,
+                num_entries / 4,
+                num_entries / 2,
+                num_entries - 1,
+                num_entries,
+                num_entries + 100,
+            ]
+        };
+
+        for slot in check_slots.iter() {
+            // `get`:
+            assert_eq!(
+                SlotHashesSysvar::get(slot).unwrap().as_ref(),
+                check_slot_hashes.get(slot),
+            );
+            // `position`:
+            assert_eq!(
+                SlotHashesSysvar::position(slot).unwrap(),
+                check_slot_hashes.position(slot),
+            );
+        }
     }
 }

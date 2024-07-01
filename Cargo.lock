@@ -6875,6 +6875,7 @@ dependencies = [
  "solana-secp256k1-recover",
  "solana-short-vec",
  "static_assertions",
+ "test-case",
  "thiserror",
  "wasm-bindgen",
 ]
