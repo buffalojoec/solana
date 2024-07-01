@@ -7512,6 +7512,11 @@ dependencies = [
 [[package]]
 name = "solana-svm-conformance"
 version = "2.1.0"
+dependencies = [
+ "prost",
+ "prost-build",
+ "prost-types",
+]
 
 [[package]]
 name = "solana-system-program"
