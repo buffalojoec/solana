@@ -52,7 +52,7 @@ use {
         clock::Slot,
         hash::Hash,
         program_error::ProgramError,
-        slot_hashes::MAX_ENTRIES,
+        slot_hashes::SlotHash,
         sysvar::{get_sysvar, Sysvar, SysvarId},
     },
     bytemuck_derive::{Pod, Zeroable},
@@ -71,6 +71,8 @@ impl Sysvar for SlotHashes {
         Err(ProgramError::UnsupportedSysvar)
     }
 }
+
+const VEC_LEN_U64_SIZE: usize = std::mem::size_of::<u64>();
 
 /// A bytemuck-compatible representation of a `SlotHash`.
 #[derive(Copy, Clone, Default, Pod, Zeroable)]
@@ -107,21 +109,40 @@ impl SlotHashesSysvar {
 
     /// Return the slot hashes sysvar as a vector of `PodSlotHash`.
     pub fn get_pod_slot_hashes() -> Result<Vec<PodSlotHash>, ProgramError> {
-        let mut pod_hashes = vec![PodSlotHash::default(); MAX_ENTRIES];
-        {
-            let data = bytemuck::try_cast_slice_mut::<PodSlotHash, u8>(&mut pod_hashes)
-                .map_err(|_| ProgramError::InvalidAccountData)?;
+        // First fetch the length of the slot hashes vector.
+        let slot_hash_count = {
+            let mut data = vec![0u8; VEC_LEN_U64_SIZE];
+            get_sysvar(
+                &mut data,
+                &SlotHashes::id(),
+                /* offset */ 0,
+                VEC_LEN_U64_SIZE as u64,
+            )?;
+            usize::from_le_bytes(data.try_into().unwrap())
+        };
 
-            // Ensure the created buffer is aligned to 8.
-            if data.as_ptr().align_offset(8) != 0 {
-                return Err(ProgramError::InvalidAccountData);
-            }
-
-            let offset = 8; // Vector length as `u64`.
-            let length = (SlotHashes::size_of() as u64).saturating_sub(offset);
-            get_sysvar(data, &SlotHashes::id(), offset, length)?;
+        if slot_hash_count == 0 {
+            return Ok(vec![]);
         }
-        Ok(pod_hashes)
+
+        // Then fetch the sysvar data.
+        let length = slot_hash_count
+            .checked_mul(std::mem::size_of::<SlotHash>())
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+
+        let mut data = vec![0u8; length];
+        get_sysvar(
+            &mut data,
+            &SlotHashes::id(),
+            VEC_LEN_U64_SIZE as u64,
+            length as u64,
+        )?;
+
+        // Finally, convert to a vector of `PodSlotHash`.
+        bytemuck::try_cast_slice::<u8, PodSlotHash>(&data)
+            .ok()
+            .map(|pod_hashes| pod_hashes.to_vec())
+            .ok_or(ProgramError::InvalidAccountData)
     }
 }
 
