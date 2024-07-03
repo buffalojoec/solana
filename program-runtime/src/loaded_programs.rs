@@ -662,6 +662,10 @@ impl IndexV2SecondaryIndex {
         Arc::as_ptr(env) as u64
     }
 
+    fn get(&self, key: &ProgramRuntimeEnvironment) -> Option<&Arc<ProgramCacheEntry>> {
+        self.0.get(&Self::env_ptr(key))
+    }
+
     fn get_mut(&mut self, key: &ProgramRuntimeEnvironment) -> Option<&mut Arc<ProgramCacheEntry>> {
         self.0.get_mut(&Self::env_ptr(key))
     }
@@ -1374,7 +1378,58 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     true
                 });
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index) => {
+                // Generally speaking, I think this will work with `slot_last_written_to`.
+                // However, since this value is currently mocked out by `deployment_slot`, it's not
+                // going to work properly with extraction until the real `slot_last_written_to` is
+                // plumbed through to the cache.
+                search_for.retain(|(address, (_match_criteria, usage_count))| {
+                    let key = IndexV2Key::new(*address, loaded_programs_for_tx_batch.slot);
+                    if let Some(entry) = index.entries.get(&key).and_then(|value| match value {
+                        IndexV2Value::WithEnvironment(secondary_index) => secondary_index
+                            .get(&self.environments.program_runtime_v1)
+                            .or(secondary_index.get(&self.environments.program_runtime_v2)),
+                        IndexV2Value::NoEnvironment(entry) => Some(entry),
+                    }) {
+                        let entry_to_return = if entry.is_implicit_delay_visibility_tombstone(
+                            loaded_programs_for_tx_batch.slot,
+                        ) {
+                            Arc::new(ProgramCacheEntry::new_tombstone(
+                                entry.deployment_slot,
+                                entry.account_owner,
+                                ProgramCacheEntryType::DelayVisibility,
+                            ))
+                        } else {
+                            match &entry.program {
+                                ProgramCacheEntryType::Unloaded(_) => {
+                                    return true;
+                                }
+                                _ => entry.clone(),
+                            }
+                        };
+                        entry_to_return.update_access_slot(loaded_programs_for_tx_batch.slot);
+                        entry_to_return
+                            .tx_usage_counter
+                            .fetch_add(*usage_count, Ordering::Relaxed);
+                        loaded_programs_for_tx_batch
+                            .entries
+                            .insert(*address, entry_to_return);
+                        return false;
+                    }
+                    if cooperative_loading_task.is_none() {
+                        let mut loading_entries = index.loading_entries.lock().unwrap();
+                        let entry = loading_entries.entry(*address);
+                        if let Entry::Vacant(entry) = entry {
+                            entry.insert((
+                                loaded_programs_for_tx_batch.slot,
+                                thread::current().id(),
+                            ));
+                            cooperative_loading_task = Some((*address, *usage_count));
+                        }
+                    }
+                    true
+                });
+            }
         }
         drop(locked_fork_graph);
         if is_first_round {
@@ -1616,7 +1671,6 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                 let candidate = index
                     .entries
                     .get_mut(&key)
-                    // .expect("Cache lookup failed")
                     .and_then(|value| match value {
                         IndexV2Value::WithEnvironment(secondary_index) => {
                             if let Some(env) = remove_entry.program.get_environment() {
@@ -2564,11 +2618,18 @@ mod tests {
         deployment_slot: Slot,
         working_slot: Slot,
     ) -> bool {
+        println!("-- match_slot --");
+        println!("(W) Expected: {}", working_slot);
+        println!("(W) Actual:   {}", extracted.slot);
         assert_eq!(extracted.slot, working_slot);
         extracted
             .entries
             .get(program)
-            .map(|entry| entry.deployment_slot == deployment_slot)
+            .map(|entry| {
+                println!("(D) Expected: {}", deployment_slot);
+                println!("(D) Actual:   {}", entry.deployment_slot);
+                entry.deployment_slot == deployment_slot
+            })
             .unwrap_or(false)
     }
 
@@ -2580,9 +2641,10 @@ mod tests {
         missing.iter().any(|(key, _)| key == program) == expected_result
     }
 
-    #[test]
-    fn test_fork_extract_and_prune() {
-        let mut cache = new_mock_cache::<TestForkGraphSpecific>(false);
+    #[test_case(false ; "use_index_v1")]
+    // #[test_case(true ; "use_index_v2")] // Can't do this without `prune`.
+    fn test_fork_extract_and_prune(use_index_v2: bool) {
+        let mut cache = new_mock_cache::<TestForkGraphSpecific>(use_index_v2);
 
         // Fork graph created for the test
         //                   0
@@ -2775,9 +2837,10 @@ mod tests {
         assert!(match_slot(&extracted, &program4, 15, 23));
     }
 
-    #[test]
-    fn test_extract_using_deployment_slot() {
-        let mut cache = new_mock_cache::<TestForkGraphSpecific>(false);
+    #[test_case(false ; "use_index_v1")]
+    #[test_case(true ; "use_index_v2")]
+    fn test_extract_using_deployment_slot(use_index_v2: bool) {
+        let mut cache = new_mock_cache::<TestForkGraphSpecific>(use_index_v2);
 
         // Fork graph created for the test
         //                   0
@@ -2832,9 +2895,10 @@ mod tests {
         assert!(match_slot(&extracted, &program2, 11, 12));
     }
 
-    #[test]
-    fn test_extract_unloaded() {
-        let mut cache = new_mock_cache::<TestForkGraphSpecific>(false);
+    #[test_case(false ; "use_index_v1")]
+    #[test_case(true ; "use_index_v2")]
+    fn test_extract_unloaded(use_index_v2: bool) {
+        let mut cache = new_mock_cache::<TestForkGraphSpecific>(use_index_v2);
 
         // Fork graph created for the test
         //                   0
@@ -2908,9 +2972,10 @@ mod tests {
         assert!(match_missing(&missing, &program3, true));
     }
 
-    #[test]
-    fn test_extract_nonexistent() {
-        let mut cache = new_mock_cache::<TestForkGraphSpecific>(false);
+    #[test_case(false ; "use_index_v1")]
+    #[test_case(true ; "use_index_v2")]
+    fn test_extract_nonexistent(use_index_v2: bool) {
+        let mut cache = new_mock_cache::<TestForkGraphSpecific>(use_index_v2);
         let fork_graph = TestForkGraphSpecific::default();
         let fork_graph = Arc::new(RwLock::new(fork_graph));
         cache.set_fork_graph(fork_graph);
@@ -3012,7 +3077,7 @@ mod tests {
     }
 
     #[test_case(false ; "index v1")]
-    // #[test_case(true ; "index v2")] // Can't do this yet without `extract`.
+    #[test_case(true ; "index v2")]
     fn test_prune_by_deployment_slot(use_index_v2: bool) {
         let mut cache = new_mock_cache::<TestForkGraphSpecific>(use_index_v2);
 
