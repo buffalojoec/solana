@@ -1323,7 +1323,32 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                         })
                 })
                 .collect(),
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index) => index
+                .entries
+                .iter()
+                .filter_map(|(key, value)| match value {
+                    IndexV2Value::WithEnvironment(secondary_index) => Some(
+                        secondary_index
+                            .0
+                            .values()
+                            .filter(|v| {
+                                if let ProgramCacheEntryType::Loaded(_) = v.program {
+                                    if (v.account_owner != ProgramCacheEntryOwner::LoaderV4
+                                        && include_program_runtime_v1)
+                                        || (v.account_owner == ProgramCacheEntryOwner::LoaderV4
+                                            && include_program_runtime_v2)
+                                    {
+                                        return true;
+                                    }
+                                }
+                                false
+                            })
+                            .map(|v| (key.address, v.clone())),
+                    ),
+                    _ => None,
+                })
+                .flatten()
+                .collect(),
         }
     }
 
@@ -1336,7 +1361,21 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     second_level.iter().map(|program| (*id, program.clone()))
                 })
                 .collect(),
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index) => index
+                .entries
+                .iter()
+                .flat_map(|(key, value)| {
+                    let id = key.address;
+                    match value {
+                        IndexV2Value::WithEnvironment(second_level) => second_level
+                            .0
+                            .values()
+                            .map(|v| (id, v.clone()))
+                            .collect::<Vec<_>>(),
+                        IndexV2Value::NoEnvironment(entry) => vec![(id, entry.clone())],
+                    }
+                })
+                .collect(),
         }
     }
 
@@ -1347,7 +1386,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                 .get(key)
                 .map(|second_level| second_level.as_ref())
                 .unwrap_or(&[]),
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(_) => panic!("Index v2 does not keep slot versions"),
         }
     }
 
