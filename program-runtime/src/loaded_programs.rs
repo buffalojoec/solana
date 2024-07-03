@@ -669,6 +669,14 @@ impl IndexV2SecondaryIndex {
     fn insert(&mut self, env: &ProgramRuntimeEnvironment, entry: &Arc<ProgramCacheEntry>) {
         self.0.insert(Self::env_ptr(env), Arc::clone(entry));
     }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn prune(&mut self, key: &ProgramRuntimeEnvironment) {
+        self.0.remove(&Self::env_ptr(key));
+    }
 }
 
 /// The program cache's V2 index implementation.
@@ -706,6 +714,24 @@ impl IndexV2 {
             entries: HashMap::new(),
             loading_entries: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn prune_by_env(&mut self, env: &ProgramRuntimeEnvironment) {
+        self.entries.retain(|_, v| match v {
+            IndexV2Value::WithEnvironment(secondary_index) => {
+                secondary_index.prune(env);
+                !secondary_index.is_empty()
+            }
+            _ => true,
+        });
+    }
+
+    fn prune_by_slot(&mut self, slot: Slot) {
+        self.entries.retain(|k, _| k.slot_last_written_to != slot);
+    }
+
+    fn remove_programs_for_tests(&mut self, keys: impl Iterator<Item = Pubkey>) {
+        keys.for_each(|key| self.entries.retain(|k, _| k.address != key));
     }
 }
 
@@ -1145,7 +1171,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                 }
                 self.remove_programs_with_no_entries();
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index) => index.prune_by_slot(slot),
         }
     }
 
@@ -1160,7 +1186,9 @@ impl<FG: ForkGraph> ProgramCache<FG> {
             return;
         };
         let mut preparation_phase_ends = false;
+        let mut prunable_environments = None;
         if self.latest_root_epoch != new_root_epoch {
+            prunable_environments = Some(self.get_environments_for_epoch(self.latest_root_epoch));
             self.latest_root_epoch = new_root_epoch;
             if let Some(upcoming_environments) = self.upcoming_environments.take() {
                 preparation_phase_ends = true;
@@ -1227,7 +1255,12 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     second_level.reverse();
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index) => {
+                if let Some(prunable_environments) = prunable_environments {
+                    index.prune_by_env(&prunable_environments.program_runtime_v1);
+                    index.prune_by_env(&prunable_environments.program_runtime_v2);
+                }
+            }
         }
         self.remove_programs_with_no_entries();
         debug_assert!(self.latest_root_slot <= new_root_slot);
@@ -1548,7 +1581,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     entries.remove(&k);
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            IndexImplementation::V2(index) => index.remove_programs_for_tests(keys),
         }
     }
 
@@ -1603,7 +1636,12 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                     );
                 }
             }
-            IndexImplementation::V2(_) => unimplemented!(),
+            // Becuase of the pruning design, this should never happen, but
+            // here's an implementation just in case.
+            IndexImplementation::V2(index) => index.entries.retain(|_, value| match value {
+                IndexV2Value::WithEnvironment(secondary_index) => !secondary_index.0.is_empty(),
+                _ => true,
+            }),
         }
     }
 }
@@ -1645,7 +1683,7 @@ mod tests {
                 Arc, RwLock,
             },
         },
-        test_case::test_matrix,
+        test_case::{test_case, test_matrix},
     };
 
     static MOCK_ENVIRONMENT: std::sync::OnceLock<ProgramRuntimeEnvironment> =
@@ -2291,9 +2329,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_prune_empty() {
-        let mut cache = new_mock_cache::<TestForkGraph>(false);
+    #[test_case(false ; "index v1")]
+    #[test_case(true ; "index v2")]
+    fn test_prune_empty(use_index_v2: bool) {
+        let mut cache = new_mock_cache::<TestForkGraph>(use_index_v2);
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {
             relation: BlockRelation::Unrelated,
         }));
@@ -2345,9 +2384,10 @@ mod tests {
         assert!(cache.get_flattened_entries_for_tests().is_empty());
     }
 
-    #[test]
-    fn test_prune_different_env() {
-        let mut cache = new_mock_cache::<TestForkGraph>(false);
+    #[test_case(false ; "index v1")]
+    #[test_case(true ; "index v2")]
+    fn test_prune_different_env(use_index_v2: bool) {
+        let mut cache = new_mock_cache::<TestForkGraph>(use_index_v2);
 
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {
             relation: BlockRelation::Ancestor,
@@ -2376,25 +2416,41 @@ mod tests {
         cache.assign_program(program1, updated_program.clone());
 
         // Test that there are 2 entries for the program
-        assert_eq!(cache.get_slot_versions_for_tests(&program1).len(), 2);
+        if use_index_v2 {
+            // TODO: Write a similar lookup for v2 entries.
+        } else {
+            assert_eq!(cache.get_slot_versions_for_tests(&program1).len(), 2);
+        }
 
         cache.prune(21, cache.latest_root_epoch);
 
         // Test that prune didn't remove the entry, since environments are different.
-        assert_eq!(cache.get_slot_versions_for_tests(&program1).len(), 2);
+        if use_index_v2 {
+            // TODO: Write a similar lookup for v2 entries.
+        } else {
+            assert_eq!(cache.get_slot_versions_for_tests(&program1).len(), 2);
+        }
 
         cache.prune(22, cache.latest_root_epoch.saturating_add(1));
 
         // Test that prune removed 1 entry, since epoch changed
-        assert_eq!(cache.get_slot_versions_for_tests(&program1).len(), 1);
+        if use_index_v2 {
+            // TODO: Write a similar lookup for v2 entries.
+        } else {
+            assert_eq!(cache.get_slot_versions_for_tests(&program1).len(), 1);
+        }
 
-        let entry = cache
-            .get_slot_versions_for_tests(&program1)
-            .first()
-            .expect("Failed to get the program")
-            .clone();
         // Test that the correct entry remains in the cache
-        assert_eq!(entry, updated_program);
+        if use_index_v2 {
+            // TODO: Write a similar lookup for v2 entries.
+        } else {
+            let entry = cache
+                .get_slot_versions_for_tests(&program1)
+                .first()
+                .expect("Failed to get the program")
+                .clone();
+            assert_eq!(entry, updated_program);
+        }
     }
 
     #[derive(Default)]
@@ -2913,9 +2969,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_prune_by_deployment_slot() {
-        let mut cache = new_mock_cache::<TestForkGraphSpecific>(false);
+    #[test_case(false ; "index v1")]
+    // #[test_case(true ; "index v2")] // Can't do this yet without `extract`.
+    fn test_prune_by_deployment_slot(use_index_v2: bool) {
+        let mut cache = new_mock_cache::<TestForkGraphSpecific>(use_index_v2);
 
         // Fork graph created for the test
         //                   0
