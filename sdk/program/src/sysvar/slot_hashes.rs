@@ -89,7 +89,7 @@ impl SlotHashesSysvar {
     /// Get a value from the sysvar entries by its key.
     /// Returns `None` if the key is not found.
     pub fn get(slot: &Slot) -> Result<Option<Hash>, ProgramError> {
-        Self::get_pod_slot_hashes().map(|pod_hashes| {
+        Self::pod_slot_hashes().map(|pod_hashes| {
             pod_hashes
                 .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
                 .map(|idx| pod_hashes[idx].hash)
@@ -100,7 +100,7 @@ impl SlotHashesSysvar {
     /// Get the position of an entry in the sysvar by its key.
     /// Returns `None` if the key is not found.
     pub fn position(slot: &Slot) -> Result<Option<usize>, ProgramError> {
-        Self::get_pod_slot_hashes().map(|pod_hashes| {
+        Self::pod_slot_hashes().map(|pod_hashes| {
             pod_hashes
                 .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
                 .ok()
@@ -108,7 +108,7 @@ impl SlotHashesSysvar {
     }
 
     /// Return the slot hashes sysvar as a vector of `PodSlotHash`.
-    pub fn get_pod_slot_hashes() -> Result<Vec<PodSlotHash>, ProgramError> {
+    pub fn pod_slot_hashes() -> Result<Vec<PodSlotHash>, ProgramError> {
         // First fetch all the sysvar data.
         let sysvar_len = SlotHashes::size_of();
         let mut data = vec![0; sysvar_len];
@@ -207,7 +207,7 @@ mod tests {
 
         // `get_pod_slot_hashes` should match the slot hashes.
         // Note slot hashes are stored largest slot to smallest.
-        for (i, pod_slot_hash) in SlotHashesSysvar::get_pod_slot_hashes()
+        for (i, pod_slot_hash) in SlotHashesSysvar::pod_slot_hashes()
             .unwrap()
             .iter()
             .enumerate()
