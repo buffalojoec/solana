@@ -72,8 +72,6 @@ impl Sysvar for SlotHashes {
     }
 }
 
-const VEC_LEN_U64_SIZE: usize = std::mem::size_of::<u64>();
-
 /// A bytemuck-compatible representation of a `SlotHash`.
 #[derive(Copy, Clone, Default, Pod, Zeroable)]
 #[repr(C)]
@@ -81,6 +79,8 @@ pub struct PodSlotHash {
     slot: Slot,
     hash: Hash,
 }
+
+const U64_SIZE: usize = std::mem::size_of::<u64>();
 
 /// API for querying the `SlotHashes` sysvar.
 pub struct SlotHashesSysvar;
@@ -109,38 +109,38 @@ impl SlotHashesSysvar {
 
     /// Return the slot hashes sysvar as a vector of `PodSlotHash`.
     pub fn get_pod_slot_hashes() -> Result<Vec<PodSlotHash>, ProgramError> {
-        // First fetch the length of the slot hashes vector.
-        let slot_hash_count = {
-            let mut data = vec![0u8; VEC_LEN_U64_SIZE];
-            get_sysvar(
-                &mut data,
-                &SlotHashes::id(),
-                /* offset */ 0,
-                VEC_LEN_U64_SIZE as u64,
-            )?;
-            usize::from_le_bytes(data.try_into().unwrap())
-        };
+        // First fetch all the sysvar data.
+        let sysvar_len = SlotHashes::size_of();
+        let mut data = vec![0; sysvar_len];
+        get_sysvar(
+            &mut data,
+            &SlotHashes::id(),
+            /* offset */ 0,
+            /* length */ sysvar_len as u64,
+        )?;
 
+        // Read the sysvar's vector length (u64).
+        let slot_hash_count = data
+            .get(..U64_SIZE)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(usize::from_le_bytes)
+            .ok_or(ProgramError::InvalidAccountData)?;
+
+        // If the vector length is 0, return an empty vector.
         if slot_hash_count == 0 {
             return Ok(vec![]);
         }
 
-        // Then fetch the sysvar data.
+        // From the vector length, determine the expected length of the data.
         let length = slot_hash_count
             .checked_mul(std::mem::size_of::<SlotHash>())
             .ok_or(ProgramError::ArithmeticOverflow)?;
-
-        let mut data = vec![0u8; length];
-        get_sysvar(
-            &mut data,
-            &SlotHashes::id(),
-            VEC_LEN_U64_SIZE as u64,
-            length as u64,
-        )?;
+        let start = U64_SIZE;
+        let end = start.saturating_add(length);
 
         // Finally, convert to a vector of `PodSlotHash`.
-        bytemuck::try_cast_slice::<u8, PodSlotHash>(&data)
-            .ok()
+        data.get(start..end)
+            .and_then(|data| bytemuck::try_cast_slice(data).ok())
             .map(|pod_hashes| pod_hashes.to_vec())
             .ok_or(ProgramError::InvalidAccountData)
     }
@@ -173,6 +173,13 @@ mod tests {
         );
     }
 
+    fn mock_slot_hashes(slot_hashes: &SlotHashes) {
+        // The data is always `SlotHashes::size_of()`.
+        let mut data = vec![0; SlotHashes::size_of()];
+        bincode::serialize_into(&mut data[..], slot_hashes).unwrap();
+        mock_get_sysvar_syscall(&data);
+    }
+
     #[allow(clippy::arithmetic_side_effects)]
     #[test_case(0)]
     #[test_case(1)]
@@ -196,7 +203,7 @@ mod tests {
         }
 
         let check_slot_hashes = SlotHashes::new(&slot_hashes);
-        mock_get_sysvar_syscall(&bincode::serialize(&check_slot_hashes).unwrap());
+        mock_slot_hashes(&check_slot_hashes);
 
         // `get_pod_slot_hashes` should match the slot hashes.
         // Note slot hashes are stored largest slot to smallest.
