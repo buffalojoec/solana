@@ -82,32 +82,16 @@ pub struct PodSlotHash {
 const U64_SIZE: usize = std::mem::size_of::<u64>();
 
 /// API for querying the `SlotHashes` sysvar.
-pub struct SlotHashesSysvar;
+pub struct SlotHashesSysvar {
+    data: Vec<u8>,
+    slot_hashes_start: usize,
+    slot_hashes_end: usize,
+}
 
 impl SlotHashesSysvar {
-    /// Get a value from the sysvar entries by its key.
-    /// Returns `None` if the key is not found.
-    pub fn get(slot: &Slot) -> Result<Option<Hash>, ProgramError> {
-        Self::get_pod_slot_hashes().map(|pod_hashes| {
-            pod_hashes
-                .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
-                .map(|idx| pod_hashes[idx].hash)
-                .ok()
-        })
-    }
-
-    /// Get the position of an entry in the sysvar by its key.
-    /// Returns `None` if the key is not found.
-    pub fn position(slot: &Slot) -> Result<Option<usize>, ProgramError> {
-        Self::get_pod_slot_hashes().map(|pod_hashes| {
-            pod_hashes
-                .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
-                .ok()
-        })
-    }
-
-    /// Return the slot hashes sysvar as a vector of `PodSlotHash`.
-    pub fn get_pod_slot_hashes() -> Result<Vec<PodSlotHash>, ProgramError> {
+    /// Fetch the slot hashes sysvar data and use it to return an instance of
+    /// `SlotHashesSysvar`.
+    pub fn fetch() -> Result<Self, ProgramError> {
         // First fetch all the sysvar data.
         let sysvar_len = SlotHashes::size_of();
         let mut data = vec![0; sysvar_len];
@@ -125,22 +109,46 @@ impl SlotHashesSysvar {
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
 
-        // If the vector length is 0, return an empty vector.
-        if slot_hash_count == 0 {
-            return Ok(vec![]);
-        }
-
         // From the vector length, determine the expected length of the data.
         let length = (slot_hash_count as usize)
             .checked_mul(std::mem::size_of::<PodSlotHash>())
             .ok_or(ProgramError::ArithmeticOverflow)?;
-        let start = U64_SIZE;
-        let end = start.saturating_add(length);
+        let slot_hashes_start = U64_SIZE;
+        let slot_hashes_end = slot_hashes_start.saturating_add(length);
 
-        // Finally, convert to a vector of `PodSlotHash`.
-        data.get(start..end)
+        Ok(Self {
+            data,
+            slot_hashes_start,
+            slot_hashes_end,
+        })
+    }
+
+    /// Get a value from the sysvar entries by its key.
+    /// Returns `None` if the key is not found.
+    pub fn get(&self, slot: &Slot) -> Result<Option<Hash>, ProgramError> {
+        self.get_pod_slot_hashes().map(|pod_hashes| {
+            pod_hashes
+                .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
+                .map(|idx| pod_hashes[idx].hash)
+                .ok()
+        })
+    }
+
+    /// Get the position of an entry in the sysvar by its key.
+    /// Returns `None` if the key is not found.
+    pub fn position(&self, slot: &Slot) -> Result<Option<usize>, ProgramError> {
+        self.get_pod_slot_hashes().map(|pod_hashes| {
+            pod_hashes
+                .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
+                .ok()
+        })
+    }
+
+    /// Return the slot hashes sysvar as a vector of `PodSlotHash`.
+    pub fn get_pod_slot_hashes(&self) -> Result<&[PodSlotHash], ProgramError> {
+        self.data
+            .get(self.slot_hashes_start..self.slot_hashes_end)
             .and_then(|data| bytemuck::try_cast_slice(data).ok())
-            .map(|pod_hashes| pod_hashes.to_vec())
             .ok_or(ProgramError::InvalidAccountData)
     }
 }
@@ -204,13 +212,13 @@ mod tests {
         let check_slot_hashes = SlotHashes::new(&slot_hashes);
         mock_slot_hashes(&check_slot_hashes);
 
-        // `get_pod_slot_hashes` should match the slot hashes.
+        // Fetch the slot hashes sysvar.
+        let slot_hashes_sysvar = SlotHashesSysvar::fetch().unwrap();
+        let pod_slot_hashes = slot_hashes_sysvar.get_pod_slot_hashes().unwrap();
+
+        // `pod_slot_hashes` should match the slot hashes.
         // Note slot hashes are stored largest slot to smallest.
-        for (i, pod_slot_hash) in SlotHashesSysvar::get_pod_slot_hashes()
-            .unwrap()
-            .iter()
-            .enumerate()
-        {
+        for (i, pod_slot_hash) in pod_slot_hashes.iter().enumerate() {
             let check = slot_hashes[num_entries - 1 - i];
             assert_eq!(pod_slot_hash.slot, check.0);
             assert_eq!(pod_slot_hash.hash, check.1);
@@ -234,12 +242,12 @@ mod tests {
         for slot in check_slots.iter() {
             // `get`:
             assert_eq!(
-                SlotHashesSysvar::get(slot).unwrap().as_ref(),
+                slot_hashes_sysvar.get(slot).unwrap().as_ref(),
                 check_slot_hashes.get(slot),
             );
             // `position`:
             assert_eq!(
-                SlotHashesSysvar::position(slot).unwrap(),
+                slot_hashes_sysvar.position(slot).unwrap(),
                 check_slot_hashes.position(slot),
             );
         }
