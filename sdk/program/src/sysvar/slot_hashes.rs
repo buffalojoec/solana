@@ -75,8 +75,8 @@ impl Sysvar for SlotHashes {
 #[derive(Copy, Clone, Default, Pod, Zeroable)]
 #[repr(C)]
 pub struct PodSlotHash {
-    slot: Slot,
-    hash: Hash,
+    pub slot: Slot,
+    pub hash: Hash,
 }
 
 const U64_SIZE: usize = std::mem::size_of::<u64>();
