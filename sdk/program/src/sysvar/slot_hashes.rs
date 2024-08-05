@@ -52,7 +52,6 @@ use {
         clock::Slot,
         hash::Hash,
         program_error::ProgramError,
-        slot_hashes::SlotHash,
         sysvar::{get_sysvar, Sysvar, SysvarId},
     },
     bytemuck_derive::{Pod, Zeroable},
@@ -123,7 +122,7 @@ impl SlotHashesSysvar {
         let slot_hash_count = data
             .get(..U64_SIZE)
             .and_then(|bytes| bytes.try_into().ok())
-            .map(usize::from_le_bytes)
+            .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidAccountData)?;
 
         // If the vector length is 0, return an empty vector.
@@ -132,8 +131,8 @@ impl SlotHashesSysvar {
         }
 
         // From the vector length, determine the expected length of the data.
-        let length = slot_hash_count
-            .checked_mul(std::mem::size_of::<SlotHash>())
+        let length = (slot_hash_count as usize)
+            .checked_mul(std::mem::size_of::<PodSlotHash>())
             .ok_or(ProgramError::ArithmeticOverflow)?;
         let start = U64_SIZE;
         let end = start.saturating_add(length);
