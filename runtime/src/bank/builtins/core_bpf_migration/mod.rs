@@ -887,6 +887,7 @@ pub(crate) mod tests {
             let owner = &bpf_loader_upgradeable::id();
 
             let mut account = AccountSharedData::new(lamports, space, owner);
+            account.set_executable(true);
             account.data_as_mut_slice().copy_from_slice(&data);
             bank.store_account_and_update_capitalization(program_address, &account);
             account
