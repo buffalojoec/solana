@@ -71,3 +71,66 @@ impl Sysvar for PodSlotHashes {
         PodSlotHashes::new(data)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use {
+        super::*,
+        crate::{
+            clock::Slot,
+            hash::{hash, Hash},
+            slot_hashes::{SlotHashes, MAX_ENTRIES},
+            sysvar::tests::mock_get_sysvar_syscall,
+        },
+        serial_test::serial,
+        test_case::test_case,
+    };
+
+    #[test]
+    fn test_size_of() {
+        assert_eq!(
+            PodSlotHashes::size_of(),
+            bincode::serialized_size(
+                &(0..MAX_ENTRIES)
+                    .map(|slot| (slot as Slot, Hash::default()))
+                    .collect::<SlotHashes>()
+            )
+            .unwrap() as usize
+        );
+    }
+
+    #[test_case(0)]
+    #[test_case(1)]
+    #[test_case(2)]
+    #[test_case(5)]
+    #[test_case(10)]
+    #[test_case(64)]
+    #[test_case(128)]
+    #[test_case(192)]
+    #[test_case(256)]
+    #[test_case(384)]
+    #[test_case(MAX_ENTRIES)]
+    #[serial]
+    fn test_pod_slot_hashes_sysvar(num_entries: usize) {
+        let mut slot_hashes = vec![];
+        for i in 0..num_entries {
+            slot_hashes.push((
+                i as u64,
+                hash(&[(i >> 24) as u8, (i >> 16) as u8, (i >> 8) as u8, i as u8]),
+            ));
+        }
+
+        let check_slot_hashes = SlotHashes::new(&slot_hashes);
+        mock_get_sysvar_syscall(&bincode::serialize(&check_slot_hashes).unwrap());
+
+        let pod_slot_hashes = <PodSlotHashes as Sysvar>::get().unwrap();
+        let pod_slot_hashes_slice = pod_slot_hashes.as_slice().unwrap();
+
+        assert_eq!(pod_slot_hashes_slice.len(), num_entries);
+
+        for (slot_hash, pod_slot_hash) in check_slot_hashes.iter().zip(pod_slot_hashes_slice) {
+            assert_eq!(slot_hash.0, pod_slot_hash.slot);
+            assert_eq!(slot_hash.1, pod_slot_hash.hash);
+        }
+    }
+}
