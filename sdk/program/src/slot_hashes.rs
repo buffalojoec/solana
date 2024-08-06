@@ -191,7 +191,7 @@ impl<'de> serde::de::Visitor<'de> for PodSlotHashesVisitor {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, crate::hash::hash};
+    use {super::*, crate::hash::hash, test_case::test_case};
 
     #[test]
     fn test_slot_hashes() {
@@ -218,5 +218,69 @@ mod tests {
         }
 
         assert_eq!(slot_hashes.len(), MAX_ENTRIES);
+    }
+
+    #[allow(clippy::arithmetic_side_effects)]
+    #[test_case(0)]
+    #[test_case(1)]
+    #[test_case(2)]
+    #[test_case(5)]
+    #[test_case(10)]
+    #[test_case(64)]
+    #[test_case(128)]
+    #[test_case(192)]
+    #[test_case(256)]
+    #[test_case(384)]
+    #[test_case(MAX_ENTRIES)]
+    fn test_pod_slot_hashes(num_entries: usize) {
+        let mut slot_hashes = vec![];
+        for i in 0..num_entries {
+            slot_hashes.push((
+                i as u64,
+                hash(&[(i >> 24) as u8, (i >> 16) as u8, (i >> 8) as u8, i as u8]),
+            ));
+        }
+
+        let slot_hashes = SlotHashes::new(&slot_hashes);
+        let data = bincode::serialize(&slot_hashes).unwrap();
+        let pod_slot_hashes = PodSlotHashes::new(data).unwrap();
+
+        // `get`:
+        assert_eq!(
+            slot_hashes.get(&0),
+            pod_slot_hashes.get(&0).unwrap().as_ref(),
+        );
+        assert_eq!(
+            slot_hashes.get(&256),
+            pod_slot_hashes.get(&256).unwrap().as_ref(),
+        );
+        assert_eq!(
+            slot_hashes.get(&511),
+            pod_slot_hashes.get(&511).unwrap().as_ref(),
+        );
+        // `None`.
+        assert_eq!(
+            slot_hashes.get(&600),
+            pod_slot_hashes.get(&600).unwrap().as_ref(),
+        );
+
+        // `position`:
+        assert_eq!(
+            slot_hashes.position(&0),
+            pod_slot_hashes.position(&0).unwrap(),
+        );
+        assert_eq!(
+            slot_hashes.position(&256),
+            pod_slot_hashes.position(&256).unwrap(),
+        );
+        assert_eq!(
+            slot_hashes.position(&511),
+            pod_slot_hashes.position(&511).unwrap(),
+        );
+        // `None`.
+        assert_eq!(
+            slot_hashes.position(&600),
+            pod_slot_hashes.position(&600).unwrap(),
+        );
     }
 }
