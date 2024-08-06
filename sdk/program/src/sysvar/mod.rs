@@ -91,6 +91,7 @@ pub mod epoch_schedule;
 pub mod fees;
 pub mod instructions;
 pub mod last_restart_slot;
+pub mod pod_slot_hashes;
 pub mod recent_blockhashes;
 pub mod rent;
 pub mod rewards;
