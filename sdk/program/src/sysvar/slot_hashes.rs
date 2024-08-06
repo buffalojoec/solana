@@ -46,16 +46,13 @@
 //! ```
 
 pub use crate::slot_hashes::SlotHashes;
-use {
-    crate::{
-        account_info::AccountInfo,
-        clock::Slot,
-        hash::Hash,
-        program_error::ProgramError,
-        slot_hashes::MAX_ENTRIES,
-        sysvar::{get_sysvar, Sysvar, SysvarId},
-    },
-    bytemuck_derive::{Pod, Zeroable},
+use crate::{
+    account_info::AccountInfo,
+    clock::Slot,
+    hash::Hash,
+    program_error::ProgramError,
+    slot_hashes::{PodSlotHash, MAX_ENTRIES},
+    sysvar::{get_sysvar, Sysvar, SysvarId},
 };
 
 crate::declare_sysvar_id!("SysvarS1otHashes111111111111111111111111111", SlotHashes);
@@ -70,13 +67,6 @@ impl Sysvar for SlotHashes {
         // This sysvar is too large to bincode::deserialize in-program
         Err(ProgramError::UnsupportedSysvar)
     }
-}
-
-#[derive(Copy, Clone, Default, Pod, Zeroable)]
-#[repr(C)]
-struct PodSlotHash {
-    slot: Slot,
-    hash: Hash,
 }
 
 /// API for querying the `SlotHashes` sysvar.

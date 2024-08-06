@@ -8,13 +8,17 @@
 
 pub use crate::clock::Slot;
 use {
-    crate::hash::Hash,
+    crate::{hash::Hash, program_error::ProgramError},
+    bytemuck_derive::{Pod, Zeroable},
+    serde::{Deserialize, Deserializer, Serialize, Serializer},
     std::{
         iter::FromIterator,
         ops::Deref,
         sync::atomic::{AtomicUsize, Ordering},
     },
 };
+
+const U64_SIZE: usize = std::mem::size_of::<u64>();
 
 pub const MAX_ENTRIES: usize = 512; // about 2.5 minutes to get your vote in
 
@@ -76,12 +80,121 @@ impl Deref for SlotHashes {
     }
 }
 
+/// A bytemuck-compatible (plain old data) version of `SlotHash`.
+#[derive(Copy, Clone, Default, Pod, Zeroable)]
+#[repr(C)]
+pub struct PodSlotHash {
+    pub slot: Slot,
+    pub hash: Hash,
+}
+
+/// API for querying of the `SlotHashes` sysvar by on-chain programs.
+///
+/// Hangs onto the allocated raw buffer from the account data, which can be
+/// queried or accessed directly as a slice of `PodSlotHash`.
+#[derive(Default)]
+pub struct PodSlotHashes {
+    data: Vec<u8>,
+    slot_hashes_start: usize,
+    slot_hashes_end: usize,
+}
+
+impl PodSlotHashes {
+    pub(crate) fn new(data: Vec<u8>) -> Result<Self, ProgramError> {
+        // Get the number of slot hashes present in the data by reading the
+        // `u64` length at the beginning of the data, the use that count to
+        // calculate the length of the slot hashes data.
+        //
+        // The rest of the buffer is uninitialized and should not be accessed.
+        let length = data
+            .get(..U64_SIZE)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u64::from_le_bytes)
+            .and_then(|length| length.checked_mul(std::mem::size_of::<PodSlotHash>() as u64))
+            .ok_or(ProgramError::InvalidAccountData)?;
+
+        let slot_hashes_start = U64_SIZE;
+        let slot_hashes_end = slot_hashes_start.saturating_add(length as usize);
+
+        Ok(Self {
+            data,
+            slot_hashes_start,
+            slot_hashes_end,
+        })
+    }
+
+    /// Return the slot hashes sysvar as a vector of `PodSlotHash`.
+    pub fn as_slice(&self) -> Result<&[PodSlotHash], ProgramError> {
+        self.data
+            .get(self.slot_hashes_start..self.slot_hashes_end)
+            .and_then(|data| bytemuck::try_cast_slice(data).ok())
+            .ok_or(ProgramError::InvalidAccountData)
+    }
+
+    /// Get a value from the sysvar entries by its key.
+    /// Returns `None` if the key is not found.
+    pub fn get(&self, slot: &Slot) -> Result<Option<Hash>, ProgramError> {
+        self.as_slice().map(|pod_hashes| {
+            pod_hashes
+                .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
+                .map(|idx| pod_hashes[idx].hash)
+                .ok()
+        })
+    }
+
+    /// Get the position of an entry in the sysvar by its key.
+    /// Returns `None` if the key is not found.
+    pub fn position(&self, slot: &Slot) -> Result<Option<usize>, ProgramError> {
+        self.as_slice().map(|pod_hashes| {
+            pod_hashes
+                .binary_search_by(|PodSlotHash { slot: this, .. }| slot.cmp(this))
+                .ok()
+        })
+    }
+}
+
+impl Serialize for PodSlotHashes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&self.data)
+    }
+}
+
+impl<'de> Deserialize<'de> for PodSlotHashes {
+    fn deserialize<D>(deserializer: D) -> Result<PodSlotHashes, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_bytes(PodSlotHashesVisitor)
+    }
+}
+
+struct PodSlotHashesVisitor;
+
+impl<'de> serde::de::Visitor<'de> for PodSlotHashesVisitor {
+    type Value = PodSlotHashes;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a byte array")
+    }
+
+    fn visit_bytes<E>(self, value: &[u8]) -> Result<PodSlotHashes, E>
+    where
+        E: serde::de::Error,
+    {
+        // Just read the raw data into a Vec<u8> without deserializing.
+        PodSlotHashes::new(value.to_vec()).map_err(serde::de::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use {super::*, crate::hash::hash};
 
     #[test]
-    fn test() {
+    fn test_slot_hashes() {
         let mut slot_hashes = SlotHashes::new(&[(1, Hash::default()), (3, Hash::default())]);
         slot_hashes.add(2, Hash::default());
         assert_eq!(
