@@ -23,6 +23,12 @@ pub struct RentManager {
     pub rent_collector: RentCollector,
 }
 
+impl RentManager {
+    pub fn new(rent_collector: RentCollector) -> Self {
+        Self { rent_collector }
+    }
+}
+
 impl SVMRentManager for RentManager {
     // Override to submit rent state metrics.
     fn check_rent_state_with_account(

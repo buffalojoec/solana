@@ -304,7 +304,7 @@ impl Bank {
         }
 
         let (burned_portion, rent_to_be_distributed) = self
-            .rent_collector
+            .rent_collector()
             .rent
             .calculate_burn(total_rent_collected);
 

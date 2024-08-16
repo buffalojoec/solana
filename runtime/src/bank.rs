@@ -43,6 +43,7 @@ use {
         bank_forks::BankForks,
         epoch_stakes::{split_epoch_stakes, EpochStakes, NodeVoteAccounts, VersionedEpochStakes},
         installed_scheduler_pool::{BankWithScheduler, InstalledSchedulerRwLock},
+        rent_manager::RentManager,
         runtime_config::RuntimeConfig,
         serde_snapshot::BankIncrementalSnapshotPersistence,
         snapshot_hash::SnapshotHash,
@@ -153,6 +154,7 @@ use {
         account_loader::{collect_rent_from_account, LoadedTransaction},
         account_overrides::AccountOverrides,
         account_saver::collect_accounts_to_store,
+        rent_manager::SVMRentManager,
         transaction_commit_result::{CommittedTransaction, TransactionCommitResult},
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_execution_result::{
@@ -485,7 +487,7 @@ pub struct BankFieldsToSerialize {
     pub collector_fees: u64,
     pub fee_rate_governor: FeeRateGovernor,
     pub collected_rent: u64,
-    pub rent_collector: RentCollector,
+    pub rent_manager: RentManager,
     pub epoch_schedule: EpochSchedule,
     pub inflation: Inflation,
     pub stakes: StakesEnum,
@@ -534,7 +536,7 @@ impl PartialEq for Bank {
             collector_fees,
             fee_rate_governor,
             collected_rent,
-            rent_collector,
+            rent_manager,
             epoch_schedule,
             inflation,
             stakes_cache,
@@ -591,7 +593,7 @@ impl PartialEq for Bank {
             && collector_fees.load(Relaxed) == other.collector_fees.load(Relaxed)
             && fee_rate_governor == &other.fee_rate_governor
             && collected_rent.load(Relaxed) == other.collected_rent.load(Relaxed)
-            && rent_collector == &other.rent_collector
+            && rent_manager == &other.rent_manager
             && epoch_schedule == &other.epoch_schedule
             && *inflation.read().unwrap() == *other.inflation.read().unwrap()
             && *stakes_cache.stakes() == *other.stakes_cache.stakes()
@@ -629,7 +631,7 @@ impl BankFieldsToSerialize {
             collector_fees: u64::default(),
             fee_rate_governor: FeeRateGovernor::default(),
             collected_rent: u64::default(),
-            rent_collector: RentCollector::default(),
+            rent_manager: RentManager::default(),
             epoch_schedule: EpochSchedule::default(),
             inflation: Inflation::default(),
             stakes: Stakes::<Delegation>::default().into(),
@@ -760,8 +762,8 @@ pub struct Bank {
     /// Rent that has been collected
     collected_rent: AtomicU64,
 
-    /// latest rent collector, knows the epoch
-    rent_collector: RentCollector,
+    /// latest rent manager, knows the epoch
+    rent_manager: RentManager,
 
     /// initialized from genesis
     pub(crate) epoch_schedule: EpochSchedule,
@@ -929,7 +931,7 @@ impl Bank {
             collector_fees: AtomicU64::default(),
             fee_rate_governor: FeeRateGovernor::default(),
             collected_rent: AtomicU64::default(),
-            rent_collector: RentCollector::default(),
+            rent_manager: RentManager::default(),
             epoch_schedule: EpochSchedule::default(),
             inflation: Arc::<RwLock<Inflation>>::default(),
             stakes_cache: StakesCache::default(),
@@ -1148,7 +1150,10 @@ impl Bank {
             slots_per_year: parent.slots_per_year,
             epoch_schedule,
             collected_rent: AtomicU64::new(0),
-            rent_collector: Self::get_rent_collector_from(&parent.rent_collector, epoch),
+            rent_manager: RentManager::new(Self::get_rent_collector_from(
+                parent.rent_collector(),
+                epoch,
+            )),
             max_tick_height: (slot + 1) * parent.ticks_per_slot,
             block_height: parent.block_height + 1,
             fee_rate_governor,
@@ -1550,7 +1555,10 @@ impl Bank {
             fee_rate_governor: fields.fee_rate_governor,
             collected_rent: AtomicU64::new(fields.collected_rent),
             // clone()-ing is needed to consider a gated behavior in rent_collector
-            rent_collector: Self::get_rent_collector_from(&fields.rent_collector, fields.epoch),
+            rent_manager: RentManager::new(Self::get_rent_collector_from(
+                &fields.rent_collector,
+                fields.epoch,
+            )),
             epoch_schedule: fields.epoch_schedule,
             inflation: Arc::new(RwLock::new(fields.inflation)),
             stakes_cache: StakesCache::new(stakes),
@@ -1676,7 +1684,7 @@ impl Bank {
             collector_fees: self.collector_fees.load(Relaxed),
             fee_rate_governor: self.fee_rate_governor.clone(),
             collected_rent: self.collected_rent.load(Relaxed),
-            rent_collector: self.rent_collector.clone(),
+            rent_manager: self.rent_manager.clone(),
             epoch_schedule: self.epoch_schedule.clone(),
             inflation: *self.inflation.read().unwrap(),
             stakes: StakesEnum::from(self.stakes_cache.stakes().clone()),
@@ -1977,7 +1985,7 @@ impl Bank {
     fn update_rent(&self) {
         self.update_sysvar_account(&sysvar::rent::id(), |account| {
             create_account(
-                &self.rent_collector.rent,
+                &self.rent_manager.rent_collector.rent,
                 self.inherit_specially_retained_account_fields(account),
             )
         });
@@ -2901,12 +2909,12 @@ impl Bank {
 
         self.inflation = Arc::new(RwLock::new(genesis_config.inflation));
 
-        self.rent_collector = RentCollector::new(
+        self.rent_manager = RentManager::new(RentCollector::new(
             self.epoch,
             self.epoch_schedule().clone(),
             self.slots_per_year,
             genesis_config.rent.clone(),
-        );
+        ));
 
         // Add additional builtin programs specified in the genesis config
         for (name, program_id) in &genesis_config.native_instruction_processors {
@@ -2961,7 +2969,7 @@ impl Bank {
     }
 
     pub fn set_rent_burn_percentage(&mut self, burn_percent: u8) {
-        self.rent_collector.rent.burn_percent = burn_percent;
+        self.rent_manager.rent_collector.rent.burn_percent = burn_percent;
     }
 
     pub fn set_hashes_per_tick(&mut self, hashes_per_tick: Option<u64>) {
@@ -2988,7 +2996,10 @@ impl Bank {
     }
 
     pub fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> u64 {
-        self.rent_collector.rent.minimum_balance(data_len).max(1)
+        self.rent_manager
+            .get_rent()
+            .minimum_balance(data_len)
+            .max(1)
     }
 
     pub fn get_lamports_per_signature(&self) -> u64 {
@@ -3472,7 +3483,7 @@ impl Bank {
             feature_set: Arc::clone(&self.feature_set),
             fee_structure: Some(&self.fee_structure),
             lamports_per_signature,
-            rent_collector: Some(&self.rent_collector),
+            rent_collector: Some(&self.rent_manager.rent_collector),
         };
 
         let sanitized_output = self
@@ -4183,7 +4194,7 @@ impl Bank {
         for (pubkey, account, _loaded_slot) in accounts.iter_mut() {
             let (rent_collected_info, collect_rent_us) = measure_us!(collect_rent_from_account(
                 &self.feature_set,
-                &self.rent_collector,
+                self.rent_collector(),
                 pubkey,
                 account
             ));
@@ -5516,7 +5527,7 @@ impl Bank {
                 &self.ancestors,
                 None,
                 self.epoch_schedule(),
-                &self.rent_collector,
+                self.rent_collector(),
                 is_startup,
             )
             .1
@@ -5624,7 +5635,7 @@ impl Bank {
                 &self.ancestors,
                 Some(self.capitalization()),
                 self.epoch_schedule(),
-                &self.rent_collector,
+                self.rent_collector(),
                 is_startup,
             );
         if total_lamports != self.capitalization() {
@@ -5649,7 +5660,7 @@ impl Bank {
                         &self.ancestors,
                         Some(self.capitalization()),
                         self.epoch_schedule(),
-                        &self.rent_collector,
+                        self.rent_collector(),
                         is_startup,
                     );
             }
@@ -5670,7 +5681,7 @@ impl Bank {
             use_bg_thread_pool: true,
             ancestors: None, // does not matter, will not be used
             epoch_schedule: &self.epoch_schedule,
-            rent_collector: &self.rent_collector,
+            rent_collector: self.rent_collector(),
             store_detailed_debug_info_on_failure: false,
         };
         let storages = self.get_snapshot_storages(Some(base_slot));
@@ -5801,7 +5812,12 @@ impl Bank {
 
     /// Return the rent collector for this Bank
     pub fn rent_collector(&self) -> &RentCollector {
-        &self.rent_collector
+        &self.rent_manager.rent_collector
+    }
+
+    /// Return the rent m anager for this Bank
+    pub fn rent_manager(&self) -> &RentManager {
+        &self.rent_manager
     }
 
     /// Return the total capitalization of the Bank
@@ -6128,14 +6144,14 @@ impl Bank {
         if new_feature_activations.contains(&feature_set::pico_inflation::id()) {
             *self.inflation.write().unwrap() = Inflation::pico();
             self.fee_rate_governor.burn_percent = 50; // 50% fee burn
-            self.rent_collector.rent.burn_percent = 50; // 50% rent burn
+            self.rent_manager.rent_collector.rent.burn_percent = 50; // 50% rent burn
         }
 
         if !new_feature_activations.is_disjoint(&self.feature_set.full_inflation_features_enabled())
         {
             *self.inflation.write().unwrap() = Inflation::full();
             self.fee_rate_governor.burn_percent = 50; // 50% fee burn
-            self.rent_collector.rent.burn_percent = 50; // 50% rent burn
+            self.rent_manager.rent_collector.rent.burn_percent = 50; // 50% rent burn
         }
 
         if !debug_do_not_add_builtins {
@@ -6739,8 +6755,8 @@ impl Bank {
             Some(mut account) => {
                 let min_balance = match get_system_account_kind(&account) {
                     Some(SystemAccountKind::Nonce) => self
-                        .rent_collector
-                        .rent
+                        .rent_manager
+                        .get_rent()
                         .minimum_balance(nonce::State::size()),
                     _ => 0,
                 };

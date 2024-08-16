@@ -683,7 +683,7 @@ fn create_child_bank_for_rent_test(
             genesis_config.ticks_per_slot,
         ) as u64,
     );
-    bank.rent_collector.slots_per_year = 421_812.0;
+    bank.rent_manager.rent_collector.slots_per_year = 421_812.0;
     if let Some((program_id, builtin_function)) = mock_builtin {
         bank.add_mockup_builtin(program_id, builtin_function);
     }
@@ -931,8 +931,8 @@ fn test_rent_distribution() {
 
     let mut bank = Bank::new_for_tests(&genesis_config);
     // Enable rent collection
-    bank.rent_collector.epoch = 5;
-    bank.rent_collector.slots_per_year = 192.0;
+    bank.rent_manager.rent_collector.epoch = 5;
+    bank.rent_manager.rent_collector.slots_per_year = 192.0;
     let (bank, _bank_forks) = bank.wrap_with_bank_forks_for_tests();
 
     let payer = Keypair::new();
@@ -967,7 +967,7 @@ fn test_rent_distribution() {
     assert_eq!(bank.collected_rent.load(Relaxed), total_rent_deducted);
 
     let burned_portion =
-        total_rent_deducted * u64::from(bank.rent_collector.rent.burn_percent) / 100;
+        total_rent_deducted * u64::from(bank.rent_collector().rent.burn_percent) / 100;
     let rent_to_be_distributed = total_rent_deducted - burned_portion;
 
     let bootstrap_validator_portion =
@@ -1125,18 +1125,18 @@ fn test_rent_complex() {
 
     let slots_elapsed: u64 = (0..=bank.epoch)
         .map(|epoch| {
-            bank.rent_collector
+            bank.rent_collector()
                 .epoch_schedule
                 .get_slots_in_epoch(epoch + 1)
         })
         .sum();
     let generic_rent_due_for_system_account = bank
-        .rent_collector
+        .rent_collector()
         .rent
         .due(
             bank.get_minimum_balance_for_rent_exemption(0) - 1,
             0,
-            slots_elapsed as f64 / bank.rent_collector.slots_per_year,
+            slots_elapsed as f64 / bank.rent_collector().slots_per_year,
         )
         .lamports();
 
@@ -11473,7 +11473,7 @@ fn test_accounts_data_size_and_rent_collection(should_collect_rent: bool) {
     // Ensure if we collect rent from the account that it will be reclaimed
     {
         let info = bank
-            .rent_collector
+            .rent_collector()
             .collect_from_existing_account(&keypair.pubkey(), &mut account);
         assert_eq!(info.account_data_len_reclaimed, data_size as u64);
     }

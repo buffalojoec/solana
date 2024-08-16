@@ -272,7 +272,7 @@ impl From<BankFieldsToSerialize> for SerializableVersionedBank {
             fee_calculator: FeeCalculator::default(),
             fee_rate_governor: rhs.fee_rate_governor,
             collected_rent: rhs.collected_rent,
-            rent_collector: rhs.rent_collector,
+            rent_collector: rhs.rent_manager.rent_collector,
             epoch_schedule: rhs.epoch_schedule,
             inflation: rhs.inflation,
             stakes: rhs.stakes,
