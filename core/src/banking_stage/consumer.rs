@@ -774,7 +774,7 @@ impl Consumer {
             &mut fee_payer_account,
             0,
             error_counters,
-            bank.rent_collector(),
+            Some(bank.rent_manager()),
             fee,
         )
     }

@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use {
     log::*,
     solana_sdk::{

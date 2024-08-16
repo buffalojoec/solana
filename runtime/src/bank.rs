@@ -3483,7 +3483,7 @@ impl Bank {
             feature_set: Arc::clone(&self.feature_set),
             fee_structure: Some(&self.fee_structure),
             lamports_per_signature,
-            rent_collector: Some(&self.rent_manager.rent_collector),
+            rent_manager: Some(&self.rent_manager),
         };
 
         let sanitized_output = self
@@ -4194,7 +4194,7 @@ impl Bank {
         for (pubkey, account, _loaded_slot) in accounts.iter_mut() {
             let (rent_collected_info, collect_rent_us) = measure_us!(collect_rent_from_account(
                 &self.feature_set,
-                self.rent_collector(),
+                Some(&self.rent_manager),
                 pubkey,
                 account
             ));

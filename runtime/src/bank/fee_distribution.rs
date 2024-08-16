@@ -12,7 +12,7 @@ use {
         system_program,
         transaction::SanitizedTransaction,
     },
-    solana_svm::account_rent_state::RentState,
+    solana_svm::rent_manager::SVMRentManager,
     solana_vote::vote_account::VoteAccountsHashMap,
     std::{result::Result, sync::atomic::Ordering::Relaxed},
     thiserror::Error,
@@ -148,16 +148,16 @@ impl Bank {
             return Err(DepositFeeError::InvalidAccountOwner);
         }
 
-        let rent = &self.rent_collector().rent;
-        let recipient_pre_rent_state = RentState::from_account(&account, rent);
+        let recipient_pre_rent_state = self.rent_manager.get_account_rent_state(&account);
         let distribution = account.checked_add_lamports(fees);
         if distribution.is_err() {
             return Err(DepositFeeError::LamportOverflow);
         }
 
-        let recipient_post_rent_state = RentState::from_account(&account, rent);
-        let rent_state_transition_allowed =
-            recipient_post_rent_state.transition_allowed_from(&recipient_pre_rent_state);
+        let recipient_post_rent_state = self.rent_manager.get_account_rent_state(&account);
+        let rent_state_transition_allowed = self
+            .rent_manager
+            .transition_allowed(&recipient_pre_rent_state, &recipient_post_rent_state);
         if !rent_state_transition_allowed {
             return Err(DepositFeeError::InvalidRentPayingAccount);
         }
@@ -334,6 +334,7 @@ pub mod tests {
             account::AccountSharedData, native_token::sol_to_lamports, pubkey, rent::Rent,
             signature::Signer,
         },
+        solana_svm::rent_manager::RentState,
         std::sync::RwLock,
     };
 

@@ -1,6 +1,6 @@
 use {
     crate::{
-        account_overrides::AccountOverrides, account_rent_state::RentState, nonce_info::NonceInfo,
+        account_overrides::AccountOverrides, nonce_info::NonceInfo, rent_manager::SVMRentManager,
         rollback_accounts::RollbackAccounts, transaction_error_metrics::TransactionErrorMetrics,
         transaction_processing_callback::TransactionProcessingCallback,
     },
@@ -15,7 +15,7 @@ use {
         nonce::State as NonceState,
         pubkey::Pubkey,
         rent::RentDue,
-        rent_collector::{CollectedInfo, RentCollector, RENT_EXEMPT_RENT_EPOCH},
+        rent_collector::{CollectedInfo, RENT_EXEMPT_RENT_EPOCH},
         rent_debits::RentDebits,
         saturating_add_assign,
         sysvar::{
@@ -97,29 +97,30 @@ pub struct FeesOnlyTransaction {
 /// rent exempt.
 pub fn collect_rent_from_account(
     feature_set: &FeatureSet,
-    rent_collector: &RentCollector,
+    rent_manager: Option<&dyn SVMRentManager>,
     address: &Pubkey,
     account: &mut AccountSharedData,
 ) -> CollectedInfo {
-    if !feature_set.is_active(&feature_set::disable_rent_fees_collection::id()) {
-        rent_collector.collect_from_existing_account(address, account)
-    } else {
-        // When rent fee collection is disabled, we won't collect rent for any account. If there
-        // are any rent paying accounts, their `rent_epoch` won't change either. However, if the
-        // account itself is rent-exempted but its `rent_epoch` is not u64::MAX, we will set its
-        // `rent_epoch` to u64::MAX. In such case, the behavior stays the same as before.
-        if account.rent_epoch() != RENT_EXEMPT_RENT_EPOCH
-            && rent_collector.get_rent_due(
-                account.lamports(),
-                account.data().len(),
-                account.rent_epoch(),
-            ) == RentDue::Exempt
-        {
-            account.set_rent_epoch(RENT_EXEMPT_RENT_EPOCH);
+    if let Some(rent_manager) = rent_manager {
+        if !feature_set.is_active(&feature_set::disable_rent_fees_collection::id()) {
+            return rent_manager.collect_from_existing_account(address, account);
+        } else {
+            // When rent fee collection is disabled, we won't collect rent for any account. If there
+            // are any rent paying accounts, their `rent_epoch` won't change either. However, if the
+            // account itself is rent-exempted but its `rent_epoch` is not u64::MAX, we will set its
+            // `rent_epoch` to u64::MAX. In such case, the behavior stays the same as before.
+            if account.rent_epoch() != RENT_EXEMPT_RENT_EPOCH
+                && rent_manager.get_rent_due(
+                    account.lamports(),
+                    account.data().len(),
+                    account.rent_epoch(),
+                ) == RentDue::Exempt
+            {
+                account.set_rent_epoch(RENT_EXEMPT_RENT_EPOCH);
+            }
         }
-
-        CollectedInfo::default()
     }
+    CollectedInfo::default()
 }
 
 /// Check whether the payer_account is capable of paying the fee. The
@@ -132,7 +133,7 @@ pub fn validate_fee_payer(
     payer_account: &mut AccountSharedData,
     payer_index: IndexOfAccount,
     error_metrics: &mut TransactionErrorMetrics,
-    rent_collector: &RentCollector,
+    rent_manager: Option<&dyn SVMRentManager>,
     fee: u64,
 ) -> Result<()> {
     if payer_account.lamports() == 0 {
@@ -143,37 +144,50 @@ pub fn validate_fee_payer(
         error_metrics.invalid_account_for_fee += 1;
         TransactionError::InvalidAccountForFee
     })?;
-    let min_balance = match system_account_kind {
-        SystemAccountKind::System => 0,
-        SystemAccountKind::Nonce => {
-            // Should we ever allow a fees charge to zero a nonce account's
-            // balance. The state MUST be set to uninitialized in that case
-            rent_collector.rent.minimum_balance(NonceState::size())
+
+    match rent_manager {
+        Some(rent_manager) => {
+            let min_balance = match system_account_kind {
+                SystemAccountKind::System => 0,
+                SystemAccountKind::Nonce => {
+                    // Should we ever allow a fees charge to zero a nonce account's
+                    // balance. The state MUST be set to uninitialized in that case
+                    rent_manager.get_rent().minimum_balance(NonceState::size())
+                }
+            };
+
+            payer_account
+                .lamports()
+                .checked_sub(min_balance)
+                .and_then(|v| v.checked_sub(fee))
+                .ok_or_else(|| {
+                    error_metrics.insufficient_funds += 1;
+                    TransactionError::InsufficientFundsForFee
+                })?;
+
+            let payer_pre_rent_state = rent_manager.get_account_rent_state(payer_account);
+            payer_account
+                .checked_sub_lamports(fee)
+                .map_err(|_| TransactionError::InsufficientFundsForFee)?;
+
+            let payer_post_rent_state = rent_manager.get_account_rent_state(payer_account);
+            rent_manager.check_rent_state_with_account(
+                &payer_pre_rent_state,
+                &payer_post_rent_state,
+                payer_address,
+                payer_account,
+                payer_index,
+            )
         }
-    };
+        None => {
+            payer_account.lamports().checked_sub(fee).ok_or_else(|| {
+                error_metrics.insufficient_funds += 1;
+                TransactionError::InsufficientFundsForFee
+            })?;
 
-    payer_account
-        .lamports()
-        .checked_sub(min_balance)
-        .and_then(|v| v.checked_sub(fee))
-        .ok_or_else(|| {
-            error_metrics.insufficient_funds += 1;
-            TransactionError::InsufficientFundsForFee
-        })?;
-
-    let payer_pre_rent_state = RentState::from_account(payer_account, &rent_collector.rent);
-    payer_account
-        .checked_sub_lamports(fee)
-        .map_err(|_| TransactionError::InsufficientFundsForFee)?;
-
-    let payer_post_rent_state = RentState::from_account(payer_account, &rent_collector.rent);
-    RentState::check_rent_state_with_account(
-        &payer_pre_rent_state,
-        &payer_post_rent_state,
-        payer_address,
-        payer_account,
-        payer_index,
-    )
+            Ok(())
+        }
+    }
 }
 
 /// Collect information about accounts used in txs transactions and
@@ -188,7 +202,7 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
     error_metrics: &mut TransactionErrorMetrics,
     account_overrides: Option<&AccountOverrides>,
     feature_set: &FeatureSet,
-    rent_collector: &RentCollector,
+    rent_manager: Option<&dyn SVMRentManager>,
     loaded_programs: &ProgramCacheForTxBatch,
 ) -> Vec<TransactionLoadResult> {
     txs.iter()
@@ -201,7 +215,7 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
                 error_metrics,
                 account_overrides,
                 feature_set,
-                rent_collector,
+                rent_manager,
                 loaded_programs,
             )
         })
@@ -215,7 +229,7 @@ fn load_transaction<CB: TransactionProcessingCallback>(
     error_metrics: &mut TransactionErrorMetrics,
     account_overrides: Option<&AccountOverrides>,
     feature_set: &FeatureSet,
-    rent_collector: &RentCollector,
+    rent_manager: Option<&dyn SVMRentManager>,
     loaded_programs: &ProgramCacheForTxBatch,
 ) -> TransactionLoadResult {
     match validation_result {
@@ -229,7 +243,7 @@ fn load_transaction<CB: TransactionProcessingCallback>(
                 error_metrics,
                 account_overrides,
                 feature_set,
-                rent_collector,
+                rent_manager,
                 loaded_programs,
             );
 
@@ -271,7 +285,7 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
     error_metrics: &mut TransactionErrorMetrics,
     account_overrides: Option<&AccountOverrides>,
     feature_set: &FeatureSet,
-    rent_collector: &RentCollector,
+    rent_manager: Option<&dyn SVMRentManager>,
     loaded_programs: &ProgramCacheForTxBatch,
 ) -> Result<LoadedTransactionAccounts> {
     let mut tx_rent: TransactionRent = 0;
@@ -325,7 +339,7 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
             &instruction_accounts[..],
             account_overrides,
             feature_set,
-            rent_collector,
+            rent_manager,
             loaded_programs,
         )?;
         collect_loaded_account(account_key, (loaded_account, account_found))?;
@@ -406,7 +420,7 @@ fn load_transaction_account<CB: TransactionProcessingCallback>(
     instruction_accounts: &[&u8],
     account_overrides: Option<&AccountOverrides>,
     feature_set: &FeatureSet,
-    rent_collector: &RentCollector,
+    rent_manager: Option<&dyn SVMRentManager>,
     loaded_programs: &ProgramCacheForTxBatch,
 ) -> Result<(LoadedTransactionAccount, bool)> {
     let mut account_found = true;
@@ -448,13 +462,8 @@ fn load_transaction_account<CB: TransactionProcessingCallback>(
             .get_account_shared_data(account_key)
             .map(|mut account| {
                 let rent_collected = if message.is_writable(account_index) {
-                    collect_rent_from_account(
-                        feature_set,
-                        rent_collector,
-                        account_key,
-                        &mut account,
-                    )
-                    .rent_amount
+                    collect_rent_from_account(feature_set, rent_manager, account_key, &mut account)
+                        .rent_amount
                 } else {
                     0
                 };
@@ -586,6 +595,36 @@ mod tests {
     };
 
     #[derive(Default)]
+    struct TestRentManager {
+        rent_collector: RentCollector,
+    }
+
+    impl SVMRentManager for TestRentManager {
+        fn collect_from_existing_account(
+            &self,
+            address: &Pubkey,
+            account: &mut AccountSharedData,
+        ) -> CollectedInfo {
+            self.rent_collector
+                .collect_from_existing_account(address, account)
+        }
+
+        fn get_rent(&self) -> &Rent {
+            &self.rent_collector.rent
+        }
+
+        fn get_rent_due(
+            &self,
+            lamports: u64,
+            data_len: usize,
+            account_rent_epoch: solana_sdk::clock::Epoch,
+        ) -> RentDue {
+            self.rent_collector
+                .get_rent_due(lamports, data_len, account_rent_epoch)
+        }
+    }
+
+    #[derive(Default)]
     struct TestCallbacks {
         accounts_map: HashMap<Pubkey, AccountSharedData>,
     }
@@ -603,7 +642,7 @@ mod tests {
     fn load_accounts_with_features_and_rent(
         tx: Transaction,
         accounts: &[TransactionAccount],
-        rent_collector: &RentCollector,
+        rent_manager: Option<&dyn SVMRentManager>,
         error_metrics: &mut TransactionErrorMetrics,
         feature_set: &mut FeatureSet,
     ) -> Vec<TransactionLoadResult> {
@@ -628,7 +667,7 @@ mod tests {
             error_metrics,
             None,
             feature_set,
-            rent_collector,
+            rent_manager,
             &ProgramCacheForTxBatch::default(),
         )
     }
@@ -658,7 +697,7 @@ mod tests {
         load_accounts_with_features_and_rent(
             tx,
             accounts,
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             error_metrics,
             &mut FeatureSet::all_enabled(),
         )
@@ -673,7 +712,7 @@ mod tests {
         load_accounts_with_features_and_rent(
             tx,
             accounts,
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             error_metrics,
             &mut all_features_except(exclude_features),
         )
@@ -911,7 +950,7 @@ mod tests {
             &mut error_metrics,
             account_overrides,
             &FeatureSet::all_enabled(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &ProgramCacheForTxBatch::default(),
         )
     }
@@ -1014,7 +1053,7 @@ mod tests {
     }
     fn validate_fee_payer_account(
         test_parameter: ValidateFeePayerTestParameter,
-        rent_collector: &RentCollector,
+        rent_manager: &dyn SVMRentManager,
     ) {
         let payer_account_keys = Keypair::new();
         let mut account = if test_parameter.is_nonce {
@@ -1032,7 +1071,7 @@ mod tests {
             &mut account,
             0,
             &mut TransactionErrorMetrics::default(),
-            rent_collector,
+            Some(rent_manager),
             test_parameter.fee,
         );
 
@@ -1053,6 +1092,7 @@ mod tests {
         );
         let min_balance = rent_collector.rent.minimum_balance(NonceState::size());
         let fee = 5_000;
+        let rent_manager = TestRentManager { rent_collector };
 
         // If payer account has sufficient balance, expect successful fee deduction,
         // regardless feature gate status, or if payer is nonce account.
@@ -1066,7 +1106,7 @@ mod tests {
                         expected_result: Ok(()),
                         payer_post_balance: min_balance,
                     },
-                    &rent_collector,
+                    &rent_manager,
                 );
             }
         }
@@ -1083,7 +1123,7 @@ mod tests {
                         expected_result: Err(TransactionError::AccountNotFound),
                         payer_post_balance: 0,
                     },
-                    &rent_collector,
+                    &rent_manager,
                 );
             }
         }
@@ -1100,7 +1140,7 @@ mod tests {
                         expected_result: Err(TransactionError::InsufficientFundsForFee),
                         payer_post_balance: min_balance + fee - 1,
                     },
-                    &rent_collector,
+                    &rent_manager,
                 );
             }
         }
@@ -1116,7 +1156,7 @@ mod tests {
                     expected_result: Ok(()),
                     payer_post_balance: 0,
                 },
-                &rent_collector,
+                &rent_manager,
             );
         }
     }
@@ -1132,6 +1172,7 @@ mod tests {
                 ..Rent::default()
             },
         );
+        let rent_manager = TestRentManager { rent_collector };
 
         // nonce payer account has balance of u64::MAX, so does fee; due to nonce account
         // requires additional min_balance, expect InsufficientFundsForFee error if feature gate is
@@ -1144,7 +1185,7 @@ mod tests {
                 expected_result: Err(TransactionError::InsufficientFundsForFee),
                 payer_post_balance: u64::MAX,
             },
-            &rent_collector,
+            &rent_manager,
         );
     }
 
@@ -1206,7 +1247,7 @@ mod tests {
             &mut error_metrics,
             None,
             &FeatureSet::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &loaded_programs,
         );
 
@@ -1271,7 +1312,7 @@ mod tests {
             &mut error_metrics,
             None,
             &FeatureSet::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &loaded_programs,
         );
 
@@ -1332,7 +1373,7 @@ mod tests {
             &mut error_metrics,
             None,
             &FeatureSet::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &loaded_programs,
         );
 
@@ -1377,7 +1418,7 @@ mod tests {
             &mut error_metrics,
             None,
             &FeatureSet::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &loaded_programs,
         );
 
@@ -1422,7 +1463,7 @@ mod tests {
             &mut error_metrics,
             None,
             &FeatureSet::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &loaded_programs,
         );
 
@@ -1479,7 +1520,7 @@ mod tests {
             &mut error_metrics,
             None,
             &FeatureSet::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &loaded_programs,
         );
 
@@ -1542,7 +1583,7 @@ mod tests {
             &mut error_metrics,
             None,
             &FeatureSet::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &loaded_programs,
         );
 
@@ -1596,7 +1637,7 @@ mod tests {
             &mut error_metrics,
             None,
             &FeatureSet::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &loaded_programs,
         );
 
@@ -1660,7 +1701,7 @@ mod tests {
             &mut error_metrics,
             None,
             &FeatureSet::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &loaded_programs,
         );
 
@@ -1748,7 +1789,7 @@ mod tests {
             &mut error_metrics,
             None,
             &FeatureSet::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &loaded_programs,
         );
 
@@ -1813,7 +1854,7 @@ mod tests {
             &mut error_metrics,
             None,
             &FeatureSet::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &ProgramCacheForTxBatch::default(),
         );
 
@@ -1833,7 +1874,7 @@ mod tests {
 
         assert_eq!(
             TransactionAccountStateInfo::new(
-                &Rent::default(),
+                Some(&TestRentManager::default()),
                 &transaction_context,
                 sanitized_tx.message()
             )
@@ -1908,7 +1949,7 @@ mod tests {
             &mut error_metrics,
             None,
             &FeatureSet::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &loaded_programs,
         );
 
@@ -1953,6 +1994,7 @@ mod tests {
         let mock_bank = TestCallbacks::default();
         let feature_set = FeatureSet::default();
         let rent_collector = RentCollector::default();
+        let rent_manager = TestRentManager { rent_collector };
 
         let message = Message {
             account_keys: vec![Pubkey::new_from_array([0; 32])],
@@ -1980,7 +2022,7 @@ mod tests {
             &mut TransactionErrorMetrics::default(),
             None,
             &feature_set,
-            &rent_collector,
+            Some(&rent_manager),
             &ProgramCacheForTxBatch::default(),
         );
 
@@ -2001,7 +2043,7 @@ mod tests {
             &mut TransactionErrorMetrics::default(),
             None,
             &feature_set,
-            &rent_collector,
+            Some(&rent_manager),
             &ProgramCacheForTxBatch::default(),
         );
 
@@ -2026,8 +2068,10 @@ mod tests {
             ..Account::default()
         });
 
+        let rent_manager = TestRentManager { rent_collector };
+
         assert_eq!(
-            collect_rent_from_account(&feature_set, &rent_collector, &address, &mut account),
+            collect_rent_from_account(&feature_set, Some(&rent_manager), &address, &mut account),
             CollectedInfo::default()
         );
         assert_eq!(account.rent_epoch(), RENT_EXEMPT_RENT_EPOCH);
@@ -2047,8 +2091,10 @@ mod tests {
             ..Account::default()
         });
 
+        let rent_manager = TestRentManager { rent_collector };
+
         assert_eq!(
-            collect_rent_from_account(&feature_set, &rent_collector, &address, &mut account),
+            collect_rent_from_account(&feature_set, Some(&rent_manager), &address, &mut account),
             CollectedInfo::default()
         );
         assert_eq!(account.rent_epoch(), 0);
@@ -2071,8 +2117,10 @@ mod tests {
             ..Account::default()
         });
 
+        let rent_manager = TestRentManager { rent_collector };
+
         assert_eq!(
-            collect_rent_from_account(&feature_set, &rent_collector, &address, &mut account),
+            collect_rent_from_account(&feature_set, Some(&rent_manager), &address, &mut account),
             CollectedInfo {
                 rent_amount: 1,
                 account_data_len_reclaimed: 1

@@ -68,10 +68,7 @@ use {
     },
     solana_client::rpc_client::RpcClient,
     solana_compute_budget::compute_budget::ComputeBudget,
-    solana_sdk::{
-        feature_set::FeatureSet, fee::FeeStructure, hash::Hash, rent_collector::RentCollector,
-        signature::Keypair,
-    },
+    solana_sdk::{feature_set::FeatureSet, fee::FeeStructure, hash::Hash, signature::Keypair},
     solana_svm::transaction_processor::{
         TransactionProcessingConfig, TransactionProcessingEnvironment,
     },
@@ -118,7 +115,6 @@ impl PayTubeChannel {
         let feature_set = FeatureSet::all_enabled();
         let fee_structure = FeeStructure::default();
         let lamports_per_signature = fee_structure.lamports_per_signature;
-        let rent_collector = RentCollector::default();
 
         // PayTube loader/callback implementation.
         //
@@ -153,7 +149,7 @@ impl PayTubeChannel {
             feature_set: Arc::new(feature_set),
             fee_structure: Some(&fee_structure),
             lamports_per_signature,
-            rent_collector: Some(&rent_collector),
+            rent_manager: None,
         };
 
         // The PayTube transaction processing config for Solana SVM.

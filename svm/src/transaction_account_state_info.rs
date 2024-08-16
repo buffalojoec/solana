@@ -1,9 +1,8 @@
 use {
-    crate::account_rent_state::RentState,
+    crate::rent_manager::{RentState, SVMRentManager},
     solana_sdk::{
         account::ReadableAccount,
         native_loader,
-        rent::Rent,
         transaction::Result,
         transaction_context::{IndexOfAccount, TransactionContext},
     },
@@ -17,7 +16,7 @@ pub(crate) struct TransactionAccountStateInfo {
 
 impl TransactionAccountStateInfo {
     pub(crate) fn new(
-        rent: &Rent,
+        rent_manager: Option<&dyn SVMRentManager>,
         transaction_context: &TransactionContext,
         message: &impl SVMMessage,
     ) -> Vec<Self> {
@@ -33,7 +32,12 @@ impl TransactionAccountStateInfo {
                         // balances; however they will never be loaded as writable
                         debug_assert!(!native_loader::check_id(account.owner()));
 
-                        Some(RentState::from_account(&account, rent))
+                        match rent_manager {
+                            Some(rent_manager) => {
+                                Some(rent_manager.get_account_rent_state(&account))
+                            }
+                            None => Some(RentState::RentExempt),
+                        }
                     } else {
                         None
                     };
@@ -53,17 +57,20 @@ impl TransactionAccountStateInfo {
     pub(crate) fn verify_changes(
         pre_state_infos: &[Self],
         post_state_infos: &[Self],
+        rent_manager: Option<&dyn SVMRentManager>,
         transaction_context: &TransactionContext,
     ) -> Result<()> {
-        for (i, (pre_state_info, post_state_info)) in
-            pre_state_infos.iter().zip(post_state_infos).enumerate()
-        {
-            RentState::check_rent_state(
-                pre_state_info.rent_state.as_ref(),
-                post_state_info.rent_state.as_ref(),
-                transaction_context,
-                i as IndexOfAccount,
-            )?;
+        if let Some(rent_manager) = rent_manager {
+            for (i, (pre_state_info, post_state_info)) in
+                pre_state_infos.iter().zip(post_state_infos).enumerate()
+            {
+                rent_manager.check_rent_state(
+                    pre_state_info.rent_state.as_ref(),
+                    post_state_info.rent_state.as_ref(),
+                    transaction_context,
+                    i as IndexOfAccount,
+                )?;
+            }
         }
         Ok(())
     }
@@ -73,7 +80,7 @@ impl TransactionAccountStateInfo {
 mod test {
     use {
         crate::{
-            account_rent_state::RentState,
+            rent_manager::{RentState, SVMRentManager},
             transaction_account_state_info::TransactionAccountStateInfo,
         },
         solana_sdk::{
@@ -81,13 +88,45 @@ mod test {
             hash::Hash,
             instruction::CompiledInstruction,
             message::{LegacyMessage, Message, MessageHeader, SanitizedMessage},
-            rent::Rent,
+            pubkey::Pubkey,
+            rent::{Rent, RentDue},
+            rent_collector::{CollectedInfo, RentCollector},
             reserved_account_keys::ReservedAccountKeys,
             signature::{Keypair, Signer},
             transaction::TransactionError,
             transaction_context::TransactionContext,
         },
     };
+
+    #[derive(Default)]
+    struct TestRentManager {
+        rent_collector: RentCollector,
+    }
+
+    impl SVMRentManager for TestRentManager {
+        fn collect_from_existing_account(
+            &self,
+            address: &Pubkey,
+            account: &mut AccountSharedData,
+        ) -> CollectedInfo {
+            self.rent_collector
+                .collect_from_existing_account(address, account)
+        }
+
+        fn get_rent(&self) -> &Rent {
+            &self.rent_collector.rent
+        }
+
+        fn get_rent_due(
+            &self,
+            lamports: u64,
+            data_len: usize,
+            account_rent_epoch: solana_sdk::clock::Epoch,
+        ) -> RentDue {
+            self.rent_collector
+                .get_rent_due(lamports, data_len, account_rent_epoch)
+        }
+    }
 
     #[test]
     fn test_new() {
@@ -127,7 +166,11 @@ mod test {
         ];
 
         let context = TransactionContext::new(transaction_accounts, rent.clone(), 20, 20);
-        let result = TransactionAccountStateInfo::new(&rent, &context, &sanitized_message);
+        let result = TransactionAccountStateInfo::new(
+            Some(&TestRentManager::default()),
+            &context,
+            &sanitized_message,
+        );
         assert_eq!(
             result,
             vec![
@@ -181,7 +224,11 @@ mod test {
         ];
 
         let context = TransactionContext::new(transaction_accounts, rent.clone(), 20, 20);
-        let _result = TransactionAccountStateInfo::new(&rent, &context, &sanitized_message);
+        let _result = TransactionAccountStateInfo::new(
+            Some(&TestRentManager::default()),
+            &context,
+            &sanitized_message,
+        );
     }
 
     #[test]
@@ -210,6 +257,7 @@ mod test {
         let result = TransactionAccountStateInfo::verify_changes(
             &pre_rent_state,
             &post_rent_state,
+            Some(&TestRentManager::default()),
             &context,
         );
         assert!(result.is_ok());
@@ -233,6 +281,7 @@ mod test {
         let result = TransactionAccountStateInfo::verify_changes(
             &pre_rent_state,
             &post_rent_state,
+            Some(&TestRentManager::default()),
             &context,
         );
         assert_eq!(

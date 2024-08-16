@@ -11,6 +11,7 @@ use {
         account_overrides::AccountOverrides,
         message_processor::MessageProcessor,
         program_loader::{get_program_modification_slot, load_program_with_pubkey},
+        rent_manager::SVMRentManager,
         rollback_accounts::RollbackAccounts,
         transaction_account_state_info::TransactionAccountStateInfo,
         transaction_error_metrics::TransactionErrorMetrics,
@@ -43,7 +44,6 @@ use {
         inner_instruction::{InnerInstruction, InnerInstructionsList},
         instruction::{CompiledInstruction, TRANSACTION_LEVEL_STACK_HEIGHT},
         pubkey::Pubkey,
-        rent_collector::RentCollector,
         saturating_add_assign,
         transaction::{self, TransactionError},
         transaction_context::{ExecutionRecord, TransactionContext},
@@ -130,8 +130,8 @@ pub struct TransactionProcessingEnvironment<'a> {
     pub fee_structure: Option<&'a FeeStructure>,
     /// Lamports per signature to charge per transaction.
     pub lamports_per_signature: u64,
-    /// Rent collector to use for the transaction batch.
-    pub rent_collector: Option<&'a RentCollector>,
+    /// TODO: Docs.
+    pub rent_manager: Option<&'a dyn SVMRentManager>,
 }
 
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
@@ -244,9 +244,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             environment
                 .fee_structure
                 .unwrap_or(&FeeStructure::default()),
-            environment
-                .rent_collector
-                .unwrap_or(&RentCollector::default()),
+            environment.rent_manager,
             &mut error_metrics
         ));
 
@@ -288,9 +286,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             &mut error_metrics,
             config.account_overrides,
             &environment.feature_set,
-            environment
-                .rent_collector
-                .unwrap_or(&RentCollector::default()),
+            environment.rent_manager,
             &program_cache_for_tx_batch,
         ));
 
@@ -367,7 +363,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         check_results: Vec<TransactionCheckResult>,
         feature_set: &FeatureSet,
         fee_structure: &FeeStructure,
-        rent_collector: &RentCollector,
+        rent_manager: Option<&dyn SVMRentManager>,
         error_counters: &mut TransactionErrorMetrics,
     ) -> Vec<TransactionValidationResult> {
         sanitized_txs
@@ -383,7 +379,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         checked_details,
                         feature_set,
                         fee_structure,
-                        rent_collector,
+                        rent_manager,
                         error_counters,
                     )
                 })
@@ -402,7 +398,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         checked_details: CheckedTransactionDetails,
         feature_set: &FeatureSet,
         fee_structure: &FeeStructure,
-        rent_collector: &RentCollector,
+        rent_manager: Option<&dyn SVMRentManager>,
         error_counters: &mut TransactionErrorMetrics,
     ) -> transaction::Result<ValidatedTransactionDetails> {
         let compute_budget_limits = process_compute_budget_instructions(
@@ -426,7 +422,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         let fee_payer_loaded_rent_epoch = fee_payer_account.rent_epoch();
         let fee_payer_rent_debit = collect_rent_from_account(
             feature_set,
-            rent_collector,
+            rent_manager,
             fee_payer_address,
             &mut fee_payer_account,
         )
@@ -452,7 +448,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             &mut fee_payer_account,
             fee_payer_index,
             error_counters,
-            rent_collector,
+            rent_manager,
             fee_details.total_fee(),
         )?;
 
@@ -718,8 +714,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         }
 
         let rent = environment
-            .rent_collector
-            .map(|rent_collector| rent_collector.rent.clone())
+            .rent_manager
+            .map(|m| m.get_rent().clone())
             .unwrap_or_default();
 
         let lamports_before_tx =
@@ -731,7 +727,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut transaction_context = TransactionContext::new(
             transaction_accounts,
-            rent.clone(),
+            rent,
             compute_budget.max_instruction_stack_depth,
             compute_budget.max_instruction_trace_length,
         );
@@ -739,7 +735,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         transaction_context.set_signature(tx.signature());
 
         let pre_account_state_info =
-            TransactionAccountStateInfo::new(&rent, &transaction_context, tx);
+            TransactionAccountStateInfo::new(environment.rent_manager, &transaction_context, tx);
 
         let log_collector = if config.recording_config.enable_log_recording {
             match config.log_messages_bytes_limit {
@@ -792,11 +788,15 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut status = process_result
             .and_then(|info| {
-                let post_account_state_info =
-                    TransactionAccountStateInfo::new(&rent, &transaction_context, tx);
+                let post_account_state_info = TransactionAccountStateInfo::new(
+                    environment.rent_manager,
+                    &transaction_context,
+                    tx,
+                );
                 TransactionAccountStateInfo::verify_changes(
                     &pre_account_state_info,
                     &post_account_state_info,
+                    environment.rent_manager,
                     &transaction_context,
                 )
                 .map(|_| info)
@@ -993,7 +993,8 @@ mod tests {
             hash::Hash,
             message::{LegacyMessage, Message, MessageHeader, SanitizedMessage},
             nonce,
-            rent_collector::{RentCollector, RENT_EXEMPT_RENT_EPOCH},
+            rent::RentDue,
+            rent_collector::{CollectedInfo, RentCollector, RENT_EXEMPT_RENT_EPOCH},
             rent_debits::RentDebits,
             reserved_account_keys::ReservedAccountKeys,
             signature::{Keypair, Signature},
@@ -1016,6 +1017,36 @@ mod tests {
     impl ForkGraph for TestForkGraph {
         fn relationship(&self, _a: Slot, _b: Slot) -> BlockRelation {
             BlockRelation::Unknown
+        }
+    }
+
+    #[derive(Default)]
+    struct TestRentManager {
+        rent_collector: RentCollector,
+    }
+
+    impl SVMRentManager for TestRentManager {
+        fn collect_from_existing_account(
+            &self,
+            address: &Pubkey,
+            account: &mut AccountSharedData,
+        ) -> CollectedInfo {
+            self.rent_collector
+                .collect_from_existing_account(address, account)
+        }
+
+        fn get_rent(&self) -> &Rent {
+            &self.rent_collector.rent
+        }
+
+        fn get_rent_due(
+            &self,
+            lamports: u64,
+            data_len: usize,
+            account_rent_epoch: solana_sdk::clock::Epoch,
+        ) -> RentDue {
+            self.rent_collector
+                .get_rent_due(lamports, data_len, account_rent_epoch)
         }
     }
 
@@ -1855,7 +1886,7 @@ mod tests {
             },
             &FeatureSet::default(),
             &FeeStructure::default(),
-            &rent_collector,
+            Some(&TestRentManager { rent_collector }),
             &mut error_counters,
         );
 
@@ -1932,7 +1963,7 @@ mod tests {
             },
             &FeatureSet::default(),
             &FeeStructure::default(),
-            &rent_collector,
+            Some(&TestRentManager { rent_collector }),
             &mut error_counters,
         );
 
@@ -1983,7 +2014,7 @@ mod tests {
             },
             &FeatureSet::default(),
             &FeeStructure::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &mut error_counters,
         );
 
@@ -2016,7 +2047,7 @@ mod tests {
             },
             &FeatureSet::default(),
             &FeeStructure::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &mut error_counters,
         );
 
@@ -2053,7 +2084,7 @@ mod tests {
             },
             &FeatureSet::default(),
             &FeeStructure::default(),
-            &rent_collector,
+            Some(&TestRentManager { rent_collector }),
             &mut error_counters,
         );
 
@@ -2088,7 +2119,7 @@ mod tests {
             },
             &FeatureSet::default(),
             &FeeStructure::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &mut error_counters,
         );
 
@@ -2120,7 +2151,7 @@ mod tests {
             },
             &FeatureSet::default(),
             &FeeStructure::default(),
-            &RentCollector::default(),
+            Some(&TestRentManager::default()),
             &mut error_counters,
         );
 
@@ -2183,7 +2214,9 @@ mod tests {
                 },
                 &feature_set,
                 &FeeStructure::default(),
-                &rent_collector,
+                Some(&TestRentManager {
+                    rent_collector: rent_collector.clone(),
+                }),
                 &mut error_counters,
             );
 
@@ -2244,7 +2277,7 @@ mod tests {
                 },
                 &feature_set,
                 &FeeStructure::default(),
-                &rent_collector,
+                Some(&TestRentManager { rent_collector }),
                 &mut error_counters,
             );
 
@@ -2297,7 +2330,7 @@ mod tests {
             },
             &FeatureSet::default(),
             &FeeStructure::default(),
-            &rent_collector,
+            Some(&TestRentManager { rent_collector }),
             &mut error_counters,
         );
         assert!(
