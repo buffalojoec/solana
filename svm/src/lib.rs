@@ -8,6 +8,7 @@ pub mod account_saver;
 pub mod message_processor;
 pub mod nonce_info;
 pub mod program_loader;
+pub mod rent_manager;
 pub mod rollback_accounts;
 pub mod runtime_config;
 pub mod transaction_account_state_info;
