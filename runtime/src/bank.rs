@@ -5815,7 +5815,7 @@ impl Bank {
         &self.rent_manager.rent_collector
     }
 
-    /// Return the rent m anager for this Bank
+    /// Return the rent manager for this Bank
     pub fn rent_manager(&self) -> &RentManager {
         &self.rent_manager
     }

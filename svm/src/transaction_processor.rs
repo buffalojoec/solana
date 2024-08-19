@@ -130,7 +130,7 @@ pub struct TransactionProcessingEnvironment<'a> {
     pub fee_structure: Option<&'a FeeStructure>,
     /// Lamports per signature to charge per transaction.
     pub lamports_per_signature: u64,
-    /// TODO: Docs.
+    /// SVM rent manager. A plugin for managing account rent state.
     pub rent_manager: Option<&'a dyn SVMRentManager>,
 }
 

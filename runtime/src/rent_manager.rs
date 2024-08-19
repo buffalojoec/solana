@@ -1,7 +1,7 @@
 //! Rent manager for the Agave runtime. Manages account rent state according to
 //! the Solana protocol.
 //!
-//! Implements the AVM API's `SVMRentManager` trait.
+//! Implements the SVM API's `SVMRentManager` trait.
 
 use {
     log::*,
