@@ -7711,6 +7711,7 @@ dependencies = [
  "solana-sdk",
  "solana-svm",
  "solana-svm-conformance",
+ "solana-svm-rent",
  "solana-svm-transaction",
  "solana-system-program",
  "solana-timings",
