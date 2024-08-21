@@ -1850,18 +1850,19 @@ mod tests {
         let compute_budget = ComputeBudget::new(u64::from(
             compute_budget_limits::DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT,
         ));
+        let rent_collector = RentCollector::default();
         let transaction_context = TransactionContext::new(
             loaded_transaction.accounts,
-            Rent::default(),
+            rent_collector.get_rent().clone(),
             compute_budget.max_instruction_stack_depth,
             compute_budget.max_instruction_trace_length,
         );
 
         assert_eq!(
             TransactionAccountStateInfo::new(
-                &Rent::default(),
                 &transaction_context,
-                sanitized_tx.message()
+                sanitized_tx.message(),
+                &rent_collector,
             )
             .len(),
             num_accounts,

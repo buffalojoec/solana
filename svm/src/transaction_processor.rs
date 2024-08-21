@@ -727,10 +727,10 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             Some(lamports_sum)
         }
 
-        let rent = environment
+        let default_rent_collector = RentCollector::default();
+        let rent_collector = environment
             .rent_collector
-            .map(|rent_collector| rent_collector.get_rent().clone())
-            .unwrap_or_default();
+            .unwrap_or(&default_rent_collector);
 
         let lamports_before_tx =
             transaction_accounts_lamports_sum(&transaction_accounts, tx).unwrap_or(0);
@@ -741,7 +741,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut transaction_context = TransactionContext::new(
             transaction_accounts,
-            rent.clone(),
+            rent_collector.get_rent().clone(),
             compute_budget.max_instruction_stack_depth,
             compute_budget.max_instruction_trace_length,
         );
@@ -749,7 +749,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         transaction_context.set_signature(tx.signature());
 
         let pre_account_state_info =
-            TransactionAccountStateInfo::new(&rent, &transaction_context, tx);
+            TransactionAccountStateInfo::new(&transaction_context, tx, rent_collector);
 
         let log_collector = if config.recording_config.enable_log_recording {
             match config.log_messages_bytes_limit {
@@ -803,11 +803,12 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         let mut status = process_result
             .and_then(|info| {
                 let post_account_state_info =
-                    TransactionAccountStateInfo::new(&rent, &transaction_context, tx);
+                    TransactionAccountStateInfo::new(&transaction_context, tx, rent_collector);
                 TransactionAccountStateInfo::verify_changes(
                     &pre_account_state_info,
                     &post_account_state_info,
                     &transaction_context,
+                    rent_collector,
                 )
                 .map(|_| info)
             })
