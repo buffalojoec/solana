@@ -7711,6 +7711,7 @@ dependencies = [
  "solana-sdk",
  "solana-svm",
  "solana-svm-conformance",
+ "solana-svm-rent-collector",
  "solana-svm-transaction",
  "solana-system-program",
  "solana-timings",
@@ -7744,6 +7745,13 @@ dependencies = [
  "spl-associated-token-account",
  "spl-token",
  "termcolor",
+]
+
+[[package]]
+name = "solana-svm-rent-collector"
+version = "2.1.0"
+dependencies = [
+ "solana-sdk",
 ]
 
 [[package]]
