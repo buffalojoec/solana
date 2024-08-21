@@ -6448,6 +6448,7 @@ dependencies = [
  "solana-program-runtime",
  "solana-runtime-transaction",
  "solana-sdk",
+ "solana-svm-rent-collector",
  "solana-svm-transaction",
  "solana-system-program",
  "solana-timings",
