@@ -50,6 +50,10 @@ use {
         transaction_context::{ExecutionRecord, TransactionContext},
     },
     solana_svm_rent_collector::svm_rent_collector::SVMRentCollector,
+    solana_svm_trace::{
+        receipt::SVMTransactionReceipt,
+        stf::{environment::STFEnvironment, STFHasher},
+    },
     solana_svm_transaction::{svm_message::SVMMessage, svm_transaction::SVMTransaction},
     solana_timings::{ExecuteTimingType, ExecuteTimings},
     solana_type_overrides::sync::{atomic::Ordering, Arc, RwLock, RwLockReadGuard},
@@ -106,6 +110,10 @@ pub struct TransactionProcessingConfig<'a> {
     pub check_program_modification_slot: bool,
     /// The compute budget to use for transaction execution.
     pub compute_budget: Option<ComputeBudget>,
+    /// Enable transaction receipts.
+    pub enable_receipts: bool,
+    /// Enable STF hashing.
+    pub enable_stf: bool,
     /// The maximum number of bytes that log messages can consume.
     pub log_messages_bytes_limit: Option<usize>,
     /// Whether to limit the number of programs loaded for the transaction
@@ -296,6 +304,28 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             &program_cache_for_tx_batch,
         ));
 
+        // ::[STF-SVM]::
+        //
+        // This is roughly the point during pre-execution where the SVM has
+        // gathered all required inputs to process the transaction batch.
+        //
+        // At this point, we have the API's inputs - environment and
+        // transactions -  as well as the loaded accounts (pre-state).
+        //
+        // This means we have S(0) (initial state) and I (instructions). The
+        // first transaction would be I(0), and it should yield new state S(1).
+        // Similarly, the second transaction would be I(1) and it should yield
+        // S(2).
+        //
+        // S(n+1) = fn( S(n), I(n) )
+        //
+        // Before each transaction, we need to take a "snapshot" of state (S),
+        // and treat each transaction as an STF instruction.
+
+        // ::[STF-SVM]::
+        // Hash the environment before processing any transactions.
+        let mut maybe_stf_hasher = config.enable_receipts.then(|| STFHasher::new());
+
         let enable_transaction_loading_failure_fees = environment
             .feature_set
             .is_active(&feature_set::enable_transaction_loading_failure_fees::id());
@@ -304,16 +334,50 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 .into_iter()
                 .zip(sanitized_txs.iter())
                 .map(|(load_result, tx)| match load_result {
+                    // ::[STF-SVM]::
+                    //
+                    // During each iteration here, we should be taking "snapshots" of the output,
+                    // then using that output as the next iteration's new input.
+                    //
+                    // That means we effectively have an input "snapshot" - which is basically the
+                    // STF instruction, then we process that instruction with SVM, then we observe
+                    // the state.
                     TransactionLoadResult::NotLoaded(err) => Err(err),
                     TransactionLoadResult::FeesOnly(fees_only_tx) => {
                         if enable_transaction_loading_failure_fees {
+                            // ::[STF-SVM]::
+                            // Hash the STF current state.
+                            //
+                            // Since a fees-only transaction only loads fee payer and nonces,
+                            // just hash those for pre-post state.
+                            //
+                            // TODO: Fee assessment has to move down here, or we have to grab
+                            // fee payer and nonce ahead of time, so we have pre-state here.
+                            // By this line, it's already updated.
                             Ok(ProcessedTransaction::FeesOnly(Box::new(fees_only_tx)))
                         } else {
                             Err(fees_only_tx.load_error)
                         }
                     }
                     TransactionLoadResult::Loaded(loaded_transaction) => {
-                        let executed_tx = self.execute_loaded_transaction(
+                        // ::[STF-SVM]::
+                        // Hash the STF current state and the directive (transaction).
+                        if let Some(ref mut stf_hasher) = &mut maybe_stf_hasher {
+                            stf_hasher.hash_pre_state(&loaded_transaction.accounts);
+                            stf_hasher.hash_directive(
+                                tx,
+                                &STFEnvironment {
+                                    feature_set: &environment.feature_set,
+                                    fee_structure: environment.fee_structure,
+                                    lamports_per_signature: environment.lamports_per_signature,
+                                    rent_collector: environment.rent_collector,
+                                },
+                            );
+                        }
+
+                        // ::[STF-SVM]::
+                        // Execute the transaction.
+                        let mut executed_tx = self.execute_loaded_transaction(
                             tx,
                             loaded_transaction,
                             &mut execute_timings,
@@ -322,6 +386,34 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                             environment,
                             config,
                         );
+
+                        // ::[STF-SVM]::
+                        // Hash the STF new state.
+                        // Hash the transaction trace.
+                        if let Some(ref mut stf_hasher) = &mut maybe_stf_hasher {
+                            stf_hasher.hash_post_state(&executed_tx.loaded_transaction.accounts);
+                            executed_tx.stf = Some(stf_hasher.result());
+                        }
+
+                        if config.enable_receipts {
+                            callbacks.consume_receipt(
+                                self.slot,
+                                &environment.blockhash,
+                                &tx.signature(),
+                                &SVMTransactionReceipt {
+                                    compute_units_consumed: executed_tx
+                                        .execution_details
+                                        .executed_units,
+                                    fee_details: &executed_tx.loaded_transaction.fee_details,
+                                    log_messages: executed_tx
+                                        .execution_details
+                                        .log_messages
+                                        .as_ref(),
+                                    return_data: executed_tx.execution_details.return_data.as_ref(),
+                                    status: &executed_tx.execution_details.status,
+                                },
+                            );
+                        }
 
                         // Update batch specific cache of the loaded programs with the modifications
                         // made by the transaction, if it executed successfully.
@@ -866,6 +958,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         }
         let status = status.map(|_| ());
 
+        //
+
         loaded_transaction.accounts = accounts;
         saturating_add_assign!(
             execute_timings.details.total_account_count,
@@ -894,6 +988,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 accounts_data_len_delta,
             },
             loaded_transaction,
+            stf: None,
+            trace: None,
             programs_modified_by_tx: program_cache_for_tx_batch.drain_modified_entries(),
         }
     }

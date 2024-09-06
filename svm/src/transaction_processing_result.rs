@@ -26,6 +26,7 @@ pub enum ProcessedTransaction {
     Executed(Box<ExecutedTransaction>),
     /// Transaction was not able to be executed but fees are able to be
     /// collected and any nonces are advanceable
+    // TODO: Add traces to fees-only transactions.
     FeesOnly(Box<FeesOnlyTransaction>),
 }
 
@@ -94,6 +95,20 @@ impl ProcessedTransaction {
     pub fn execution_details(&self) -> Option<&TransactionExecutionDetails> {
         match self {
             Self::Executed(context) => Some(&context.execution_details),
+            Self::FeesOnly { .. } => None,
+        }
+    }
+
+    pub fn stf(&self) -> Option<&solana_sdk::keccak::Hash> {
+        match self {
+            Self::Executed(context) => context.stf.as_ref(),
+            Self::FeesOnly { .. } => None,
+        }
+    }
+
+    pub fn trace(&self) -> Option<&solana_sdk::keccak::Hash> {
+        match self {
+            Self::Executed(context) => context.trace.as_ref(),
             Self::FeesOnly { .. } => None,
         }
     }

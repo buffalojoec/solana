@@ -28,6 +28,7 @@ solana-program-runtime = { workspace = true }
 solana-runtime-transaction = { workspace = true }
 solana-sdk = { workspace = true }
 solana-svm-rent-collector = { workspace = true }
+solana-svm-trace = { workspace = true }
 solana-svm-transaction = { workspace = true }
 solana-system-program = { workspace = true }
 solana-timings = { workspace = true }
@@ -42,6 +43,7 @@ name = "solana_svm"
 [dev-dependencies]
 assert_matches = { workspace = true }
 bincode = { workspace = true }
+criterion = { workspace = true }
 lazy_static = { workspace = true }
 libsecp256k1 = { workspace = true }
 prost = { workspace = true }
@@ -81,3 +83,7 @@ shuttle-test = [
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "stf"
+harness = false

@@ -21,6 +21,8 @@ pub struct TransactionLoadedAccountsStats {
 pub struct ExecutedTransaction {
     pub loaded_transaction: LoadedTransaction,
     pub execution_details: TransactionExecutionDetails,
+    pub stf: Option<solana_sdk::keccak::Hash>,
+    pub trace: Option<solana_sdk::keccak::Hash>,
     pub programs_modified_by_tx: HashMap<Pubkey, Arc<ProgramCacheEntry>>,
 }
 
