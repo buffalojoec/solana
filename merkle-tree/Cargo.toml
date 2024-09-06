@@ -12,7 +12,7 @@ edition = { workspace = true }
 [dependencies]
 fast-math = { workspace = true }
 solana-hash = { workspace = true }
-solana-sha256-hasher = { workspace = true }
+solana-program = { workspace = true }
 
 [dev-dependencies]
 hex = { workspace = true }

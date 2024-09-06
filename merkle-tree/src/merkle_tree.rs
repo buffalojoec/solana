@@ -1,4 +1,4 @@
-use {solana_hash::Hash, solana_sha256_hasher::hashv};
+use solana_program::keccak::{hashv, Hash};
 
 // We need to discern between leaf and intermediate nodes to prevent trivial second
 // pre-image attacks.
@@ -133,6 +133,12 @@ impl MerkleTree {
         }
 
         mt
+    }
+
+    pub fn get_leaf_index(&self, hash: &Hash) -> Option<usize> {
+        self.nodes
+            .get(..self.leaf_count)
+            .and_then(|nodes| nodes.iter().position(|h| h == hash))
     }
 
     pub fn get_root(&self) -> Option<&Hash> {

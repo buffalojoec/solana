@@ -7095,7 +7095,7 @@ dependencies = [
  "fast-math",
  "hex",
  "solana-hash",
- "solana-sha256-hasher",
+ "solana-program",
 ]
 
 [[package]]
@@ -8295,6 +8295,14 @@ dependencies = [
 name = "solana-svm-rent-collector"
 version = "2.1.0"
 dependencies = [
+ "solana-sdk",
+]
+
+[[package]]
+name = "solana-svm-trace"
+version = "2.1.0"
+dependencies = [
+ "solana-merkle-tree",
  "solana-sdk",
 ]
 
