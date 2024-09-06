@@ -41,6 +41,9 @@ impl Hasher {
     pub fn result(self) -> Hash {
         Hash(self.hasher.finalize().into())
     }
+    pub fn result_reset(&mut self) -> Hash {
+        Hash(self.hasher.finalize_reset().into())
+    }
 }
 
 impl Sanitize for Hash {}
