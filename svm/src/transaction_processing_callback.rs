@@ -1,4 +1,7 @@
-use solana_sdk::{account::AccountSharedData, pubkey::Pubkey};
+use {
+    solana_sdk::{account::AccountSharedData, pubkey::Pubkey},
+    solana_svm_transaction::svm_transaction::SVMTransaction,
+};
 
 /// Runtime callbacks for transaction processing.
 pub trait TransactionProcessingCallback {
@@ -10,6 +13,13 @@ pub trait TransactionProcessingCallback {
 
     fn inspect_account(&self, _address: &Pubkey, _account_state: AccountState, _is_writable: bool) {
     }
+
+    /// Hook for digesting a processed transaction during batch processing.
+    /// Only called when a transaction is processed. Transactions that fail
+    /// validation are not passed to digest.
+    ///
+    /// Designed for transaction inclusion proof generation (light clients).
+    fn digest_processed_transaction(&self, _transaction: &impl SVMTransaction) {}
 }
 
 /// The state the account is in initially, before transaction processing

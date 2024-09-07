@@ -323,6 +323,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                             config,
                         );
 
+                        // Digest the processed transaction.
+                        callbacks.digest_processed_transaction(tx);
+
                         // Update batch specific cache of the loaded programs with the modifications
                         // made by the transaction, if it executed successfully.
                         if executed_tx.was_successful() {

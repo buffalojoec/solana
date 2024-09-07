@@ -19,7 +19,7 @@ use {
 // Plugin trait to let each test case define its own "handler" hooks, without
 // having to go through all of the annoying setup below.
 pub trait TraceHandler: Default {
-    fn placeholder(&self);
+    fn digest_transaction(&self, transaction: &impl SVMTransaction);
 }
 
 // All the setup is done on `MockRollup`, and we can customize some of the
@@ -92,5 +92,10 @@ where
     fn inspect_account(&self, address: &Pubkey, account_state: AccountState, is_writable: bool) {
         self.bank
             .inspect_account(address, account_state, is_writable)
+    }
+
+    // Override.
+    fn digest_processed_transaction(&self, transaction: &impl SVMTransaction) {
+        self.trace_handler.digest_transaction(transaction);
     }
 }
