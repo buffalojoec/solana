@@ -25,7 +25,10 @@ use {
             TransactionProcessingEnvironment,
         },
     },
-    solana_svm_trace::trie::Trie,
+    solana_svm_trace::{
+        receipt::{hash_receipt, SVMTransactionReceipt},
+        trie::Trie,
+    },
     solana_svm_transaction::svm_transaction::SVMTransaction,
     solana_type_overrides::sync::{Arc, RwLock},
     std::collections::HashSet,
@@ -35,6 +38,8 @@ use {
 struct NoOp;
 impl TraceHandler for NoOp {
     fn digest_transaction(&self, _transaction: &impl SVMTransaction) {}
+    fn digest_receipt(&self, _transaction: &impl SVMTransaction, _receipt: &SVMTransactionReceipt) {
+    }
 }
 
 #[derive(Default)]
@@ -46,6 +51,25 @@ impl TraceHandler for TransactionInclusionHandler {
         // For benching purposes, just hash the signature.
         let hash_fn = |hasher: &mut Hasher| hasher.hash(transaction.signature().as_ref());
         self.transactions_trie.write().unwrap().append(&hash_fn);
+    }
+
+    fn digest_receipt(&self, _transaction: &impl SVMTransaction, _receipt: &SVMTransactionReceipt) {
+    }
+}
+
+#[derive(Default)]
+struct TransactionReceiptHandler {
+    receipts_trie: RwLock<Trie>,
+}
+impl TraceHandler for TransactionReceiptHandler {
+    fn digest_transaction(&self, _transaction: &impl SVMTransaction) {}
+
+    fn digest_receipt(&self, transaction: &impl SVMTransaction, receipt: &SVMTransactionReceipt) {
+        let hash_fn = |hasher: &mut Hasher| {
+            hasher.hash(transaction.signature().as_ref());
+            hash_receipt(hasher, receipt);
+        };
+        self.receipts_trie.write().unwrap().append(&hash_fn);
     }
 }
 
@@ -107,6 +131,8 @@ fn trace(c: &mut Criterion) {
     let rollup_noop = MockRollup::<NoOp>::default();
     let rollup_with_transaction_inclusion_handler =
         MockRollup::<TransactionInclusionHandler>::default();
+    let rollup_with_transaction_receipt_handler =
+        MockRollup::<TransactionReceiptHandler>::default();
 
     let fork_graph = Arc::new(RwLock::new(MockForkGraph {}));
     let batch_processor = setup_batch_processor(rollup_noop.bank(), &fork_graph);
@@ -154,6 +180,22 @@ fn trace(c: &mut Criterion) {
                 b.iter(|| {
                     batch_processor.load_and_execute_sanitized_transactions(
                         &rollup_with_transaction_inclusion_handler, // Transaction hashing handlers.
+                        santitized_txs,
+                        check_results.clone(),
+                        &processing_environment,
+                        &processing_config,
+                    )
+                })
+            },
+        );
+
+        // With receipt hashing.
+        group.bench_function(
+            format!("{} Transaction Batch: With Receipt Hashing", set_name),
+            |b| {
+                b.iter(|| {
+                    batch_processor.load_and_execute_sanitized_transactions(
+                        &rollup_with_transaction_receipt_handler, // Receipt hashing handlers.
                         santitized_txs,
                         check_results.clone(),
                         &processing_environment,
