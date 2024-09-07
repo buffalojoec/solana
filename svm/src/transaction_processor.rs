@@ -50,6 +50,7 @@ use {
         transaction_context::{ExecutionRecord, TransactionContext},
     },
     solana_svm_rent_collector::svm_rent_collector::SVMRentCollector,
+    solana_svm_trace::receipt::SVMTransactionReceipt,
     solana_svm_transaction::{svm_message::SVMMessage, svm_transaction::SVMTransaction},
     solana_timings::{ExecuteTimingType, ExecuteTimings},
     solana_type_overrides::sync::{atomic::Ordering, Arc, RwLock, RwLockReadGuard},
@@ -306,6 +307,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 .map(|(load_result, tx)| match load_result {
                     TransactionLoadResult::NotLoaded(err) => Err(err),
                     TransactionLoadResult::FeesOnly(fees_only_tx) => {
+                        // TODO: Also enable receipts for fees-only transactions?
                         if enable_transaction_loading_failure_fees {
                             Ok(ProcessedTransaction::FeesOnly(Box::new(fees_only_tx)))
                         } else {
@@ -325,6 +327,20 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
                         // Digest the processed transaction.
                         callbacks.digest_processed_transaction(tx);
+
+                        // Digest the procssed transaction receipt.
+                        callbacks.digest_processed_receipt(
+                            tx,
+                            &SVMTransactionReceipt {
+                                compute_units_consumed: &executed_tx
+                                    .execution_details
+                                    .executed_units,
+                                fee_details: &executed_tx.loaded_transaction.fee_details,
+                                log_messages: executed_tx.execution_details.log_messages.as_ref(),
+                                return_data: executed_tx.execution_details.return_data.as_ref(),
+                                status: &executed_tx.execution_details.status,
+                            },
+                        );
 
                         // Update batch specific cache of the loaded programs with the modifications
                         // made by the transaction, if it executed successfully.

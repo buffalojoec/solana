@@ -10,6 +10,7 @@ use {
         signature::Signature,
     },
     solana_svm::transaction_processing_callback::{AccountState, TransactionProcessingCallback},
+    solana_svm_trace::receipt::SVMTransactionReceipt,
     solana_svm_transaction::svm_transaction::SVMTransaction,
 };
 
@@ -17,6 +18,7 @@ use {
 // having to go through all of the annoying setup below.
 pub trait TraceHandler: Default {
     fn digest_transaction(&self, transaction: &impl SVMTransaction);
+    fn digest_receipt(&self, transaction: &impl SVMTransaction, receipt: &SVMTransactionReceipt);
 }
 
 // All the setup is done on `MockRollup`, and we can customize some of the
@@ -94,5 +96,14 @@ where
     // Override.
     fn digest_processed_transaction(&self, transaction: &impl SVMTransaction) {
         self.trace_handler.digest_transaction(transaction);
+    }
+
+    // Override.
+    fn digest_processed_receipt(
+        &self,
+        transaction: &impl SVMTransaction,
+        receipt: &SVMTransactionReceipt,
+    ) {
+        self.trace_handler.digest_receipt(transaction, receipt);
     }
 }

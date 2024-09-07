@@ -1,5 +1,6 @@
 use {
     solana_sdk::{account::AccountSharedData, pubkey::Pubkey},
+    solana_svm_trace::receipt::SVMTransactionReceipt,
     solana_svm_transaction::svm_transaction::SVMTransaction,
 };
 
@@ -17,6 +18,16 @@ pub trait TransactionProcessingCallback {
     /// Hook for digesting a processed transaction during batch processing.
     /// Designed for transaction inclusion proof generation (light clients).
     fn digest_processed_transaction(&self, _transaction: &impl SVMTransaction) {}
+
+    /// Hook for digesting a processed transaction receipt during batch
+    /// processing. Designed for transaction inclusion proof generation (light
+    /// clients).
+    fn digest_processed_receipt(
+        &self,
+        _transaction: &impl SVMTransaction,
+        _receipt: &SVMTransactionReceipt,
+    ) {
+    }
 }
 
 /// The state the account is in initially, before transaction processing

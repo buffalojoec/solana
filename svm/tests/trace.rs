@@ -24,7 +24,10 @@ use {
             TransactionProcessingEnvironment,
         },
     },
-    solana_svm_trace::trie::Trie,
+    solana_svm_trace::{
+        receipt::{hash_receipt, SVMTransactionReceipt},
+        trie::Trie,
+    },
     solana_svm_transaction::svm_transaction::SVMTransaction,
     solana_type_overrides::sync::{Arc, RwLock},
     std::collections::HashSet,
@@ -83,11 +86,24 @@ fn test_processed_transactions() {
     #[derive(Default)]
     struct TestHandler {
         seen_signatures: RwLock<HashSet<Signature>>,
+        seen_signatures_from_receipts: RwLock<HashSet<Signature>>,
     }
     impl TraceHandler for TestHandler {
         fn digest_transaction(&self, transaction: &impl SVMTransaction) {
             // If the callback was invoked, store the transaction signature.
             self.seen_signatures
+                .write()
+                .unwrap()
+                .insert(*transaction.signature());
+        }
+
+        fn digest_receipt(
+            &self,
+            transaction: &impl SVMTransaction,
+            _receipt: &SVMTransactionReceipt,
+        ) {
+            // If the callback was invoked, store the transaction signature.
+            self.seen_signatures_from_receipts
                 .write()
                 .unwrap()
                 .insert(*transaction.signature());
@@ -179,7 +195,7 @@ fn test_processed_transactions() {
     );
 
     // The first transaction should have been successful and we should have
-    // gotten a signature.
+    // gotten a signature and a receipt.
     let result = results.processing_results[0].as_ref().unwrap();
     assert!(result.execution_details().unwrap().was_successful());
     assert!(rollup
@@ -188,9 +204,15 @@ fn test_processed_transactions() {
         .read()
         .unwrap()
         .contains(sanitized_txs[0].signature()));
+    assert!(rollup
+        .trace_handler()
+        .seen_signatures_from_receipts
+        .read()
+        .unwrap()
+        .contains(sanitized_txs[0].signature()));
 
     // The second transaction should have executed but failed with an error.
-    // We should still have gotten a signature.
+    // We should still have gotten a signature and a receipt.
     let result = results.processing_results[1].as_ref().unwrap();
     assert!(!result.execution_details().unwrap().was_successful());
     assert!(rollup
@@ -199,14 +221,26 @@ fn test_processed_transactions() {
         .read()
         .unwrap()
         .contains(sanitized_txs[1].signature()));
+    assert!(rollup
+        .trace_handler()
+        .seen_signatures_from_receipts
+        .read()
+        .unwrap()
+        .contains(sanitized_txs[1].signature()));
 
     // The third transaction should have failed to load and should not have
-    // given us a signature.
+    // given us a signature or a receipt.
     let result = &results.processing_results[2];
     assert!(result.is_err());
     assert!(!rollup
         .trace_handler()
         .seen_signatures
+        .read()
+        .unwrap()
+        .contains(sanitized_txs[2].signature()));
+    assert!(!rollup
+        .trace_handler()
+        .seen_signatures_from_receipts
         .read()
         .unwrap()
         .contains(sanitized_txs[2].signature()));
@@ -219,6 +253,7 @@ fn test_proofs() {
     #[derive(Default)]
     struct TestHandler {
         signatures_trie: RwLock<Trie>,
+        receipts_trie: RwLock<Trie>,
     }
     impl TraceHandler for TestHandler {
         fn digest_transaction(&self, transaction: &impl SVMTransaction) {
@@ -226,6 +261,18 @@ fn test_proofs() {
                 hasher.hash(transaction.signature().as_ref());
             };
             self.signatures_trie.write().unwrap().append(hash_fn);
+        }
+
+        fn digest_receipt(
+            &self,
+            transaction: &impl SVMTransaction,
+            receipt: &SVMTransactionReceipt,
+        ) {
+            let hash_fn = |hasher: &mut Hasher| {
+                hasher.hash(transaction.signature().as_ref());
+                hash_receipt(hasher, receipt);
+            };
+            self.receipts_trie.write().unwrap().append(hash_fn);
         }
     }
 
@@ -307,16 +354,26 @@ fn test_proofs() {
         &processing_config,
     );
 
-    // Merklize the signatures trie.
+    // Merklize the tries.
     let signatures_trie = rollup.trace_handler().signatures_trie.read().unwrap();
     let signatures_merkle_tree = signatures_trie.merklize();
+
+    let receipts_trie = rollup.trace_handler().receipts_trie.read().unwrap();
+    let receipts_merkle_tree = receipts_trie.merklize();
 
     // Verify the proofs.
     let mut hasher = solana_sdk::keccak::Hasher::default();
     for (i, res) in result.processing_results.iter().enumerate() {
         // Assert the transaction was processed.
         assert!(res.is_ok());
+        let unwrapped_result = res.as_ref().unwrap();
+        let execution_details = unwrapped_result.execution_details().unwrap();
+        let loaded_transaction = &unwrapped_result
+            .executed_transaction()
+            .unwrap()
+            .loaded_transaction;
 
+        // Verify the proof on the signatures trie.
         let (index, candidate) = {
             // First hash the signature entry manually.
             hasher.hash(sanitized_txs[i].signature().as_ref());
@@ -333,5 +390,33 @@ fn test_proofs() {
         };
         let proof = signatures_merkle_tree.find_path(index).unwrap();
         assert!(proof.verify(candidate), "Failed to verify signature proof");
+
+        // Verify the proof on the receipts trie.
+        let (index, candidate) = {
+            // First hash the receipt entry manually.
+            hasher.hash(sanitized_txs[i].signature().as_ref());
+            hash_receipt(
+                &mut hasher,
+                &SVMTransactionReceipt {
+                    compute_units_consumed: &execution_details.executed_units,
+                    fee_details: &loaded_transaction.fee_details,
+                    log_messages: execution_details.log_messages.as_ref(),
+                    return_data: execution_details.return_data.as_ref(),
+                    status: &execution_details.status,
+                },
+            );
+            let receipt_hash = hasher.result_reset();
+
+            // Get the leaf index for this hash.
+            let index = receipts_trie.get_leaf_index(&receipt_hash).unwrap();
+
+            // Hash with the leaf prefix.
+            hasher.hashv(&[&[0], receipt_hash.as_ref()]);
+            let receipt_hash_with_prefix = hasher.result_reset();
+
+            (index, receipt_hash_with_prefix)
+        };
+        let proof = receipts_merkle_tree.find_path(index).unwrap();
+        assert!(proof.verify(candidate), "Failed to verify receipt proof");
     }
 }
