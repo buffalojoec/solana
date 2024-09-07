@@ -8249,6 +8249,7 @@ dependencies = [
  "solana-svm",
  "solana-svm-conformance",
  "solana-svm-rent-collector",
+ "solana-svm-trace",
  "solana-svm-transaction",
  "solana-system-program",
  "solana-timings",

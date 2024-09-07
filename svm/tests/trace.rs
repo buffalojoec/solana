@@ -10,8 +10,9 @@ use {
     solana_program_runtime::loaded_programs::ProgramCacheEntry,
     solana_sdk::{
         instruction::{AccountMeta, Instruction},
+        keccak::Hasher,
         pubkey::Pubkey,
-        signature::Keypair,
+        signature::{Keypair, Signature},
         signer::Signer,
         system_instruction, system_program,
         transaction::{SanitizedTransaction, Transaction},
@@ -23,6 +24,8 @@ use {
             TransactionProcessingEnvironment,
         },
     },
+    solana_svm_trace::trie::Trie,
+    solana_svm_transaction::svm_transaction::SVMTransaction,
     solana_type_overrides::sync::{Arc, RwLock},
     std::collections::HashSet,
 };
@@ -76,11 +79,18 @@ fn register_compute_budget_builtin(
 
 #[test]
 fn test_processed_transactions() {
+    // Our handler here is simply going to track transaction signatures.
     #[derive(Default)]
-    struct TestHandler {}
+    struct TestHandler {
+        seen_signatures_from_digested_transactions: RwLock<HashSet<Signature>>,
+    }
     impl TraceHandler for TestHandler {
-        fn placeholder(&self) {
-            // Placeholder.
+        fn digest_transaction(&self, transaction: &impl SVMTransaction) {
+            // If the callback was invoked, store the transaction signature.
+            self.seen_signatures_from_digested_transactions
+                .write()
+                .unwrap()
+                .insert(*transaction.signature());
         }
     }
 
@@ -160,22 +170,62 @@ fn test_processed_transactions() {
     .collect::<Vec<_>>();
 
     // Invoke SVM.
-    let _results = batch_processor.load_and_execute_sanitized_transactions(
+    let results = batch_processor.load_and_execute_sanitized_transactions(
         &rollup,
         &sanitized_txs,
         create_check_results(sanitized_txs.len()),
         &processing_environment,
         &processing_config,
     );
+
+    // The first transaction should have been successful and we should have
+    // gotten a signature.
+    let result = results.processing_results[0].as_ref().unwrap();
+    assert!(result.execution_details().unwrap().was_successful());
+    assert!(rollup
+        .trace_handler()
+        .seen_signatures_from_digested_transactions
+        .read()
+        .unwrap()
+        .contains(sanitized_txs[0].signature()));
+
+    // The second transaction should have executed but failed with an error.
+    // We should still have gotten a signature.
+    let result = results.processing_results[1].as_ref().unwrap();
+    assert!(!result.execution_details().unwrap().was_successful());
+    assert!(rollup
+        .trace_handler()
+        .seen_signatures_from_digested_transactions
+        .read()
+        .unwrap()
+        .contains(sanitized_txs[1].signature()));
+
+    // The third transaction should have failed to load and should not have
+    // given us a signature.
+    let result = &results.processing_results[2];
+    assert!(result.is_err());
+    assert!(!rollup
+        .trace_handler()
+        .seen_signatures_from_digested_transactions
+        .read()
+        .unwrap()
+        .contains(sanitized_txs[2].signature()));
 }
 
 #[test]
 fn test_proofs() {
+    // Our handler here is going to use the trie structure defined in
+    // svm-trace to store various callback entries in Merkle trees.
     #[derive(Default)]
-    struct TestHandler {}
+    struct TestHandler {
+        transactions_trie: RwLock<Trie>,
+    }
     impl TraceHandler for TestHandler {
-        fn placeholder(&self) {
-            // Placeholder.
+        fn digest_transaction(&self, transaction: &impl SVMTransaction) {
+            let hash_fn = |hasher: &mut Hasher| {
+                hasher.hash(transaction.signature().as_ref());
+            };
+            self.transactions_trie.write().unwrap().append(hash_fn);
         }
     }
 
@@ -249,11 +299,41 @@ fn test_proofs() {
     .collect::<Vec<_>>();
 
     // Invoke SVM.
-    let _result = batch_processor.load_and_execute_sanitized_transactions(
+    let result = batch_processor.load_and_execute_sanitized_transactions(
         &rollup,
         &sanitized_txs,
         create_check_results(sanitized_txs.len()),
         &processing_environment,
         &processing_config,
     );
+
+    // Merklize the transactions trie.
+    let transactions_tree = rollup
+        .trace_handler()
+        .transactions_trie
+        .read()
+        .unwrap()
+        .merklize();
+
+    // Verify the proofs.
+    let mut hasher = solana_sdk::keccak::Hasher::default();
+    for (i, res) in result.processing_results.iter().enumerate() {
+        // Assert the transaction was processed.
+        assert!(res.is_ok());
+
+        let candidate = {
+            // First hash the transaction entry manually, then with the leaf
+            // prefix.
+            hasher.hash(sanitized_txs[i].signature().as_ref());
+            let raw_hash = hasher.result_reset();
+            hasher.hashv(&[&[0], raw_hash.as_ref()]);
+            hasher.result_reset()
+        };
+        let index = transactions_tree.get_leaf_index(&candidate).unwrap();
+        let proof = transactions_tree.find_path(index).unwrap();
+        assert!(
+            proof.verify(candidate),
+            "Failed to verify transaction inclusion proof"
+        );
+    }
 }

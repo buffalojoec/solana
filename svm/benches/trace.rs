@@ -11,6 +11,7 @@ use {
     },
     solana_sdk::{
         instruction::AccountMeta,
+        keccak::Hasher,
         pubkey::Pubkey,
         signature::Keypair,
         signer::Signer,
@@ -24,6 +25,8 @@ use {
             TransactionProcessingEnvironment,
         },
     },
+    solana_svm_trace::trie::Trie,
+    solana_svm_transaction::svm_transaction::SVMTransaction,
     solana_type_overrides::sync::{Arc, RwLock},
     std::collections::HashSet,
 };
@@ -31,8 +34,18 @@ use {
 #[derive(Default)]
 struct NoOp;
 impl TraceHandler for NoOp {
-    fn placeholder(&self) {
-        // Placeholder.
+    fn digest_transaction(&self, _transaction: &impl SVMTransaction) {}
+}
+
+#[derive(Default)]
+struct TransactionInclusionHandler {
+    transactions_trie: RwLock<Trie>,
+}
+impl TraceHandler for TransactionInclusionHandler {
+    fn digest_transaction(&self, transaction: &impl SVMTransaction) {
+        // For benching purposes, just hash the signature.
+        let hash_fn = |hasher: &mut Hasher| hasher.hash(transaction.signature().as_ref());
+        self.transactions_trie.write().unwrap().append(&hash_fn);
     }
 }
 
@@ -92,6 +105,8 @@ fn setup_batch_processor(
 
 fn trace(c: &mut Criterion) {
     let rollup_noop = MockRollup::<NoOp>::default();
+    let rollup_with_transaction_inclusion_handler =
+        MockRollup::<TransactionInclusionHandler>::default();
 
     let fork_graph = Arc::new(RwLock::new(MockForkGraph {}));
     let batch_processor = setup_batch_processor(rollup_noop.bank(), &fork_graph);
@@ -131,6 +146,22 @@ fn trace(c: &mut Criterion) {
                 )
             })
         });
+
+        // With transaction hashing.
+        group.bench_function(
+            format!("{} Transaction Batch: With Transaction Hashing", set_name),
+            |b| {
+                b.iter(|| {
+                    batch_processor.load_and_execute_sanitized_transactions(
+                        &rollup_with_transaction_inclusion_handler, // Transaction hashing handlers.
+                        santitized_txs,
+                        check_results.clone(),
+                        &processing_environment,
+                        &processing_config,
+                    )
+                })
+            },
+        );
     }
 
     group.finish();
