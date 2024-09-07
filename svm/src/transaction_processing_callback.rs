@@ -1,6 +1,6 @@
 use {
     solana_sdk::{account::AccountSharedData, pubkey::Pubkey},
-    solana_svm_trace::receipt::SVMTransactionReceipt,
+    solana_svm_trace::{receipt::SVMTransactionReceipt, stf::STFTrace},
     solana_svm_transaction::svm_transaction::SVMTransaction,
 };
 
@@ -33,6 +33,13 @@ pub trait TransactionProcessingCallback {
         _receipt: &SVMTransactionReceipt,
     ) {
     }
+
+    /// Hook for digesting a processed transactions STF trace during batch
+    /// processing. Only called when a transaction is processed. Transactions
+    /// that fail validation are not passed to digest.
+    ///
+    /// Designed for transaction STF proof generation (light clients).
+    fn digest_processed_stf_trace(&self, _trace: &STFTrace<impl SVMTransaction>) {}
 }
 
 /// The state the account is in initially, before transaction processing

@@ -9,6 +9,7 @@ use {
     },
     solana_program_runtime::loaded_programs::ProgramCacheEntry,
     solana_sdk::{
+        account::AccountSharedData,
         instruction::{AccountMeta, Instruction},
         keccak::Hasher,
         pubkey::Pubkey,
@@ -26,6 +27,7 @@ use {
     },
     solana_svm_trace::{
         receipt::{hash_receipt, SVMTransactionReceipt},
+        stf::{hash_account, hash_environment, hash_transaction, STFEnvironment, STFTrace},
         trie::Trie,
     },
     solana_svm_transaction::svm_transaction::SVMTransaction,
@@ -87,6 +89,7 @@ fn test_processed_transactions() {
     struct TestHandler {
         seen_signatures_from_digested_transactions: RwLock<HashSet<Signature>>,
         seen_signatures_from_digested_receipts: RwLock<HashSet<Signature>>,
+        seen_signatures_from_digested_traces: RwLock<HashSet<Signature>>,
     }
     impl TraceHandler for TestHandler {
         fn digest_transaction(&self, transaction: &impl SVMTransaction) {
@@ -107,6 +110,16 @@ fn test_processed_transactions() {
                 .write()
                 .unwrap()
                 .insert(*transaction.signature());
+        }
+
+        fn digest_trace(&self, trace: &STFTrace<impl SVMTransaction>) {
+            // If the callback was invoked, store the transaction signature.
+            if let STFTrace::Directive(directive) = trace {
+                self.seen_signatures_from_digested_traces
+                    .write()
+                    .unwrap()
+                    .insert(*directive.transaction.signature());
+            }
         }
     }
 
@@ -210,6 +223,12 @@ fn test_processed_transactions() {
         .read()
         .unwrap()
         .contains(sanitized_txs[0].signature()));
+    assert!(rollup
+        .trace_handler()
+        .seen_signatures_from_digested_traces
+        .read()
+        .unwrap()
+        .contains(sanitized_txs[0].signature()));
 
     // The second transaction should have executed but failed with an error.
     // We should still have gotten a signature and a receipt.
@@ -224,6 +243,12 @@ fn test_processed_transactions() {
     assert!(rollup
         .trace_handler()
         .seen_signatures_from_digested_receipts
+        .read()
+        .unwrap()
+        .contains(sanitized_txs[1].signature()));
+    assert!(rollup
+        .trace_handler()
+        .seen_signatures_from_digested_traces
         .read()
         .unwrap()
         .contains(sanitized_txs[1].signature()));
@@ -244,6 +269,12 @@ fn test_processed_transactions() {
         .read()
         .unwrap()
         .contains(sanitized_txs[2].signature()));
+    assert!(!rollup
+        .trace_handler()
+        .seen_signatures_from_digested_traces
+        .read()
+        .unwrap()
+        .contains(sanitized_txs[2].signature()));
 }
 
 #[test]
@@ -254,6 +285,11 @@ fn test_proofs() {
     struct TestHandler {
         transactions_trie: RwLock<Trie>,
         receipts_trie: RwLock<Trie>,
+        traces_trie: RwLock<Trie>,
+        stf_hasher: RwLock<Hasher>,
+        // This is cheating a bit, but we're stashing the pre-state for each
+        // transaction, just for test purposes.
+        pub pre_state_accounts: RwLock<Vec<Vec<(Pubkey, AccountSharedData)>>>,
     }
     impl TraceHandler for TestHandler {
         fn digest_transaction(&self, transaction: &impl SVMTransaction) {
@@ -273,6 +309,39 @@ fn test_proofs() {
                 hash_receipt(hasher, receipt);
             };
             self.receipts_trie.write().unwrap().append(hash_fn);
+        }
+
+        fn digest_trace(&self, trace: &STFTrace<impl SVMTransaction>) {
+            let stf_hasher = &mut *self.stf_hasher.write().unwrap();
+            match trace {
+                STFTrace::State(state) => {
+                    let mut pre_state_accounts = vec![];
+                    // Right before hashing the pre-state, hash the signature.
+                    for (pubkey, account) in state.accounts {
+                        hash_account(stf_hasher, pubkey, account);
+                        pre_state_accounts.push((*pubkey, account.clone()));
+                    }
+                    self.pre_state_accounts
+                        .write()
+                        .unwrap()
+                        .push(pre_state_accounts);
+                }
+                STFTrace::Directive(directive) => {
+                    hash_environment(stf_hasher, directive.environment);
+                    hash_transaction(stf_hasher, directive.transaction);
+                }
+                STFTrace::NewState(state) => {
+                    for (pubkey, account) in state.accounts {
+                        hash_account(stf_hasher, pubkey, account);
+                    }
+                    // Now that we've hashed the post-state, we can fold this
+                    // node into the tree.
+                    self.traces_trie
+                        .write()
+                        .unwrap()
+                        .push(stf_hasher.result_reset());
+                }
+            }
         }
     }
 
@@ -367,6 +436,12 @@ fn test_proofs() {
         .read()
         .unwrap()
         .merklize();
+    let traces_tree = rollup
+        .trace_handler()
+        .traces_trie
+        .read()
+        .unwrap()
+        .merklize();
 
     // Verify the proofs.
     let mut hasher = solana_sdk::keccak::Hasher::default();
@@ -418,5 +493,34 @@ fn test_proofs() {
         let index = receipts_tree.get_leaf_index(&candidate).unwrap();
         let proof = receipts_tree.find_path(index).unwrap();
         assert!(proof.verify(candidate), "Failed to verify receipt proof");
+
+        // Verify the proof on the traces trie.
+        // Again, we're cheating a bit here for test purposes, since our hook
+        // has been stashing transaction pre-state.
+        let candidate = {
+            // First hash the trace entry manually, then with the leaf prefix.
+            for (pubkey, account) in &rollup.trace_handler().pre_state_accounts.read().unwrap()[i] {
+                hash_account(&mut hasher, pubkey, account);
+            }
+            hash_environment(
+                &mut hasher,
+                &STFEnvironment {
+                    feature_set: &processing_environment.feature_set,
+                    fee_structure: processing_environment.fee_structure,
+                    lamports_per_signature: &processing_environment.lamports_per_signature,
+                    rent_collector: processing_environment.rent_collector,
+                },
+            );
+            hash_transaction(&mut hasher, &sanitized_txs[i]);
+            for (pubkey, account) in &loaded_transaction.accounts {
+                hash_account(&mut hasher, pubkey, account);
+            }
+            let raw_hash = hasher.result_reset();
+            hasher.hashv(&[&[0], raw_hash.as_ref()]);
+            hasher.result_reset()
+        };
+        let index = traces_tree.get_leaf_index(&candidate).unwrap();
+        let proof = traces_tree.find_path(index).unwrap();
+        assert!(proof.verify(candidate), "Failed to verify STF proof");
     }
 }

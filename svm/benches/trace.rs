@@ -27,6 +27,7 @@ use {
     },
     solana_svm_trace::{
         receipt::{hash_receipt, SVMTransactionReceipt},
+        stf::{hash_trace, STFTrace},
         trie::Trie,
     },
     solana_svm_transaction::svm_transaction::SVMTransaction,
@@ -40,6 +41,7 @@ impl TraceHandler for NoOp {
     fn digest_transaction(&self, _transaction: &impl SVMTransaction) {}
     fn digest_receipt(&self, _transaction: &impl SVMTransaction, _receipt: &SVMTransactionReceipt) {
     }
+    fn digest_trace(&self, _trace: &STFTrace<impl SVMTransaction>) {}
 }
 
 #[derive(Default)]
@@ -55,6 +57,7 @@ impl TraceHandler for TransactionInclusionHandler {
 
     fn digest_receipt(&self, _transaction: &impl SVMTransaction, _receipt: &SVMTransactionReceipt) {
     }
+    fn digest_trace(&self, _trace: &STFTrace<impl SVMTransaction>) {}
 }
 
 #[derive(Default)]
@@ -70,6 +73,26 @@ impl TraceHandler for TransactionReceiptHandler {
             hash_receipt(hasher, receipt);
         };
         self.receipts_trie.write().unwrap().append(&hash_fn);
+    }
+
+    fn digest_trace(&self, _trace: &STFTrace<impl SVMTransaction>) {}
+}
+
+#[derive(Default)]
+struct TransactionSTFTraceHandler {
+    traces_trie: RwLock<Trie>,
+}
+impl TraceHandler for TransactionSTFTraceHandler {
+    fn digest_transaction(&self, _transaction: &impl SVMTransaction) {}
+    fn digest_receipt(&self, _transaction: &impl SVMTransaction, _receipt: &SVMTransactionReceipt) {
+    }
+
+    fn digest_trace(&self, trace: &STFTrace<impl SVMTransaction>) {
+        // For benching purposes, just hash it.
+        let hash_fn = |hasher: &mut Hasher| {
+            hash_trace(hasher, trace);
+        };
+        self.traces_trie.write().unwrap().append(&hash_fn);
     }
 }
 
@@ -133,6 +156,8 @@ fn trace(c: &mut Criterion) {
         MockRollup::<TransactionInclusionHandler>::default();
     let rollup_with_transaction_receipt_handler =
         MockRollup::<TransactionReceiptHandler>::default();
+    let rollup_with_transaction_stf_trace_handler =
+        MockRollup::<TransactionSTFTraceHandler>::default();
 
     let fork_graph = Arc::new(RwLock::new(MockForkGraph {}));
     let batch_processor = setup_batch_processor(rollup_noop.bank(), &fork_graph);
@@ -196,6 +221,22 @@ fn trace(c: &mut Criterion) {
                 b.iter(|| {
                     batch_processor.load_and_execute_sanitized_transactions(
                         &rollup_with_transaction_receipt_handler, // Receipt hashing handlers.
+                        santitized_txs,
+                        check_results.clone(),
+                        &processing_environment,
+                        &processing_config,
+                    )
+                })
+            },
+        );
+
+        // With STF trace hashing.
+        group.bench_function(
+            format!("{} Transaction Batch: With STF Trace Hashing", set_name),
+            |b| {
+                b.iter(|| {
+                    batch_processor.load_and_execute_sanitized_transactions(
+                        &rollup_with_transaction_stf_trace_handler, // STF trace hashing handlers.
                         santitized_txs,
                         check_results.clone(),
                         &processing_environment,
