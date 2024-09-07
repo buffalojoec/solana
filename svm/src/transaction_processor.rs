@@ -50,7 +50,10 @@ use {
         transaction_context::{ExecutionRecord, TransactionContext},
     },
     solana_svm_rent_collector::svm_rent_collector::SVMRentCollector,
-    solana_svm_trace::receipt::SVMTransactionReceipt,
+    solana_svm_trace::{
+        receipt::SVMTransactionReceipt,
+        stf::{STFDirective, STFEnvironment, STFState, STFTrace},
+    },
     solana_svm_transaction::{svm_message::SVMMessage, svm_transaction::SVMTransaction},
     solana_timings::{ExecuteTimingType, ExecuteTimings},
     solana_type_overrides::sync::{atomic::Ordering, Arc, RwLock, RwLockReadGuard},
@@ -226,10 +229,13 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     }
 
     /// Main entrypoint to the SVM.
-    pub fn load_and_execute_sanitized_transactions<CB: TransactionProcessingCallback>(
+    pub fn load_and_execute_sanitized_transactions<
+        CB: TransactionProcessingCallback,
+        T: SVMTransaction,
+    >(
         &self,
         callbacks: &CB,
-        sanitized_txs: &[impl SVMTransaction],
+        sanitized_txs: &[T],
         check_results: Vec<TransactionCheckResult>,
         environment: &TransactionProcessingEnvironment,
         config: &TransactionProcessingConfig,
@@ -297,6 +303,24 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             &program_cache_for_tx_batch,
         ));
 
+        // ::[STF]::
+        //
+        // This is roughly the point during pre-execution where the SVM has
+        // gathered all required inputs to process the transaction batch.
+        //
+        // STF current state S is the account state before the transaction is
+        // executed.
+        //
+        // STF directive (D) is both the transaction as well as the SVM's
+        // provisioned environment (`TransactionProcessingEnvironment`).
+        //
+        // STF resulting state S' is the account state after the transaction is
+        // executed.
+        //
+        //     S' = fn( S, D ) where fn is SVM.
+        //
+        // ...
+
         let enable_transaction_loading_failure_fees = environment
             .feature_set
             .is_active(&feature_set::enable_transaction_loading_failure_fees::id());
@@ -315,6 +339,22 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         }
                     }
                     TransactionLoadResult::Loaded(loaded_transaction) => {
+                        // ::[STF]:: Current state.
+                        callbacks.digest_processed_trace(&STFTrace::State::<T>(&STFState {
+                            accounts: &loaded_transaction.accounts,
+                        }));
+
+                        // ::[STF]:: Directive.
+                        callbacks.digest_processed_trace(&STFTrace::Directive(&STFDirective {
+                            environment: &STFEnvironment {
+                                feature_set: &environment.feature_set,
+                                fee_structure: environment.fee_structure,
+                                lamports_per_signature: &environment.lamports_per_signature,
+                                rent_collector: environment.rent_collector,
+                            },
+                            transaction: tx,
+                        }));
+
                         let executed_tx = self.execute_loaded_transaction(
                             tx,
                             loaded_transaction,
@@ -327,6 +367,11 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
                         // Digest the processed transaction.
                         callbacks.digest_processed_transaction(tx);
+
+                        // ::[STF]:: New state.
+                        callbacks.digest_processed_trace(&STFTrace::NewState::<T>(&STFState {
+                            accounts: &executed_tx.loaded_transaction.accounts,
+                        }));
 
                         // Digest the procssed transaction receipt.
                         callbacks.digest_processed_receipt(

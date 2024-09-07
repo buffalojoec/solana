@@ -7784,6 +7784,8 @@ version = "2.1.0"
 dependencies = [
  "solana-merkle-tree",
  "solana-sdk",
+ "solana-svm-rent-collector",
+ "solana-svm-transaction",
 ]
 
 [[package]]
