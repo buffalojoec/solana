@@ -28,6 +28,7 @@ solana-program-runtime = { workspace = true }
 solana-runtime-transaction = { workspace = true }
 solana-sdk = { workspace = true }
 solana-svm-rent-collector = { workspace = true }
+solana-svm-trace = { workspace = true }
 solana-svm-transaction = { workspace = true }
 solana-system-program = { workspace = true }
 solana-timings = { workspace = true }
@@ -82,3 +83,7 @@ shuttle-test = [
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "trace"
+harness = false
