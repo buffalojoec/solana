@@ -10,3 +10,5 @@ license = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
+solana-merkle-tree = { workspace = true }
+solana-sdk = { workspace = true }

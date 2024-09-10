@@ -7780,6 +7780,10 @@ dependencies = [
 [[package]]
 name = "solana-svm-trace"
 version = "2.1.0"
+dependencies = [
+ "solana-merkle-tree",
+ "solana-sdk",
+]
 
 [[package]]
 name = "solana-svm-transaction"
