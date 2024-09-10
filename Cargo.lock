@@ -8205,6 +8205,7 @@ dependencies = [
  "borsh 1.5.1",
  "bs58",
  "clap 2.33.3",
+ "criterion",
  "crossbeam-channel",
  "env_logger",
  "home",

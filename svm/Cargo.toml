@@ -51,6 +51,7 @@ bincode = { workspace = true }
 borsh = { version = "1.5.1", features = ["derive"] }
 bs58 = { workspace = true }
 clap = { workspace = true }
+criterion = { workspace = true }
 crossbeam-channel = { workspace = true }
 env_logger = { workspace = true }
 home = "0.5"
@@ -123,3 +124,7 @@ crate-type = ["cdylib", "lib"]
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "trace"
+harness = false
