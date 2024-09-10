@@ -7705,6 +7705,7 @@ version = "2.1.0"
 dependencies = [
  "assert_matches",
  "bincode",
+ "criterion",
  "itertools 0.12.1",
  "lazy_static",
  "libsecp256k1",
