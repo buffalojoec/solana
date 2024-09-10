@@ -7754,6 +7754,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-svm-example-light-client"
+version = "2.1.0"
+dependencies = [
+ "solana-bpf-loader-program",
+ "solana-compute-budget",
+ "solana-merkle-tree",
+ "solana-program-runtime",
+ "solana-sdk",
+ "solana-svm",
+ "solana-svm-trace",
+ "solana-svm-transaction",
+ "solana-system-program",
+]
+
+[[package]]
 name = "solana-svm-example-paytube"
 version = "2.1.0"
 dependencies = [
