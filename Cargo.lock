@@ -7705,6 +7705,7 @@ version = "2.1.0"
 dependencies = [
  "assert_matches",
  "bincode",
+ "criterion",
  "itertools 0.12.1",
  "lazy_static",
  "libsecp256k1",
@@ -7733,6 +7734,7 @@ dependencies = [
  "solana-svm",
  "solana-svm-conformance",
  "solana-svm-rent-collector",
+ "solana-svm-trace",
  "solana-svm-transaction",
  "solana-system-program",
  "solana-timings",
@@ -7749,6 +7751,21 @@ dependencies = [
  "prost",
  "prost-build",
  "prost-types",
+]
+
+[[package]]
+name = "solana-svm-example-light-client"
+version = "2.1.0"
+dependencies = [
+ "solana-bpf-loader-program",
+ "solana-compute-budget",
+ "solana-merkle-tree",
+ "solana-program-runtime",
+ "solana-sdk",
+ "solana-svm",
+ "solana-svm-trace",
+ "solana-svm-transaction",
+ "solana-system-program",
 ]
 
 [[package]]
@@ -7774,6 +7791,16 @@ name = "solana-svm-rent-collector"
 version = "2.1.0"
 dependencies = [
  "solana-sdk",
+]
+
+[[package]]
+name = "solana-svm-trace"
+version = "2.1.0"
+dependencies = [
+ "solana-merkle-tree",
+ "solana-sdk",
+ "solana-svm-rent-collector",
+ "solana-svm-transaction",
 ]
 
 [[package]]

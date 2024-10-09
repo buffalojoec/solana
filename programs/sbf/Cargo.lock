@@ -6466,6 +6466,7 @@ dependencies = [
  "solana-runtime-transaction",
  "solana-sdk",
  "solana-svm-rent-collector",
+ "solana-svm-trace",
  "solana-svm-transaction",
  "solana-system-program",
  "solana-timings",
@@ -6479,6 +6480,16 @@ name = "solana-svm-rent-collector"
 version = "2.1.0"
 dependencies = [
  "solana-sdk",
+]
+
+[[package]]
+name = "solana-svm-trace"
+version = "2.1.0"
+dependencies = [
+ "solana-merkle-tree",
+ "solana-sdk",
+ "solana-svm-rent-collector",
+ "solana-svm-transaction",
 ]
 
 [[package]]
