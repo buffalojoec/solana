@@ -221,6 +221,36 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             .set_fork_graph(Arc::downgrade(&fork_graph));
     }
 
+    /// Configure the program runtime environments for the transaction batch
+    /// processor's program cache.
+    ///
+    /// For newly created batch processors, which aren't created using
+    /// `new_from`, this method should be called to configure the program
+    /// runtime environments before processing transactions.
+    pub fn configure_program_runtime_environments(
+        &self,
+        feature_set: &FeatureSet,
+        compute_budget: &ComputeBudget,
+        reject_deployment_of_broken_elfs: bool,
+        debugging_features: bool,
+    ) {
+        let mut program_cache = self.program_cache.write().unwrap();
+        program_cache.latest_root_slot = self.slot;
+        program_cache.latest_root_epoch = self.epoch;
+        program_cache.environments.program_runtime_v1 = Arc::new(
+            create_program_runtime_environment_v1(
+                feature_set,
+                compute_budget,
+                reject_deployment_of_broken_elfs,
+                debugging_features,
+            )
+            .unwrap(),
+        );
+        program_cache.environments.program_runtime_v2 = Arc::new(
+            create_program_runtime_environment_v2(compute_budget, debugging_features),
+        );
+    }
+
     /// Returns the current environments depending on the given epoch
     /// Returns None if the call could result in a deadlock
     #[cfg(feature = "dev-context-only-utils")]
