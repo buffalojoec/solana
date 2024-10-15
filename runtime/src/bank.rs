@@ -159,8 +159,9 @@ use {
         stake_state::StakeStateV2,
     },
     solana_svm::{
-        account_loader::{collect_rent_from_account, LoadedTransaction},
+        account_loader::{collect_rent_from_account, LoadedTransaction, TransactionCheckResult},
         account_overrides::AccountOverrides,
+        transaction_checker::TransactionChecker,
         transaction_commit_result::{CommittedTransaction, TransactionCommitResult},
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_execution_result::{
@@ -181,6 +182,7 @@ use {
     solana_vote::vote_account::{VoteAccount, VoteAccountsHashMap},
     solana_vote_program::vote_state::VoteState,
     std::{
+        cell::RefCell,
         collections::{HashMap, HashSet},
         convert::TryFrom,
         fmt,
@@ -3629,15 +3631,16 @@ impl Bank {
         error_counters: &mut TransactionErrorMetrics,
         processing_config: TransactionProcessingConfig,
     ) -> LoadAndExecuteTransactionsOutput {
-        let sanitized_txs = batch.sanitized_transactions();
-
-        let (check_results, check_us) = measure_us!(self.check_transactions(
-            sanitized_txs,
+        let mut check_us = 0;
+        let transaction_checker = BankTransactionChecker::new(
+            self,
             batch.lock_results(),
             max_age,
             error_counters,
-        ));
-        timings.saturating_add_in_place(ExecuteTimingType::CheckUs, check_us);
+            &mut check_us,
+        );
+
+        let sanitized_txs = batch.sanitized_transactions();
 
         let (blockhash, lamports_per_signature) = self.last_blockhash_and_lamports_per_signature();
         let rent_collector_with_metrics =
@@ -3657,7 +3660,7 @@ impl Bank {
             .load_and_execute_sanitized_transactions(
                 self,
                 sanitized_txs,
-                check_results,
+                Some(&transaction_checker),
                 &processing_environment,
                 &processing_config,
             );
@@ -3667,6 +3670,8 @@ impl Bank {
 
         // Accumulate the transaction batch execution timings.
         timings.accumulate(&sanitized_output.execute_timings);
+
+        timings.saturating_add_in_place(ExecuteTimingType::CheckUs, check_us);
 
         let ((), collect_logs_us) =
             measure_us!(self.collect_logs(sanitized_txs, &sanitized_output.processing_results));
@@ -6871,6 +6876,48 @@ impl TransactionProcessingCallback for Bank {
         if self.is_accounts_lt_hash_enabled() {
             self.inspect_account_for_accounts_lt_hash(address, &account_state, is_writable);
         }
+    }
+}
+
+struct BankTransactionChecker<'a> {
+    bank: &'a Bank,
+    lock_results: &'a Vec<Result<()>>,
+    max_age: usize,
+    error_counters: RefCell<&'a mut TransactionErrorMetrics>,
+    timer_us: RefCell<&'a mut u64>,
+}
+
+impl<'a> BankTransactionChecker<'a> {
+    fn new(
+        bank: &'a Bank,
+        lock_results: &'a Vec<Result<()>>,
+        max_age: usize,
+        error_counters: &'a mut TransactionErrorMetrics,
+        timer_us: &'a mut u64,
+    ) -> Self {
+        Self {
+            bank,
+            lock_results,
+            max_age,
+            error_counters: RefCell::new(error_counters),
+            timer_us: RefCell::new(timer_us),
+        }
+    }
+}
+
+impl TransactionChecker<SanitizedTransaction> for BankTransactionChecker<'_> {
+    fn check_transactions(
+        &self,
+        transactions: &[SanitizedTransaction],
+    ) -> Vec<TransactionCheckResult> {
+        let (check_results, check_us) = measure_us!(self.bank.check_transactions(
+            transactions,
+            self.lock_results,
+            self.max_age,
+            &mut self.error_counters.borrow_mut(),
+        ));
+        **self.timer_us.borrow_mut() = check_us;
+        check_results
     }
 }
 

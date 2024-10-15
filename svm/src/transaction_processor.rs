@@ -13,6 +13,7 @@ use {
         program_loader::{get_program_modification_slot, load_program_with_pubkey},
         rollback_accounts::RollbackAccounts,
         transaction_account_state_info::TransactionAccountStateInfo,
+        transaction_checker::TransactionChecker,
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_execution_result::{ExecutedTransaction, TransactionExecutionDetails},
         transaction_processing_callback::{AccountState, TransactionProcessingCallback},
@@ -227,17 +228,32 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     }
 
     /// Main entrypoint to the SVM.
-    pub fn load_and_execute_sanitized_transactions<CB: TransactionProcessingCallback>(
+    pub fn load_and_execute_sanitized_transactions<
+        CB: TransactionProcessingCallback,
+        T: SVMTransaction,
+    >(
         &self,
         callbacks: &CB,
-        sanitized_txs: &[impl SVMTransaction],
-        check_results: Vec<TransactionCheckResult>,
+        sanitized_txs: &[T],
+        transaction_checker: Option<&impl TransactionChecker<T>>,
         environment: &TransactionProcessingEnvironment,
         config: &TransactionProcessingConfig,
     ) -> LoadAndExecuteSanitizedTransactionsOutput {
         // Initialize metrics.
         let mut error_metrics = TransactionErrorMetrics::default();
         let mut execute_timings = ExecuteTimings::default();
+
+        let check_results = if let Some(checker) = transaction_checker {
+            checker.check_transactions(sanitized_txs)
+        } else {
+            vec![
+                Ok(CheckedTransactionDetails {
+                    nonce: None,
+                    lamports_per_signature: environment.lamports_per_signature,
+                });
+                sanitized_txs.len()
+            ]
+        };
 
         let (validation_results, validate_fees_us) = measure_us!(self.validate_fees(
             callbacks,
