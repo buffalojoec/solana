@@ -876,11 +876,9 @@ fn execute_test_entry(test_entry: SvmTestEntry) {
         EXECUTION_SLOT,
         EXECUTION_EPOCH,
     );
-
-    let fork_graph = Arc::new(RwLock::new(MockForkGraph {}));
+    batch_processor.set_fork_graph_in_program_cache(Arc::new(RwLock::new(MockForkGraph {})));
 
     create_executable_environment(
-        fork_graph.clone(),
         &mock_bank,
         &mut batch_processor.program_cache.write().unwrap(),
     );
@@ -1062,11 +1060,9 @@ fn svm_inspect_account() {
         EXECUTION_SLOT,
         EXECUTION_EPOCH,
     );
-
-    let fork_graph = Arc::new(RwLock::new(MockForkGraph {}));
+    batch_processor.set_fork_graph_in_program_cache(Arc::new(RwLock::new(MockForkGraph {})));
 
     create_executable_environment(
-        fork_graph.clone(),
         &mock_bank,
         &mut batch_processor.program_cache.write().unwrap(),
     );
