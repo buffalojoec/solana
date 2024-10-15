@@ -4,7 +4,7 @@ use {
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_processor::{TransactionProcessingConfig, TransactionProcessingEnvironment},
     },
-    solana_sdk::{account::AccountSharedData, pubkey::Pubkey, transaction},
+    solana_sdk::{account::AccountSharedData, pubkey::Pubkey},
     solana_svm_transaction::svm_transaction::SVMTransaction,
     solana_timings::ExecuteTimings,
 };
@@ -25,7 +25,6 @@ pub trait TransactionProcessingCallback {
         sanitized_txs: &[impl SVMTransaction],
         environment: &TransactionProcessingEnvironment,
         _config: &TransactionProcessingConfig,
-        _lock_results: &[transaction::Result<()>],
         _error_counters: &mut TransactionErrorMetrics,
         _timings: &mut ExecuteTimings,
     ) -> Vec<TransactionCheckResult> {

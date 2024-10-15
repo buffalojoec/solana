@@ -108,6 +108,8 @@ pub struct TransactionProcessingConfig<'a> {
     pub check_program_modification_slot: bool,
     /// The compute budget to use for transaction execution.
     pub compute_budget: Option<ComputeBudget>,
+    /// Transaction lock results.
+    pub lock_results: &'a [transaction::Result<()>],
     /// The maximum number of bytes that log messages can consume.
     pub log_messages_bytes_limit: Option<usize>,
     /// Whether to limit the number of programs loaded for the transaction

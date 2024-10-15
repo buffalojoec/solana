@@ -149,7 +149,7 @@ use {
         sysvar::{self, last_restart_slot::LastRestartSlot, Sysvar, SysvarId},
         timing::years_as_slots,
         transaction::{
-            self, MessageHash, Result, SanitizedTransaction, Transaction, TransactionError,
+            MessageHash, Result, SanitizedTransaction, Transaction, TransactionError,
             TransactionVerificationMode, VersionedTransaction, MAX_TX_ACCOUNT_LOCKS,
         },
         transaction_context::{TransactionAccount, TransactionReturnData},
@@ -3499,6 +3499,7 @@ impl Bank {
                 account_overrides: Some(&account_overrides),
                 check_program_modification_slot: self.check_program_modification_slot,
                 compute_budget: self.compute_budget(),
+                lock_results: batch.lock_results(),
                 log_messages_bytes_limit: None,
                 limit_to_load_programs: true,
                 max_age: MAX_PROCESSING_AGE - MAX_TRANSACTION_FORWARDING_DELAY,
@@ -4793,6 +4794,7 @@ impl Bank {
                 account_overrides: None,
                 check_program_modification_slot: self.check_program_modification_slot,
                 compute_budget: self.compute_budget(),
+                lock_results: batch.lock_results(),
                 log_messages_bytes_limit,
                 limit_to_load_programs: false,
                 max_age,
@@ -6877,13 +6879,12 @@ impl TransactionProcessingCallback for Bank {
         sanitized_txs: &[impl SVMTransaction],
         _environment: &TransactionProcessingEnvironment,
         config: &TransactionProcessingConfig,
-        lock_results: &[transaction::Result<()>],
         error_counters: &mut TransactionErrorMetrics,
         timings: &mut ExecuteTimings,
     ) -> Vec<TransactionCheckResult> {
         let (check_results, check_us) = measure_us!(self.check_transactions(
             sanitized_txs,
-            lock_results,
+            config.lock_results,
             config.max_age,
             error_counters,
         ));
