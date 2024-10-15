@@ -235,13 +235,20 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         &self,
         callbacks: &CB,
         sanitized_txs: &[impl SVMTransaction],
-        check_results: Vec<TransactionCheckResult>,
         environment: &TransactionProcessingEnvironment,
         config: &TransactionProcessingConfig,
     ) -> LoadAndExecuteSanitizedTransactionsOutput {
         // Initialize metrics.
         let mut error_metrics = TransactionErrorMetrics::default();
         let mut execute_timings = ExecuteTimings::default();
+
+        let check_results = callbacks.check_transactions(
+            sanitized_txs,
+            environment,
+            config,
+            &mut error_metrics,
+            &mut execute_timings,
+        );
 
         let (validation_results, validate_fees_us) = measure_us!(self.validate_fees(
             callbacks,

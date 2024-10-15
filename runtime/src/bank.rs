@@ -3631,14 +3631,6 @@ impl Bank {
     ) -> LoadAndExecuteTransactionsOutput {
         let sanitized_txs = batch.sanitized_transactions();
 
-        let (check_results, check_us) = measure_us!(self.check_transactions(
-            sanitized_txs,
-            batch.lock_results(),
-            processing_config.max_age,
-            error_counters,
-        ));
-        timings.saturating_add_in_place(ExecuteTimingType::CheckUs, check_us);
-
         let (blockhash, lamports_per_signature) = self.last_blockhash_and_lamports_per_signature();
         let rent_collector_with_metrics =
             RentCollectorWithMetrics::new(self.rent_collector.clone());
@@ -3657,7 +3649,6 @@ impl Bank {
             .load_and_execute_sanitized_transactions(
                 self,
                 sanitized_txs,
-                check_results,
                 &processing_environment,
                 &processing_config,
             );
