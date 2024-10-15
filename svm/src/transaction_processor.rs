@@ -223,6 +223,11 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         }
     }
 
+    /// Sets the fork graph in the processor's program cache instance.
+    ///
+    /// For newly created batch processors, which aren't created using
+    /// `new_from`, this method should be called to set the fork graph
+    /// in the program cache before processing transactions.
     pub fn set_fork_graph_in_program_cache(&self, fork_graph: Arc<RwLock<FG>>) {
         self.program_cache
             .write()
