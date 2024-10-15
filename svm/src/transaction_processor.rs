@@ -113,6 +113,8 @@ pub struct TransactionProcessingConfig<'a> {
     /// Whether to limit the number of programs loaded for the transaction
     /// batch.
     pub limit_to_load_programs: bool,
+    /// Maximum age of a transaction.
+    pub max_age: usize,
     /// Recording capabilities for transaction execution.
     pub recording_config: ExecutionRecordingConfig,
     /// The max number of accounts that a transaction may lock.

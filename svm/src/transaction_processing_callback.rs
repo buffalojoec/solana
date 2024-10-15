@@ -26,7 +26,6 @@ pub trait TransactionProcessingCallback {
         environment: &TransactionProcessingEnvironment,
         _config: &TransactionProcessingConfig,
         _lock_results: &[transaction::Result<()>],
-        _max_age: usize,
         _error_counters: &mut TransactionErrorMetrics,
         _timings: &mut ExecuteTimings,
     ) -> Vec<TransactionCheckResult> {

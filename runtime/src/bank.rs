@@ -3493,7 +3493,6 @@ impl Bank {
             // After simulation, transactions will need to be forwarded to the leader
             // for processing. During forwarding, the transaction could expire if the
             // delay is not accounted for.
-            MAX_PROCESSING_AGE - MAX_TRANSACTION_FORWARDING_DELAY,
             &mut timings,
             &mut TransactionErrorMetrics::default(),
             TransactionProcessingConfig {
@@ -3502,6 +3501,7 @@ impl Bank {
                 compute_budget: self.compute_budget(),
                 log_messages_bytes_limit: None,
                 limit_to_load_programs: true,
+                max_age: MAX_PROCESSING_AGE - MAX_TRANSACTION_FORWARDING_DELAY,
                 recording_config: ExecutionRecordingConfig {
                     enable_cpi_recording,
                     enable_log_recording: true,
@@ -3624,7 +3624,6 @@ impl Bank {
     pub fn load_and_execute_transactions(
         &self,
         batch: &TransactionBatch<SanitizedTransaction>,
-        max_age: usize,
         timings: &mut ExecuteTimings,
         error_counters: &mut TransactionErrorMetrics,
         processing_config: TransactionProcessingConfig,
@@ -3634,7 +3633,7 @@ impl Bank {
         let (check_results, check_us) = measure_us!(self.check_transactions(
             sanitized_txs,
             batch.lock_results(),
-            max_age,
+            processing_config.max_age,
             error_counters,
         ));
         timings.saturating_add_in_place(ExecuteTimingType::CheckUs, check_us);
@@ -4788,7 +4787,6 @@ impl Bank {
             processed_counts,
         } = self.load_and_execute_transactions(
             batch,
-            max_age,
             timings,
             &mut TransactionErrorMetrics::default(),
             TransactionProcessingConfig {
@@ -4797,6 +4795,7 @@ impl Bank {
                 compute_budget: self.compute_budget(),
                 log_messages_bytes_limit,
                 limit_to_load_programs: false,
+                max_age,
                 recording_config,
                 transaction_account_lock_limit: Some(self.get_transaction_account_lock_limit()),
             },
@@ -6877,16 +6876,15 @@ impl TransactionProcessingCallback for Bank {
         &self,
         sanitized_txs: &[impl SVMTransaction],
         _environment: &TransactionProcessingEnvironment,
-        _config: &TransactionProcessingConfig,
+        config: &TransactionProcessingConfig,
         lock_results: &[transaction::Result<()>],
-        max_age: usize,
         error_counters: &mut TransactionErrorMetrics,
         timings: &mut ExecuteTimings,
     ) -> Vec<TransactionCheckResult> {
         let (check_results, check_us) = measure_us!(self.check_transactions(
             sanitized_txs,
             lock_results,
-            max_age,
+            config.max_age,
             error_counters,
         ));
         timings.saturating_add_in_place(ExecuteTimingType::CheckUs, check_us);
