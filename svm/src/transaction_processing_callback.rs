@@ -1,4 +1,13 @@
-use solana_sdk::{account::AccountSharedData, pubkey::Pubkey};
+use {
+    crate::{
+        account_loader::{CheckedTransactionDetails, TransactionCheckResult},
+        transaction_error_metrics::TransactionErrorMetrics,
+        transaction_processor::{TransactionProcessingConfig, TransactionProcessingEnvironment},
+    },
+    solana_sdk::{account::AccountSharedData, pubkey::Pubkey, transaction},
+    solana_svm_transaction::svm_transaction::SVMTransaction,
+    solana_timings::ExecuteTimings,
+};
 
 /// Runtime callbacks for transaction processing.
 pub trait TransactionProcessingCallback {
@@ -9,6 +18,25 @@ pub trait TransactionProcessingCallback {
     fn add_builtin_account(&self, _name: &str, _program_id: &Pubkey) {}
 
     fn inspect_account(&self, _address: &Pubkey, _account_state: AccountState, _is_writable: bool) {
+    }
+
+    fn check_transactions(
+        &self,
+        sanitized_txs: &[impl SVMTransaction],
+        environment: &TransactionProcessingEnvironment,
+        _config: &TransactionProcessingConfig,
+        _lock_results: &[transaction::Result<()>],
+        _max_age: usize,
+        _error_counters: &mut TransactionErrorMetrics,
+        _timings: &mut ExecuteTimings,
+    ) -> Vec<TransactionCheckResult> {
+        vec![
+            Ok(CheckedTransactionDetails {
+                nonce: None,
+                lamports_per_signature: environment.lamports_per_signature,
+            });
+            sanitized_txs.len()
+        ]
     }
 }
 

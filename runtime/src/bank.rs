@@ -149,7 +149,7 @@ use {
         sysvar::{self, last_restart_slot::LastRestartSlot, Sysvar, SysvarId},
         timing::years_as_slots,
         transaction::{
-            MessageHash, Result, SanitizedTransaction, Transaction, TransactionError,
+            self, MessageHash, Result, SanitizedTransaction, Transaction, TransactionError,
             TransactionVerificationMode, VersionedTransaction, MAX_TX_ACCOUNT_LOCKS,
         },
         transaction_context::{TransactionAccount, TransactionReturnData},
@@ -159,7 +159,7 @@ use {
         stake_state::StakeStateV2,
     },
     solana_svm::{
-        account_loader::{collect_rent_from_account, LoadedTransaction},
+        account_loader::{collect_rent_from_account, LoadedTransaction, TransactionCheckResult},
         account_overrides::AccountOverrides,
         transaction_commit_result::{CommittedTransaction, TransactionCommitResult},
         transaction_error_metrics::TransactionErrorMetrics,
@@ -176,7 +176,7 @@ use {
             TransactionProcessingConfig, TransactionProcessingEnvironment,
         },
     },
-    solana_svm_transaction::svm_message::SVMMessage,
+    solana_svm_transaction::{svm_message::SVMMessage, svm_transaction::SVMTransaction},
     solana_timings::{ExecuteTimingType, ExecuteTimings},
     solana_vote::vote_account::{VoteAccount, VoteAccountsHashMap},
     solana_vote_program::vote_state::VoteState,
@@ -6871,6 +6871,26 @@ impl TransactionProcessingCallback for Bank {
         if self.is_accounts_lt_hash_enabled() {
             self.inspect_account_for_accounts_lt_hash(address, &account_state, is_writable);
         }
+    }
+
+    fn check_transactions(
+        &self,
+        sanitized_txs: &[impl SVMTransaction],
+        _environment: &TransactionProcessingEnvironment,
+        _config: &TransactionProcessingConfig,
+        lock_results: &[transaction::Result<()>],
+        max_age: usize,
+        error_counters: &mut TransactionErrorMetrics,
+        timings: &mut ExecuteTimings,
+    ) -> Vec<TransactionCheckResult> {
+        let (check_results, check_us) = measure_us!(self.check_transactions(
+            sanitized_txs,
+            lock_results,
+            max_age,
+            error_counters,
+        ));
+        timings.saturating_add_in_place(ExecuteTimingType::CheckUs, check_us);
+        check_results
     }
 }
 
