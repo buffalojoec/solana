@@ -61,7 +61,7 @@ impl Bank {
 
     pub fn check_transactions(
         &self,
-        sanitized_txs: &[impl core::borrow::Borrow<SanitizedTransaction>],
+        sanitized_txs: &[impl SVMMessage],
         lock_results: &[TransactionResult<()>],
         max_age: usize,
         error_counters: &mut TransactionErrorMetrics,
@@ -72,7 +72,7 @@ impl Bank {
 
     fn check_age(
         &self,
-        sanitized_txs: &[impl core::borrow::Borrow<SanitizedTransaction>],
+        sanitized_txs: &[impl SVMMessage],
         lock_results: &[TransactionResult<()>],
         max_age: usize,
         error_counters: &mut TransactionErrorMetrics,
@@ -90,7 +90,7 @@ impl Bank {
             .zip(lock_results)
             .map(|(tx, lock_res)| match lock_res {
                 Ok(()) => self.check_transaction_age(
-                    tx.borrow(),
+                    tx,
                     max_age,
                     &next_durable_nonce,
                     &hash_queue,
@@ -104,14 +104,14 @@ impl Bank {
 
     fn check_transaction_age(
         &self,
-        tx: &SanitizedTransaction,
+        tx: &impl SVMMessage,
         max_age: usize,
         next_durable_nonce: &DurableNonce,
         hash_queue: &BlockhashQueue,
         next_lamports_per_signature: u64,
         error_counters: &mut TransactionErrorMetrics,
     ) -> TransactionCheckResult {
-        let recent_blockhash = tx.message().recent_blockhash();
+        let recent_blockhash = tx.recent_blockhash();
         if let Some(hash_info) = hash_queue.get_hash_info_if_valid(recent_blockhash, max_age) {
             Ok(CheckedTransactionDetails {
                 nonce: None,
@@ -119,7 +119,7 @@ impl Bank {
             })
         } else if let Some((nonce, previous_lamports_per_signature)) = self
             .check_load_and_advance_message_nonce_account(
-                tx.message(),
+                tx,
                 next_durable_nonce,
                 next_lamports_per_signature,
             )
@@ -184,7 +184,7 @@ impl Bank {
 
     fn check_status_cache(
         &self,
-        sanitized_txs: &[impl core::borrow::Borrow<SanitizedTransaction>],
+        sanitized_txs: &[impl SVMMessage],
         lock_results: Vec<TransactionCheckResult>,
         error_counters: &mut TransactionErrorMetrics,
     ) -> Vec<TransactionCheckResult> {
@@ -193,7 +193,6 @@ impl Bank {
             .iter()
             .zip(lock_results)
             .map(|(sanitized_tx, lock_result)| {
-                let sanitized_tx = sanitized_tx.borrow();
                 if lock_result.is_ok()
                     && self.is_transaction_already_processed(sanitized_tx, &rcache)
                 {
@@ -208,15 +207,22 @@ impl Bank {
 
     fn is_transaction_already_processed(
         &self,
-        sanitized_tx: &SanitizedTransaction,
+        sanitized_tx: &impl SVMMessage,
         status_cache: &BankStatusCache,
     ) -> bool {
-        let key = sanitized_tx.message_hash();
-        let transaction_blockhash = sanitized_tx.message().recent_blockhash();
+        let key = message_hash(sanitized_tx);
+        let transaction_blockhash = sanitized_tx.recent_blockhash();
         status_cache
             .get_status(key, transaction_blockhash, &self.ancestors)
             .is_some()
     }
+}
+
+// Just a mockup. Imagine we have a method to hash a message.
+fn message_hash(message: &impl SVMMessage) -> solana_sdk::hash::Hash {
+    let mut hasher = solana_sdk::hash::Hasher::default();
+    hasher.hash(message.recent_blockhash().as_ref());
+    hasher.result()
 }
 
 #[cfg(test)]
