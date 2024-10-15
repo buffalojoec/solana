@@ -3489,7 +3489,7 @@ impl Bank {
             mut processing_results,
             ..
         } = self.load_and_execute_transactions(
-            &batch,
+            batch.sanitized_transactions(),
             // After simulation, transactions will need to be forwarded to the leader
             // for processing. During forwarding, the transaction could expire if the
             // delay is not accounted for.
@@ -3624,13 +3624,11 @@ impl Bank {
 
     pub fn load_and_execute_transactions(
         &self,
-        batch: &TransactionBatch<SanitizedTransaction>,
+        sanitized_txs: &[SanitizedTransaction],
         timings: &mut ExecuteTimings,
         error_counters: &mut TransactionErrorMetrics,
         processing_config: TransactionProcessingConfig,
     ) -> LoadAndExecuteTransactionsOutput {
-        let sanitized_txs = batch.sanitized_transactions();
-
         let (blockhash, lamports_per_signature) = self.last_blockhash_and_lamports_per_signature();
         let rent_collector_with_metrics =
             RentCollectorWithMetrics::new(self.rent_collector.clone());
@@ -4778,7 +4776,7 @@ impl Bank {
             processing_results,
             processed_counts,
         } = self.load_and_execute_transactions(
-            batch,
+            batch.sanitized_transactions(),
             timings,
             &mut TransactionErrorMetrics::default(),
             TransactionProcessingConfig {
