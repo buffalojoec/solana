@@ -2,10 +2,8 @@
 
 use {
     solana_compute_budget::compute_budget::ComputeBudget,
-    solana_program_runtime::loaded_programs::{
-        BlockRelation, ForkGraph, LoadProgramMetrics, ProgramCacheEntry,
-    },
-    solana_sdk::{account::ReadableAccount, clock::Slot, feature_set::FeatureSet, transaction},
+    solana_program_runtime::loaded_programs::{BlockRelation, ForkGraph, ProgramCacheEntry},
+    solana_sdk::{clock::Slot, feature_set::FeatureSet, transaction},
     solana_svm::{
         account_loader::CheckedTransactionDetails,
         transaction_processing_callback::TransactionProcessingCallback,
@@ -39,43 +37,13 @@ pub(crate) fn create_transaction_batch_processor<CB: TransactionProcessingCallba
     compute_budget: &ComputeBudget,
     fork_graph: Arc<RwLock<PayTubeForkGraph>>,
 ) -> TransactionBatchProcessor<PayTubeForkGraph> {
-    let processor = TransactionBatchProcessor::<PayTubeForkGraph>::default();
-
-    // Initialize the mocked fork graph.
-    processor.set_fork_graph_in_program_cache(fork_graph);
-
-    // Initialize a proper cache environment.
-    processor.configure_program_runtime_environments(
+    let processor = TransactionBatchProcessor::<PayTubeForkGraph>::new(
+        1,
+        1,
+        fork_graph,
         feature_set,
         compute_budget,
-        /* reject_deployment_of_broken_elfs*/ false,
-        /* debugging_features*/ false,
     );
-
-    {
-        let mut cache = processor.program_cache.write().unwrap();
-
-        // Add the SPL Token program to the cache.
-        if let Some(program_account) = callbacks.get_account_shared_data(&spl_token::id()) {
-            let elf_bytes = program_account.data();
-            let program_runtime_environment = cache.environments.program_runtime_v1.clone();
-            cache.assign_program(
-                spl_token::id(),
-                Arc::new(
-                    ProgramCacheEntry::new(
-                        &solana_sdk::bpf_loader::id(),
-                        program_runtime_environment,
-                        0,
-                        0,
-                        elf_bytes,
-                        elf_bytes.len(),
-                        &mut LoadProgramMetrics::default(),
-                    )
-                    .unwrap(),
-                ),
-            );
-        }
-    }
 
     // Add the system program builtin.
     processor.add_builtin(

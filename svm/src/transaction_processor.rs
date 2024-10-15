@@ -207,6 +207,28 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         }
     }
 
+    /// Create a new `TransactionBatchProcessor`.
+    ///
+    /// The created processor's program cache is initialized with the provided
+    /// fork graph, as well as a valid program runtime environment (both for
+    /// program runtimes v1 and v2) using the provided feature set and compute
+    /// budget.
+    ///
+    /// The cache will still not contain any builtin programs. It's advisable to
+    /// call `add_builtin` to add the required builtins before using the processor.
+    pub fn new(
+        slot: Slot,
+        epoch: Epoch,
+        fork_graph: Arc<RwLock<FG>>,
+        feature_set: &FeatureSet,
+        compute_budget: &ComputeBudget,
+    ) -> Self {
+        let processor = Self::new_uninitialized(slot, epoch);
+        processor.set_fork_graph_in_program_cache(fork_graph);
+        processor.configure_program_runtime_environments(feature_set, compute_budget, true, false);
+        processor
+    }
+
     /// Create a new `TransactionBatchProcessor` from the current instance, but
     /// with the provided slot and epoch.
     ///
