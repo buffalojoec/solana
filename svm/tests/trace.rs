@@ -50,10 +50,8 @@ fn setup_batch_processor(
     mock_bank: &MockBankCallback,
     fork_graph: &Arc<RwLock<MockForkGraph>>,
 ) -> TransactionBatchProcessor<MockForkGraph> {
-    let batch_processor = TransactionBatchProcessor::<MockForkGraph>::new(
-        /* slot */ 0,
-        /* epoch */ 0,
-        HashSet::new(),
+    let batch_processor = TransactionBatchProcessor::<MockForkGraph>::new_uninitialized(
+        /* slot */ 0, /* epoch */ 0,
     );
     create_executable_environment(
         fork_graph.clone(),

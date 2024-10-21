@@ -10,12 +10,13 @@ use {
         MockRollup, TraceHandler,
     },
     solana_sdk::{
+        account::AccountSharedData,
         instruction::AccountMeta,
         keccak::Hasher,
         pubkey::Pubkey,
         signature::Keypair,
         signer::Signer,
-        system_instruction,
+        system_instruction, system_program,
         transaction::{SanitizedTransaction, Transaction},
     },
     solana_svm::{
@@ -98,27 +99,50 @@ impl TraceHandler for TransactionSTFTraceHandler {
 
 const NUM_RANDOM_ACCOUNT_KEYS: usize = 12;
 
-fn create_transactions(count: usize) -> Vec<SanitizedTransaction> {
-    let alice = Keypair::new();
-    let bob = Pubkey::new_unique();
-    (0..count)
+fn create_transactions(count: usize, banks: &[&MockBankCallback]) -> Vec<SanitizedTransaction> {
+    let mut accounts_to_store = vec![];
+
+    let payer = Keypair::new();
+    let payer_account = AccountSharedData::new(100_000_000_000, 0, &system_program::id());
+    accounts_to_store.push((payer.pubkey(), payer_account));
+
+    let txs = (0..count)
         .map(|_| {
-            let mut ix = system_instruction::transfer(&alice.pubkey(), &bob, 100);
-            ix.accounts
-                .extend((0..NUM_RANDOM_ACCOUNT_KEYS).map(|_| AccountMeta {
-                    pubkey: Pubkey::new_unique(),
-                    is_signer: false,
-                    is_writable: false,
-                }));
+            let destination = Pubkey::new_unique();
+            let destination_account = AccountSharedData::default();
+            accounts_to_store.push((destination, destination_account));
+
+            let random_accounts = (0..NUM_RANDOM_ACCOUNT_KEYS)
+                .map(|_| (Pubkey::new_unique(), AccountSharedData::default()))
+                .collect::<Vec<_>>();
+            let random_account_metas = random_accounts.iter().map(|(pubkey, _)| AccountMeta {
+                pubkey: *pubkey,
+                is_signer: false,
+                is_writable: false,
+            });
+            accounts_to_store.extend_from_slice(&random_accounts);
+
+            let mut ix = system_instruction::transfer(&payer.pubkey(), &destination, 100);
+            ix.accounts.extend(random_account_metas);
+
             let tx = Transaction::new_signed_with_payer(
                 &[ix],
-                Some(&alice.pubkey()),
-                &[&alice],
+                Some(&payer.pubkey()),
+                &[&payer],
                 solana_sdk::hash::Hash::default(),
             );
             SanitizedTransaction::from_transaction_for_tests(tx)
         })
-        .collect()
+        .collect();
+
+    banks.iter().for_each(|b| {
+        let mut account_store = b.account_shared_data.write().unwrap();
+        accounts_to_store.iter().for_each(|(pubkey, account)| {
+            account_store.insert(*pubkey, account.clone());
+        });
+    });
+
+    txs
 }
 
 fn create_check_results(count: usize) -> Vec<TransactionCheckResult> {
@@ -136,10 +160,8 @@ fn setup_batch_processor(
     mock_bank: &MockBankCallback,
     fork_graph: &Arc<RwLock<MockForkGraph>>,
 ) -> TransactionBatchProcessor<MockForkGraph> {
-    let batch_processor = TransactionBatchProcessor::<MockForkGraph>::new(
-        /* slot */ 0,
-        /* epoch */ 0,
-        HashSet::new(),
+    let batch_processor = TransactionBatchProcessor::<MockForkGraph>::new_uninitialized(
+        /* slot */ 0, /* epoch */ 0,
     );
     create_executable_environment(
         fork_graph.clone(),
@@ -160,8 +182,6 @@ fn trace(c: &mut Criterion) {
         MockRollup::<TransactionSTFTraceHandler>::default();
 
     let fork_graph = Arc::new(RwLock::new(MockForkGraph {}));
-    let batch_processor = setup_batch_processor(rollup_noop.bank(), &fork_graph);
-
     let processing_environment = TransactionProcessingEnvironment::default();
     let processing_config = TransactionProcessingConfig {
         recording_config: ExecutionRecordingConfig {
@@ -174,10 +194,54 @@ fn trace(c: &mut Criterion) {
 
     // Bench test against a few transaction sets (empty, small, large, massive).
     let transaction_sets = vec![
-        ("Empty", create_transactions(0)),
-        ("Small", create_transactions(10)),
-        ("Large", create_transactions(1_000)),
-        ("Massive", create_transactions(100_000)),
+        (
+            "Empty",
+            create_transactions(
+                0,
+                &[
+                    rollup_noop.bank(),
+                    rollup_with_transaction_inclusion_handler.bank(),
+                    rollup_with_transaction_receipt_handler.bank(),
+                    rollup_with_transaction_stf_trace_handler.bank(),
+                ],
+            ),
+        ),
+        (
+            "Small",
+            create_transactions(
+                10,
+                &[
+                    rollup_noop.bank(),
+                    rollup_with_transaction_inclusion_handler.bank(),
+                    rollup_with_transaction_receipt_handler.bank(),
+                    rollup_with_transaction_stf_trace_handler.bank(),
+                ],
+            ),
+        ),
+        (
+            "Large",
+            create_transactions(
+                1_000,
+                &[
+                    rollup_noop.bank(),
+                    rollup_with_transaction_inclusion_handler.bank(),
+                    rollup_with_transaction_receipt_handler.bank(),
+                    rollup_with_transaction_stf_trace_handler.bank(),
+                ],
+            ),
+        ),
+        (
+            "Massive",
+            create_transactions(
+                100_000,
+                &[
+                    rollup_noop.bank(),
+                    rollup_with_transaction_inclusion_handler.bank(),
+                    rollup_with_transaction_receipt_handler.bank(),
+                    rollup_with_transaction_stf_trace_handler.bank(),
+                ],
+            ),
+        ),
     ];
     let mut group = c.benchmark_group("SVM Trace Performance");
 
@@ -186,6 +250,7 @@ fn trace(c: &mut Criterion) {
         let check_results = create_check_results(santitized_txs.len());
 
         // Control.
+        let batch_processor = setup_batch_processor(rollup_noop.bank(), &fork_graph);
         group.bench_function(format!("{} Transaction Batch: Control", set_name), |b| {
             b.iter(|| {
                 batch_processor.load_and_execute_sanitized_transactions(
@@ -199,6 +264,10 @@ fn trace(c: &mut Criterion) {
         });
 
         // With transaction hashing.
+        let batch_processor = setup_batch_processor(
+            rollup_with_transaction_inclusion_handler.bank(),
+            &fork_graph,
+        );
         group.bench_function(
             format!("{} Transaction Batch: With Transaction Hashing", set_name),
             |b| {
@@ -215,6 +284,8 @@ fn trace(c: &mut Criterion) {
         );
 
         // With receipt hashing.
+        let batch_processor =
+            setup_batch_processor(rollup_with_transaction_receipt_handler.bank(), &fork_graph);
         group.bench_function(
             format!("{} Transaction Batch: With Receipt Hashing", set_name),
             |b| {
@@ -231,6 +302,10 @@ fn trace(c: &mut Criterion) {
         );
 
         // With STF trace hashing.
+        let batch_processor = setup_batch_processor(
+            rollup_with_transaction_stf_trace_handler.bank(),
+            &fork_graph,
+        );
         group.bench_function(
             format!("{} Transaction Batch: With STF Trace Hashing", set_name),
             |b| {
