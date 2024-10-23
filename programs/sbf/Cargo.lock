@@ -6650,6 +6650,7 @@ dependencies = [
 name = "solana-sbf-rust-sysvar"
 version = "2.1.0"
 dependencies = [
+ "bincode",
  "solana-program",
 ]
 
