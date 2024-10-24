@@ -13261,17 +13261,17 @@ fn test_bank_epoch_stakes() {
 
     // Note using bank's `current_epoch_stake_*` methods should return the
     // same values.
-    assert_eq!(bank0.get_current_epoch_total_stake(), Some(total_stake));
+    assert_eq!(bank0.get_current_epoch_total_stake(), total_stake);
     assert_eq!(
         bank0.get_current_epoch_total_stake(),
-        bank0.epoch_total_stake(1)
+        bank0.epoch_total_stake(1).unwrap(),
     );
     assert_eq!(
-        bank0.get_current_epoch_vote_accounts().unwrap().len(),
+        bank0.get_current_epoch_vote_accounts().len(),
         voting_keypairs.len()
     );
     assert_eq!(
-        bank0.epoch_vote_accounts(1),
+        bank0.epoch_vote_accounts(1).unwrap(),
         bank0.get_current_epoch_vote_accounts(),
     );
 
@@ -13301,17 +13301,17 @@ fn test_bank_epoch_stakes() {
 
     // Again, using bank's `current_epoch_stake_*` methods should return the
     // same values.
-    assert_eq!(bank1.get_current_epoch_total_stake(), Some(total_stake));
+    assert_eq!(bank1.get_current_epoch_total_stake(), total_stake);
     assert_eq!(
         bank1.get_current_epoch_total_stake(),
-        bank1.epoch_total_stake(2)
+        bank1.epoch_total_stake(2).unwrap(),
     );
     assert_eq!(
-        bank1.get_current_epoch_vote_accounts().unwrap().len(),
+        bank1.get_current_epoch_vote_accounts().len(),
         voting_keypairs.len()
     );
     assert_eq!(
-        bank1.epoch_vote_accounts(2),
+        bank1.epoch_vote_accounts(2).unwrap(),
         bank1.get_current_epoch_vote_accounts(),
     );
 
