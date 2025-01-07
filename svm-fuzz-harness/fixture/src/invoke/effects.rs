@@ -106,6 +106,18 @@ fn num_to_instr_err(num: i32, custom_code: u32) -> InstructionError {
     deser
 }
 
+#[cfg(feature = "serde")]
+pub(crate) fn hash_proto_instr_effects(
+    hasher: &mut solana_sdk::keccak::Hasher,
+    effects: &ProtoInstrEffects,
+) {
+    hasher.hash(&effects.result.to_le_bytes());
+    hasher.hash(&effects.custom_err.to_le_bytes());
+    crate::context::account::hash_proto_accounts(hasher, &effects.modified_accounts);
+    hasher.hash(&effects.cu_avail.to_le_bytes());
+    hasher.hash(&effects.return_data);
+}
+
 #[cfg(test)]
 mod tests {
     use {super::*, solana_account::Account};

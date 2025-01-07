@@ -8586,6 +8586,19 @@ dependencies = [
  "solana-pubkey",
  "solana-sdk",
  "solana-signature",
+ "solana-svm-fuzz-harness-fixture-fs",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "solana-svm-fuzz-harness-fixture-fs"
+version = "2.1.6"
+dependencies = [
+ "bs58",
+ "prost",
+ "serde",
+ "serde_json",
+ "solana-sdk",
  "thiserror 1.0.69",
 ]
 

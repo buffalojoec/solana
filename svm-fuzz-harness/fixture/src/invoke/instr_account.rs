@@ -42,6 +42,18 @@ impl From<InstrAccount> for ProtoInstrAccount {
     }
 }
 
+#[cfg(feature = "serde")]
+pub(crate) fn hash_proto_instr_accounts(
+    hasher: &mut solana_sdk::keccak::Hasher,
+    instr_accounts: &[ProtoInstrAccount],
+) {
+    for account in instr_accounts {
+        hasher.hash(&account.index.to_le_bytes());
+        hasher.hash(&[account.is_signer as u8]);
+        hasher.hash(&[account.is_writable as u8]);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

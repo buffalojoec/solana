@@ -1,13 +1,18 @@
 //! Proto <--> Fixture errors.
 
+#[cfg(feature = "serde")]
+use solana_svm_fuzz_harness_fixture_fs::error::FsError;
 use {
     prost::DecodeError,
     solana_sdk::{message::SanitizeMessageError, sanitize::SanitizeError},
     thiserror::Error,
 };
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error)]
 pub enum FixtureError {
+    #[cfg(feature = "serde")]
+    #[error("FS error")]
+    FsError(#[from] FsError),
     #[error("Decode error")]
     DecodeError(#[from] DecodeError),
     #[error("Transaction sanitization error")]

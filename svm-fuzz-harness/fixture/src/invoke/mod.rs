@@ -11,6 +11,11 @@ use {
     effects::InstrEffects,
     metadata::FixtureMetadata,
 };
+#[cfg(feature = "serde")]
+use {
+    solana_sdk::keccak::{Hash, Hasher},
+    solana_svm_fuzz_harness_fixture_fs::{FsHandler, IntoSerializableFixture, SerializableFixture},
+};
 
 /// A fixture for invoking a single instruction against a simulated SVM
 /// program runtime environment, for a given program.
@@ -22,6 +27,24 @@ pub struct InstrFixture {
     pub input: InstrContext,
     /// The fixture outputs.
     pub output: InstrEffects,
+}
+
+#[cfg(feature = "serde")]
+impl InstrFixture {
+    pub fn decode(blob: &[u8]) -> Result<Self, FixtureError> {
+        let proto_fixture = <ProtoInstrFixture as SerializableFixture>::decode(blob)?;
+        proto_fixture.try_into()
+    }
+
+    pub fn load_from_blob_file(file_path: &str) -> Result<Self, FixtureError> {
+        let proto_fixture: ProtoInstrFixture = FsHandler::load_from_blob_file(file_path)?;
+        proto_fixture.try_into()
+    }
+
+    pub fn load_from_json_file(file_path: &str) -> Result<Self, FixtureError> {
+        let proto_fixture: ProtoInstrFixture = FsHandler::load_from_json_file(file_path)?;
+        proto_fixture.try_into()
+    }
 }
 
 impl TryFrom<ProtoInstrFixture> for InstrFixture {
@@ -44,5 +67,32 @@ impl From<InstrFixture> for ProtoInstrFixture {
             input: Some(value.input.into()),
             output: Some(value.output.into()),
         }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl SerializableFixture for ProtoInstrFixture {
+    // Manually implemented for deterministic hashes.
+    fn hash(&self) -> Hash {
+        let mut hasher = Hasher::default();
+        if let Some(metadata) = &self.metadata {
+            metadata::hash_proto_fixture_metadata(&mut hasher, metadata);
+        }
+        if let Some(input) = &self.input {
+            context::hash_proto_instr_context(&mut hasher, input);
+        }
+        if let Some(output) = &self.output {
+            effects::hash_proto_instr_effects(&mut hasher, output);
+        }
+        hasher.result()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl IntoSerializableFixture for InstrFixture {
+    type Fixture = ProtoInstrFixture;
+
+    fn into(self) -> Self::Fixture {
+        Into::into(self)
     }
 }

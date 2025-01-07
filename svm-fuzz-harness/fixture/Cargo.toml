@@ -12,6 +12,7 @@ edition = { workspace = true }
 [features]
 serde = [
     "dep:serde",
+    "dep:solana-svm-fuzz-harness-fixture-fs",
     "solana-instruction/serde",
     "solana-pubkey/serde",
 ]
@@ -27,6 +28,7 @@ solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true, features = ["std"] }
 solana-signature = { workspace = true, features = ["std"] }
+solana-svm-fuzz-harness-fixture-fs = { workspace = true, optional = true }
 thiserror = { workspace = true }
 # For crates not decoupled from SDK yet...
 solana-sdk = { workspace = true }

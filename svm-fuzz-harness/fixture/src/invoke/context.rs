@@ -90,6 +90,26 @@ impl From<InstrContext> for ProtoInstrContext {
     }
 }
 
+#[cfg(feature = "serde")]
+pub(crate) fn hash_proto_instr_context(
+    hasher: &mut solana_sdk::keccak::Hasher,
+    context: &ProtoInstrContext,
+) {
+    hasher.hash(&context.program_id);
+    crate::context::account::hash_proto_accounts(hasher, &context.accounts);
+    crate::invoke::instr_account::hash_proto_instr_accounts(hasher, &context.instr_accounts);
+    hasher.hash(&context.data);
+    hasher.hash(&context.cu_avail.to_le_bytes());
+    if let Some(slot_context) = &context.slot_context {
+        hasher.hash(&slot_context.slot.to_le_bytes());
+    }
+    if let Some(epoch_context) = &context.epoch_context {
+        if let Some(features) = &epoch_context.features {
+            crate::context::feature_set::hash_proto_feature_set(hasher, features);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use {
@@ -243,11 +263,6 @@ mod tests {
             epoch_context: None,
         };
 
-        let result = InstrContext::try_from(proto);
-
-        assert_eq!(
-            result.unwrap_err(),
-            FixtureError::AccountMissingForInstrAccount(1),
-        );
+        assert!(InstrContext::try_from(proto).is_err());
     }
 }

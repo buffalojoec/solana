@@ -23,3 +23,11 @@ impl From<FixtureMetadata> for ProtoFixtureMetadata {
         }
     }
 }
+
+#[cfg(feature = "serde")]
+pub(crate) fn hash_proto_fixture_metadata(
+    hasher: &mut solana_sdk::keccak::Hasher,
+    metadata: &ProtoFixtureMetadata,
+) {
+    hasher.hash(metadata.fn_entrypoint.as_bytes());
+}

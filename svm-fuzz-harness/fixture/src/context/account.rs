@@ -112,6 +112,26 @@ impl From<(Pubkey, Account)> for ProtoAccount {
     }
 }
 
+#[cfg(feature = "serde")]
+pub(crate) fn hash_proto_accounts(
+    hasher: &mut solana_sdk::keccak::Hasher,
+    accounts: &[ProtoAccount],
+) {
+    for account in accounts {
+        hasher.hash(&account.address);
+        hasher.hash(&account.owner);
+        hasher.hash(&account.lamports.to_le_bytes());
+        hasher.hash(&account.data);
+        hasher.hash(&[account.executable as u8]);
+        hasher.hash(&account.rent_epoch.to_le_bytes());
+        if let Some(seed_addr) = &account.seed_addr {
+            hasher.hash(&seed_addr.base);
+            hasher.hash(&seed_addr.seed);
+            hasher.hash(&seed_addr.owner);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

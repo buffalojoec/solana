@@ -72,6 +72,18 @@ impl From<FeatureSet> for ProtoFeatureSet {
     }
 }
 
+#[cfg(feature = "serde")]
+pub(crate) fn hash_proto_feature_set(
+    hasher: &mut solana_sdk::keccak::Hasher,
+    feature_set: &ProtoFeatureSet,
+) {
+    let mut features = feature_set.features.clone();
+    features.sort();
+    for f in &features {
+        hasher.hash(&f.to_le_bytes());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

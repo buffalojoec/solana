@@ -155,6 +155,7 @@ members = [
     "svm",
     "svm-conformance",
     "svm-fuzz-harness/fixture",
+    "svm-fuzz-harness/fixture-fs",
     "svm-fuzz-harness/instr/entrypoint",
     "svm-fuzz-harness/instr/harness",
     "svm-fuzz-harness/txn/entrypoint",
@@ -490,6 +491,7 @@ solana-signature = { path = "sdk/signature", version = "=2.1.6", default-feature
 solana-slot-hashes = { path = "sdk/slot-hashes", version = "=2.1.6" }
 solana-slot-history = { path = "sdk/slot-history", version = "=2.1.6" }
 solana-svm-fuzz-harness-fixture = { path = "svm-fuzz-harness/fixture", version = "=2.1.6" }
+solana-svm-fuzz-harness-fixture-fs = { path = "svm-fuzz-harness/fixture-fs", version = "=2.1.6" }
 solana-svm-fuzz-harness-instr = { path = "svm-fuzz-harness/instr/harness", version = "=2.1.6" }
 solana-svm-fuzz-harness-instr-entrypoint = { path = "svm-fuzz-harness/instr/entrypoint", version = "=2.1.6" }
 solana-svm-fuzz-harness-txn = { path = "svm-fuzz-harness/txn/harness", version = "=2.1.6" }
