@@ -154,6 +154,9 @@ members = [
     "streamer",
     "svm",
     "svm-conformance",
+    "svm-fuzz-harness/fixture",
+    "svm-fuzz-harness/instr/entrypoint",
+    "svm-fuzz-harness/instr/harness",
     "svm-rent-collector",
     "svm-transaction",
     "svm/examples/paytube",
@@ -483,6 +486,9 @@ solana-sha256-hasher = { path = "sdk/sha256-hasher", version = "=2.1.6" }
 solana-signature = { path = "sdk/signature", version = "=2.1.6", default-features = false }
 solana-slot-hashes = { path = "sdk/slot-hashes", version = "=2.1.6" }
 solana-slot-history = { path = "sdk/slot-history", version = "=2.1.6" }
+solana-svm-fuzz-harness-fixture = { path = "svm-fuzz-harness/fixture", version = "=2.1.6" }
+solana-svm-fuzz-harness-instr = { path = "svm-fuzz-harness/instr/harness", version = "=2.1.6" }
+solana-svm-fuzz-harness-instr-entrypoint = { path = "svm-fuzz-harness/instr/entrypoint", version = "=2.1.6" }
 solana-timings = { path = "timings", version = "=2.1.6" }
 solana-unified-scheduler-logic = { path = "unified-scheduler-logic", version = "=2.1.6" }
 solana-unified-scheduler-pool = { path = "unified-scheduler-pool", version = "=2.1.6" }
