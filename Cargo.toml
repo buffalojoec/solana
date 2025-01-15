@@ -157,6 +157,8 @@ members = [
     "svm-fuzz-harness/fixture",
     "svm-fuzz-harness/instr/entrypoint",
     "svm-fuzz-harness/instr/harness",
+    "svm-fuzz-harness/txn/entrypoint",
+    "svm-fuzz-harness/txn/harness",
     "svm-rent-collector",
     "svm-transaction",
     "svm/examples/paytube",
@@ -489,6 +491,8 @@ solana-slot-history = { path = "sdk/slot-history", version = "=2.1.6" }
 solana-svm-fuzz-harness-fixture = { path = "svm-fuzz-harness/fixture", version = "=2.1.6" }
 solana-svm-fuzz-harness-instr = { path = "svm-fuzz-harness/instr/harness", version = "=2.1.6" }
 solana-svm-fuzz-harness-instr-entrypoint = { path = "svm-fuzz-harness/instr/entrypoint", version = "=2.1.6" }
+solana-svm-fuzz-harness-txn = { path = "svm-fuzz-harness/txn/harness", version = "=2.1.6" }
+solana-svm-fuzz-harness-txn-entrypoint = { path = "svm-fuzz-harness/txn/entrypoint", version = "=2.1.6" }
 solana-timings = { path = "timings", version = "=2.1.6" }
 solana-unified-scheduler-logic = { path = "unified-scheduler-logic", version = "=2.1.6" }
 solana-unified-scheduler-pool = { path = "unified-scheduler-pool", version = "=2.1.6" }

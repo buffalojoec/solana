@@ -203,6 +203,7 @@ pub use {
 };
 #[cfg(feature = "dev-context-only-utils")]
 use {
+    qualifier_attr::qualifiers,
     solana_accounts_db::accounts_db::{
         ACCOUNTS_DB_CONFIG_FOR_BENCHMARKS, ACCOUNTS_DB_CONFIG_FOR_TESTING,
     },
@@ -2115,6 +2116,7 @@ impl Bank {
         self.epoch_stakes.insert(epoch, stakes);
     }
 
+    #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
     fn update_rent(&self) {
         self.update_sysvar_account(&sysvar::rent::id(), |account| {
             create_account(
@@ -2124,6 +2126,7 @@ impl Bank {
         });
     }
 
+    #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
     fn update_epoch_schedule(&self) {
         self.update_sysvar_account(&sysvar::epoch_schedule::id(), |account| {
             create_account(

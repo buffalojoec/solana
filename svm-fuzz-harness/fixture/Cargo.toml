@@ -23,9 +23,13 @@ prost = { workspace = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 solana-account = { workspace = true }
 solana-feature-set = { workspace = true }
+solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true, features = ["std"] }
+solana-signature = { workspace = true, features = ["std"] }
 thiserror = { workspace = true }
+# For crates not decoupled from SDK yet...
+solana-sdk = { workspace = true }
 
 [build-dependencies]
 prost-build = { workspace = true }

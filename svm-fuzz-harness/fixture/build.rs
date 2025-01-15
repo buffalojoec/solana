@@ -7,6 +7,7 @@ fn main() -> Result<()> {
         proto_base_path.join("metadata.proto"),
         proto_base_path.join("context.proto"),
         proto_base_path.join("invoke.proto"),
+        proto_base_path.join("txn.proto"),
     ];
 
     protos

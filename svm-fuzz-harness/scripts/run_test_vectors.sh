@@ -22,8 +22,13 @@ else
   cd ../..
 fi
 
+
 find dump/test-vectors/instr/fixtures -type f -name '*.fix' | xargs -P 32 -I {} ../target/release/test_exec_instr {} > $LOG_PATH/test_exec_instr.log 2>&1
-# Other tests will be included here...
+# secp256r1 currently not working, agave has bugs
+# find dump/test-vectors/txn/fixtures/precompile -type f -name '*.fix' | xargs -P 32 -I {} ./target/release/test_exec_txn {} > $LOG_PATH/test_exec_precompile.log 2>&1
+find dump/test-vectors/txn/fixtures/precompile/ed25519 -type f -name '*.fix' | xargs -P 32 -I {} ../target/release/test_exec_txn {} > $LOG_PATH/test_exec_precompile_ed25519.log 2>&1
+find dump/test-vectors/txn/fixtures/precompile/secp256k1 -type f -name '*.fix' | xargs -P 32 -I {} ../target/release/test_exec_txn {} > $LOG_PATH/test_exec_precompile_secp256k1.log 2>&1
+find dump/test-vectors/txn/fixtures/programs -type f -name '*.fix' | xargs -P 32 -I {} ../target/release/test_exec_txn {} > $LOG_PATH/test_exec_txn.log 2>&1
 
 failed=`grep -wR FAIL $LOG_PATH | wc -l`
 passed=`grep -wR OK $LOG_PATH | wc -l`

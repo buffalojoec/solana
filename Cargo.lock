@@ -8581,8 +8581,11 @@ dependencies = [
  "serde",
  "solana-account",
  "solana-feature-set",
+ "solana-hash",
  "solana-instruction",
  "solana-pubkey",
+ "solana-sdk",
+ "solana-signature",
  "thiserror 1.0.69",
 ]
 
@@ -8626,6 +8629,39 @@ dependencies = [
  "solana-pubkey",
  "solana-rent",
  "solana-sdk",
+ "solana-timings",
+]
+
+[[package]]
+name = "solana-svm-fuzz-harness-txn"
+version = "2.1.6"
+dependencies = [
+ "bincode",
+ "clap 4.5.27",
+ "prost",
+ "solana-account",
+ "solana-epoch-schedule",
+ "solana-pubkey",
+ "solana-rent",
+ "solana-sdk",
+ "solana-svm",
+ "solana-svm-fuzz-harness-fixture",
+ "solana-svm-fuzz-harness-txn-entrypoint",
+]
+
+[[package]]
+name = "solana-svm-fuzz-harness-txn-entrypoint"
+version = "2.1.6"
+dependencies = [
+ "solana-account",
+ "solana-accounts-db",
+ "solana-clock",
+ "solana-feature-set",
+ "solana-hash",
+ "solana-pubkey",
+ "solana-runtime",
+ "solana-sdk",
+ "solana-svm",
  "solana-timings",
 ]
 

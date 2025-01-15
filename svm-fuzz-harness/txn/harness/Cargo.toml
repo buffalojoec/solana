@@ -1,0 +1,27 @@
+[package]
+name = "solana-svm-fuzz-harness-txn"
+description = "Solana SVM fuzz harness for transaction."
+documentation = "https://docs.rs/solana-svm-fuzz-harness-txn"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+bincode = { workspace = true }
+clap = { version = "4.5.2", features = ["derive"] }
+prost = { workspace = true }
+solana-account = { workspace = true }
+solana-epoch-schedule = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-rent = { workspace = true }
+solana-svm = { workspace = true }
+solana-svm-fuzz-harness-fixture = { workspace = true }
+solana-svm-fuzz-harness-txn-entrypoint = { workspace = true }
+# For crates not decoupled from SDK yet...
+solana-sdk = { workspace = true }
+
+[lints]
+workspace = true
