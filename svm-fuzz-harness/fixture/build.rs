@@ -8,6 +8,10 @@ fn main() -> Result<()> {
         proto_base_path.join("context.proto"),
         proto_base_path.join("invoke.proto"),
         proto_base_path.join("txn.proto"),
+        proto_base_path.join("elf.proto"),
+        proto_base_path.join("pack.proto"),
+        proto_base_path.join("serialize.proto"),
+        proto_base_path.join("vm.proto"),
     ];
 
     protos

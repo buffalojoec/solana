@@ -14,8 +14,8 @@
 //! harness, or define their own, which can be built on the base entrypoint in
 //! similar fashion.
 
-mod program_cache;
-mod sysvar_cache;
+pub mod program_cache;
+pub mod sysvar_cache;
 
 use {
     prost::Message,
@@ -30,7 +30,7 @@ use {
     },
     solana_svm::transaction_processing_callback::TransactionProcessingCallback,
     solana_svm_fuzz_harness_fixture::{
-        invoke::{context::InstrContext, effects::InstrEffects},
+        invoke::{context::InstrContext, effects::InstrEffects, instr_account::InstrAccount},
         proto::{InstrContext as ProtoInstrContext, InstrEffects as ProtoInstrEffects},
     },
     solana_svm_fuzz_harness_instr_entrypoint::{
@@ -60,6 +60,31 @@ impl TransactionProcessingCallback for InstrContextCallback<'_> {
             .find(|(pubkey, _)| pubkey == address)
             .map(|(_, acct)| acct.clone().into())
     }
+}
+
+pub fn build_instruction_accounts(input: &[InstrAccount]) -> Vec<InstructionAccount> {
+    let mut instruction_accounts: Vec<InstructionAccount> = Vec::with_capacity(input.len());
+
+    for (instruction_account_index, instruction_account) in input.iter().enumerate() {
+        let index_in_transaction = instruction_account.index;
+
+        let index_in_callee = input
+            .get(0..instruction_account_index)
+            .unwrap()
+            .iter()
+            .position(|instruction_account| instruction_account.index == index_in_transaction)
+            .unwrap_or(instruction_account_index) as IndexOfAccount;
+
+        instruction_accounts.push(InstructionAccount {
+            index_in_transaction: index_in_transaction as IndexOfAccount,
+            index_in_caller: index_in_transaction as IndexOfAccount,
+            index_in_callee,
+            is_signer: instruction_account.is_signer,
+            is_writable: instruction_account.is_writable,
+        });
+    }
+
+    instruction_accounts
 }
 
 fn execute_instr(input: InstrContext) -> Option<InstrEffects> {
@@ -133,36 +158,7 @@ fn execute_instr(input: InstrContext) -> Option<InstrEffects> {
         }
     }
 
-    // Build out the list of `InstructionAccount`.
-    let instruction_accounts = {
-        let mut instruction_accounts: Vec<InstructionAccount> =
-            Vec::with_capacity(input.instruction_accounts.len());
-
-        for (instruction_account_index, instruction_account) in
-            input.instruction_accounts.iter().enumerate()
-        {
-            let index_in_transaction = instruction_account.index;
-
-            let index_in_callee = input
-                .instruction_accounts
-                .get(0..instruction_account_index)
-                .unwrap()
-                .iter()
-                .position(|instruction_account| instruction_account.index == index_in_transaction)
-                .unwrap_or(instruction_account_index)
-                as IndexOfAccount;
-
-            instruction_accounts.push(InstructionAccount {
-                index_in_transaction: index_in_transaction as IndexOfAccount,
-                index_in_caller: index_in_transaction as IndexOfAccount,
-                index_in_callee,
-                is_signer: instruction_account.is_signer,
-                is_writable: instruction_account.is_writable,
-            });
-        }
-
-        instruction_accounts
-    };
+    let instruction_accounts = build_instruction_accounts(&input.instruction_accounts);
 
     // Precompiles (ed25519, secp256k1)
     // Precompiles are programs that run without the VM and without loading any account.
