@@ -321,11 +321,9 @@ where
     F: FnMut(*const u8, *const u8, usize) -> Result<T, Error>,
 {
     let mut src_chunk_iter =
-        MemoryChunkIterator::new(memory_mapping, accounts, src_access, src_addr, n_bytes)
-            .map_err(EbpfError::from)?;
+        MemoryChunkIterator::new(memory_mapping, accounts, src_access, src_addr, n_bytes)?;
     let mut dst_chunk_iter =
-        MemoryChunkIterator::new(memory_mapping, accounts, dst_access, dst_addr, n_bytes)
-            .map_err(EbpfError::from)?;
+        MemoryChunkIterator::new(memory_mapping, accounts, dst_access, dst_addr, n_bytes)?;
 
     let mut src_chunk = None;
     let mut dst_chunk = None;
@@ -536,7 +534,7 @@ impl<'a> Iterator for MemoryChunkIterator<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for MemoryChunkIterator<'a> {
+impl DoubleEndedIterator for MemoryChunkIterator<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.vm_addr_start == self.vm_addr_end {
             return None;
@@ -573,7 +571,7 @@ mod tests {
     use {
         super::*,
         assert_matches::assert_matches,
-        solana_rbpf::{ebpf::MM_PROGRAM_START, program::SBPFVersion},
+        solana_rbpf::{ebpf::MM_RODATA_START as MM_PROGRAM_START, program::SBPFVersion},
         test_case::test_case,
     };
 
@@ -591,7 +589,7 @@ mod tests {
             aligned_memory_mapping: false,
             ..Config::default()
         };
-        let memory_mapping = MemoryMapping::new(vec![], &config, &SBPFVersion::V3).unwrap();
+        let memory_mapping = MemoryMapping::new(vec![], &config, SBPFVersion::V3).unwrap();
 
         let mut src_chunk_iter =
             MemoryChunkIterator::new(&memory_mapping, &[], AccessType::Load, 0, 1).unwrap();
@@ -605,7 +603,7 @@ mod tests {
             aligned_memory_mapping: false,
             ..Config::default()
         };
-        let memory_mapping = MemoryMapping::new(vec![], &config, &SBPFVersion::V3).unwrap();
+        let memory_mapping = MemoryMapping::new(vec![], &config, SBPFVersion::V3).unwrap();
 
         let mut src_chunk_iter =
             MemoryChunkIterator::new(&memory_mapping, &[], AccessType::Load, u64::MAX, 1).unwrap();
@@ -622,7 +620,7 @@ mod tests {
         let memory_mapping = MemoryMapping::new(
             vec![MemoryRegion::new_readonly(&mem1, MM_PROGRAM_START)],
             &config,
-            &SBPFVersion::V3,
+            SBPFVersion::V3,
         )
         .unwrap();
 
@@ -688,7 +686,7 @@ mod tests {
         let memory_mapping = MemoryMapping::new(
             vec![MemoryRegion::new_readonly(&mem1, MM_PROGRAM_START)],
             &config,
-            &SBPFVersion::V3,
+            SBPFVersion::V3,
         )
         .unwrap();
 
@@ -753,7 +751,7 @@ mod tests {
                 MemoryRegion::new_readonly(&mem2, MM_PROGRAM_START + 8),
             ],
             &config,
-            &SBPFVersion::V3,
+            SBPFVersion::V3,
         )
         .unwrap();
 
@@ -796,7 +794,7 @@ mod tests {
                 MemoryRegion::new_readonly(&mem2, MM_PROGRAM_START + 8),
             ],
             &config,
-            &SBPFVersion::V3,
+            SBPFVersion::V3,
         )
         .unwrap();
 
@@ -848,7 +846,7 @@ mod tests {
                 MemoryRegion::new_readonly(&mem2, MM_PROGRAM_START + 8),
             ],
             &config,
-            &SBPFVersion::V3,
+            SBPFVersion::V3,
         )
         .unwrap();
 
@@ -933,7 +931,7 @@ mod tests {
                 MemoryRegion::new_readonly(&mem2, MM_PROGRAM_START + 8),
             ],
             &config,
-            &SBPFVersion::V3,
+            SBPFVersion::V3,
         )
         .unwrap();
 
@@ -961,7 +959,7 @@ mod tests {
                 MemoryRegion::new_writable(&mut mem4, MM_PROGRAM_START + 6),
             ],
             &config,
-            &SBPFVersion::V3,
+            SBPFVersion::V3,
         )
         .unwrap();
 
@@ -991,7 +989,7 @@ mod tests {
                 MemoryRegion::new_readonly(&mem3, MM_PROGRAM_START + 9),
             ],
             &config,
-            &SBPFVersion::V3,
+            SBPFVersion::V3,
         )
         .unwrap();
 
@@ -1055,7 +1053,7 @@ mod tests {
             offset += *region_len;
         }
 
-        let memory_mapping = MemoryMapping::new(regs, config, &SBPFVersion::V3).unwrap();
+        let memory_mapping = MemoryMapping::new(regs, config, SBPFVersion::V3).unwrap();
 
         (mem, memory_mapping)
     }

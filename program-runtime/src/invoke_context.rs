@@ -188,17 +188,16 @@ pub struct SerializedAccountMetadata {
     pub vm_owner_addr: u64,
 }
 
-// Used to mock InvokeContext::process_instruction 
+// Used to mock InvokeContext::process_instruction
 #[cfg(feature = "stub-proc-instr")]
 type InstrProcCallback = Box<
     dyn FnMut(
         &mut TransactionContext,
         &[u8], // instruction_data
         &[InstructionAccount],
-        &[IndexOfAccount] // program_indices
-    ) -> Result<(), InstructionError>
+        &[IndexOfAccount], // program_indices
+    ) -> Result<(), InstructionError>,
 >;
-
 
 /// Main pipeline from runtime to program execution.
 pub struct InvokeContext<'a> {
@@ -476,7 +475,8 @@ impl<'a> InvokeContext<'a> {
         // [solfuzz-patch] Stub out the processing of the instruction.
         // Used in fuzzers that indirectly call this function (like the CPI fuzzer) but
         // don't want to process the instruction.
-        #[cfg(feature = "stub-proc-instr")] {
+        #[cfg(feature = "stub-proc-instr")]
+        {
             if let Some(proc_instr_callback) = &mut self.proc_instr_callback {
                 return proc_instr_callback(
                     self.transaction_context,

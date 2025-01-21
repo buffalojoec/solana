@@ -486,10 +486,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         )
         .rent_amount;
 
-        let CheckedTransactionDetails {
-            nonce,
-            ..
-        } = checked_details;
+        let CheckedTransactionDetails { nonce, .. } = checked_details;
 
         let fee_budget_limits = FeeBudgetLimits::from(compute_budget_limits);
         let fee_details = solana_fee::calculate_fee_details(

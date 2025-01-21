@@ -23,10 +23,12 @@ use {
     solana_compute_budget::compute_budget::ComputeBudget,
     solana_feature_set::FeatureSet,
     solana_measure::measure::Measure,
-    solana_program_runtime::invoke_context::InvokeContext,
-    solana_rbpf::{
-        ebpf::MM_INPUT_START, elf::Executable, memory_region::MemoryRegion,
-        verifier::RequisiteVerifier, vm::ContextObject,
+    solana_program_runtime::{
+        invoke_context::InvokeContext,
+        solana_rbpf::{
+            ebpf::MM_INPUT_START, elf::Executable, memory_region::MemoryRegion,
+            verifier::RequisiteVerifier, vm::ContextObject,
+        },
     },
     solana_runtime::{
         bank::Bank,

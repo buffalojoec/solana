@@ -17,6 +17,7 @@ use {
             vm::Config,
         },
     },
+    solana_rbpf::program::SBPFVersion,
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount, WritableAccount},
         bpf_loader_upgradeable::{self, UpgradeableLoaderState},
@@ -38,6 +39,7 @@ use {
         env,
         fs::{self, File},
         io::Read,
+        ops::RangeInclusive,
     },
 };
 
@@ -329,10 +331,7 @@ fn create_custom_environment<'a>() -> BuiltinProgram<InvokeContext<'a>> {
         reject_broken_elfs: true,
         noop_instruction_rate: 256,
         sanitize_user_provided_values: true,
-        external_internal_function_hash_collision: false,
-        reject_callx_r10: true,
-        enable_sbpf_v1: true,
-        enable_sbpf_v2: false,
+        enabled_sbpf_versions: RangeInclusive::new(SBPFVersion::V0, SBPFVersion::V1),
         optimize_rodata: false,
         aligned_memory_mapping: true,
     };
