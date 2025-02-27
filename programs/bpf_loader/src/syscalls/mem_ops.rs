@@ -15,6 +15,25 @@ fn mem_op_consume(invoke_context: &mut InvokeContext, n: u64) -> Result<(), Erro
 }
 
 declare_builtin_function!(
+    /// mem large alloc (reserialize vm)
+    SyscallMemLargeAlloc,
+    fn rust(
+        invoke_context: &mut InvokeContext,
+        var_addr: u64,
+        new_size: u64,
+        _arg3: u64,
+        _arg4: u64,
+        _arg5: u64,
+        memory_mapping: &mut MemoryMapping,
+    ) -> Result<u64, Error> {
+        mem_op_consume(invoke_context, new_size)?;
+
+        // Do nothing for now
+        Ok(SUCCESS)
+    }
+);
+
+declare_builtin_function!(
     /// memcpy
     SyscallMemcpy,
     fn rust(

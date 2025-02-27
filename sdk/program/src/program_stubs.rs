@@ -73,6 +73,9 @@ pub trait SyscallStubs: Sync + Send {
     fn sol_get_epoch_stake(&self, _vote_address: *const u8) -> u64 {
         0
     }
+    fn sol_mem_large_alloc(&self, var_addr: *mut u8, new_size: usize) {
+        stubs::sol_mem_large_alloc(var_addr, new_size)
+    }
     /// # Safety
     unsafe fn sol_memcpy(&self, dst: *mut u8, src: *const u8, n: usize) {
         stubs::sol_memcpy(dst, src, n)

@@ -3,7 +3,7 @@ pub use self::{
     logging::{
         SyscallLog, SyscallLogBpfComputeUnits, SyscallLogData, SyscallLogPubkey, SyscallLogU64,
     },
-    mem_ops::{SyscallMemcmp, SyscallMemcpy, SyscallMemmove, SyscallMemset},
+    mem_ops::{SyscallMemLargeAlloc, SyscallMemcmp, SyscallMemcpy, SyscallMemmove, SyscallMemset},
     sysvar::{
         SyscallGetClockSysvar, SyscallGetEpochRewardsSysvar, SyscallGetEpochScheduleSysvar,
         SyscallGetFeesSysvar, SyscallGetLastRestartSlotSysvar, SyscallGetRentSysvar,
@@ -396,6 +396,7 @@ pub fn create_program_runtime_environment_v1<'a>(
     )?;
 
     // Memory ops
+    result.register_function_hashed(*b"sol_mem_large_alloc", SyscallMemLargeAlloc::vm)?;
     result.register_function_hashed(*b"sol_memcpy_", SyscallMemcpy::vm)?;
     result.register_function_hashed(*b"sol_memmove_", SyscallMemmove::vm)?;
     result.register_function_hashed(*b"sol_memcmp_", SyscallMemcmp::vm)?;

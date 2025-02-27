@@ -494,6 +494,7 @@ pub mod loader_v4_instruction;
 pub mod log;
 pub mod message;
 pub mod nonce;
+pub mod privileged_syscall;
 pub mod program;
 pub mod program_error;
 pub mod program_stubs;

@@ -6,6 +6,7 @@
 #[cfg(target_os = "solana")]
 pub mod syscalls {
     use solana_define_syscall::define_syscall;
+    define_syscall!(fn sol_mem_large_alloc_(var_addr: *mut u8, new_size: u64));
     define_syscall!(fn sol_memcpy_(dst: *mut u8, src: *const u8, n: u64));
     define_syscall!(fn sol_memmove_(dst: *mut u8, src: *const u8, n: u64));
     define_syscall!(fn sol_memcmp_(s1: *const u8, s2: *const u8, n: u64, result: *mut i32));
@@ -33,6 +34,9 @@ where
 #[allow(clippy::arithmetic_side_effects)]
 pub mod stubs {
     use super::is_nonoverlapping;
+    pub fn sol_mem_large_alloc(_var_addr: *mut u8, _new_size: usize) {
+        // Do nothing...
+    }
     /// # Safety
     pub unsafe fn sol_memcpy(dst: *mut u8, src: *const u8, n: usize) {
         // cannot be overlapping
@@ -67,6 +71,17 @@ pub mod stubs {
             *val = c;
         }
     }
+}
+
+#[inline]
+pub fn sol_mem_large_alloc(var_addr: &mut [u8], new_size: usize) {
+    #[cfg(target_os = "solana")]
+    unsafe {
+        syscalls::sol_mem_large_alloc_(var_addr.as_mut_ptr(), new_size as u64);
+    }
+
+    #[cfg(not(target_os = "solana"))]
+    stubs::sol_mem_large_alloc(var_addr.as_mut_ptr(), new_size);
 }
 
 /// Like C `memcpy`.

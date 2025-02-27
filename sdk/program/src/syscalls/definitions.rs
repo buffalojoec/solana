@@ -15,7 +15,7 @@ pub use solana_msg::syscalls::{sol_log_, sol_log_64_, sol_log_compute_units_, so
     since = "2.1.0",
     note = "Use `solana_program_memory::syscalls` instead"
 )]
-pub use solana_program_memory::syscalls::{sol_memcmp_, sol_memcpy_, sol_memmove_, sol_memset_};
+pub use solana_program_memory::syscalls::{sol_mem_large_alloc_, sol_memcmp_, sol_memcpy_, sol_memmove_, sol_memset_};
 #[deprecated(since = "2.1.0", note = "Use `solana_pubkey::syscalls` instead")]
 pub use solana_pubkey::syscalls::{
     sol_create_program_address, sol_log_pubkey, sol_try_find_program_address,
