@@ -8,6 +8,7 @@ use qualifier_attr::qualifiers;
 use {
     solana_bincode::limited_deserialize,
     solana_clock::Slot,
+    solana_feature_set as feature_set,
     solana_instruction::{error::InstructionError, AccountMeta},
     solana_loader_v3_interface::{
         instruction::UpgradeableLoaderInstruction, state::UpgradeableLoaderState,
@@ -1605,14 +1606,30 @@ fn execute<'a, 'b: 'a>(
     let mask_out_rent_epoch_in_vm_serialization = invoke_context
         .get_feature_set()
         .mask_out_rent_epoch_in_vm_serialization;
+    
+    let enable_v2_entrypoint = invoke_context
+        .get_feature_set()
+        .is_active(&feature_set::enable_bpf_v2_entrypoint::id());
 
     let mut serialize_time = Measure::start("serialize");
-    let (parameter_bytes, regions, accounts_metadata) = serialization::serialize_parameters(
-        invoke_context.transaction_context,
-        instruction_context,
-        !direct_mapping,
-        mask_out_rent_epoch_in_vm_serialization,
-    )?;
+    let (parameter_bytes, regions, accounts_metadata) = if enable_v2_entrypoint {
+        // TODO: Once solana-sbpf supports detecting v2 entrypoints in ELF files,
+        // we should check if the executable has a v2 entrypoint and use v2 serialization.
+        // For now, we use v1 serialization even with the feature enabled.
+        serialization::serialize_parameters(
+            invoke_context.transaction_context,
+            instruction_context,
+            !direct_mapping,
+            mask_out_rent_epoch_in_vm_serialization,
+        )?
+    } else {
+        serialization::serialize_parameters(
+            invoke_context.transaction_context,
+            instruction_context,
+            !direct_mapping,
+            mask_out_rent_epoch_in_vm_serialization,
+        )?
+    };
     serialize_time.stop();
 
     // save the account addresses so in case we hit an AccessViolation error we

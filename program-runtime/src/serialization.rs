@@ -243,6 +243,70 @@ pub fn serialize_parameters(
     }
 }
 
+pub fn serialize_parameters_v2(
+    transaction_context: &TransactionContext,
+    instruction_context: &InstructionContext,
+    copy_account_data: bool,
+    mask_out_rent_epoch_in_vm_serialization: bool,
+) -> Result<
+    (
+        AlignedMemory<HOST_ALIGN>,
+        Vec<MemoryRegion>,
+        Vec<SerializedAccountMetadata>,
+    ),
+    InstructionError,
+> {
+    let num_ix_accounts = instruction_context.get_number_of_instruction_accounts();
+    if num_ix_accounts > MAX_INSTRUCTION_ACCOUNTS as IndexOfAccount {
+        return Err(InstructionError::MaxAccountsExceeded);
+    }
+
+    let (program_id, is_loader_deprecated) = {
+        let program_account =
+            instruction_context.try_borrow_last_program_account(transaction_context)?;
+        (
+            *program_account.get_key(),
+            *program_account.get_owner() == bpf_loader_deprecated::id(),
+        )
+    };
+
+    let accounts = (0..instruction_context.get_number_of_instruction_accounts())
+        .map(|instruction_account_index| {
+            if let Some(index) = instruction_context
+                .is_instruction_account_duplicate(instruction_account_index)
+                .unwrap()
+            {
+                SerializeAccount::Duplicate(index)
+            } else {
+                SerializeAccount::Account(
+                    instruction_account_index,
+                    instruction_context
+                        .try_borrow_instruction_account(transaction_context, instruction_account_index)
+                        .unwrap(),
+                )
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if is_loader_deprecated {
+        serialize_parameters_unaligned_v2(
+            accounts,
+            instruction_context.get_instruction_data(),
+            &program_id,
+            copy_account_data,
+            mask_out_rent_epoch_in_vm_serialization,
+        )
+    } else {
+        serialize_parameters_aligned_v2(
+            accounts,
+            instruction_context.get_instruction_data(),
+            &program_id,
+            copy_account_data,
+            mask_out_rent_epoch_in_vm_serialization,
+        )
+    }
+}
+
 pub fn deserialize_parameters(
     transaction_context: &TransactionContext,
     instruction_context: &InstructionContext,
@@ -317,6 +381,97 @@ fn serialize_parameters_unaligned(
 
     let mut accounts_metadata: Vec<SerializedAccountMetadata> = Vec::with_capacity(accounts.len());
     s.write::<u64>((accounts.len() as u64).to_le());
+    for account in accounts {
+        match account {
+            SerializeAccount::Duplicate(position) => {
+                accounts_metadata.push(accounts_metadata.get(position as usize).unwrap().clone());
+                s.write(position as u8);
+            }
+            SerializeAccount::Account(_, mut account) => {
+                s.write::<u8>(NON_DUP_MARKER);
+                s.write::<u8>(account.is_signer() as u8);
+                s.write::<u8>(account.is_writable() as u8);
+                let vm_key_addr = s.write_all(account.get_key().as_ref());
+                let vm_lamports_addr = s.write::<u64>(account.get_lamports().to_le());
+                s.write::<u64>((account.get_data().len() as u64).to_le());
+                let vm_data_addr = s.write_account(&mut account)?;
+                let vm_owner_addr = s.write_all(account.get_owner().as_ref());
+                #[allow(deprecated)]
+                s.write::<u8>(account.is_executable() as u8);
+                let rent_epoch = if mask_out_rent_epoch_in_vm_serialization {
+                    u64::MAX
+                } else {
+                    account.get_rent_epoch()
+                };
+                s.write::<u64>(rent_epoch.to_le());
+                accounts_metadata.push(SerializedAccountMetadata {
+                    original_data_len: account.get_data().len(),
+                    vm_key_addr,
+                    vm_lamports_addr,
+                    vm_owner_addr,
+                    vm_data_addr,
+                });
+            }
+        };
+    }
+    s.write::<u64>((instruction_data.len() as u64).to_le());
+    s.write_all(instruction_data);
+    s.write_all(program_id.as_ref());
+
+    let (mem, regions) = s.finish();
+    Ok((mem, regions, accounts_metadata))
+}
+
+fn serialize_parameters_unaligned_v2(
+    accounts: Vec<SerializeAccount>,
+    instruction_data: &[u8],
+    program_id: &Pubkey,
+    copy_account_data: bool,
+    mask_out_rent_epoch_in_vm_serialization: bool,
+) -> Result<
+    (
+        AlignedMemory<HOST_ALIGN>,
+        Vec<MemoryRegion>,
+        Vec<SerializedAccountMetadata>,
+    ),
+    InstructionError,
+> {
+    // Calculate size in order to alloc once
+    let mut size = size_of::<u64>() // number of accounts
+        + size_of::<u64>(); // instruction data length
+    
+    for account in &accounts {
+        size += 1; // dup
+        match account {
+            SerializeAccount::Duplicate(_) => {}
+            SerializeAccount::Account(_, account) => {
+                size += size_of::<u8>() // is_signer
+                + size_of::<u8>() // is_writable
+                + size_of::<Pubkey>() // key
+                + size_of::<u64>()  // lamports
+                + size_of::<u64>()  // data len
+                + size_of::<Pubkey>() // owner
+                + size_of::<u8>() // executable
+                + size_of::<u64>(); // rent_epoch
+                if copy_account_data {
+                    size += account.get_data().len();
+                }
+            }
+        }
+    }
+    size += size_of::<u64>() // instruction data len
+         + instruction_data.len() // instruction data
+         + size_of::<Pubkey>(); // program id
+
+    let mut s = Serializer::new(size, MM_INPUT_START, false, copy_account_data);
+
+    let mut accounts_metadata: Vec<SerializedAccountMetadata> = Vec::with_capacity(accounts.len());
+    
+    // V2: Write metadata at the beginning
+    s.write::<u64>((accounts.len() as u64).to_le());
+    s.write::<u64>((instruction_data.len() as u64).to_le());
+    
+    // Serialize accounts
     for account in accounts {
         match account {
             SerializeAccount::Duplicate(position) => {
@@ -459,6 +614,103 @@ fn serialize_parameters_aligned(
 
     // Serialize into the buffer
     s.write::<u64>((accounts.len() as u64).to_le());
+    for account in accounts {
+        match account {
+            SerializeAccount::Account(_, mut borrowed_account) => {
+                s.write::<u8>(NON_DUP_MARKER);
+                s.write::<u8>(borrowed_account.is_signer() as u8);
+                s.write::<u8>(borrowed_account.is_writable() as u8);
+                #[allow(deprecated)]
+                s.write::<u8>(borrowed_account.is_executable() as u8);
+                s.write_all(&[0u8, 0, 0, 0]);
+                let vm_key_addr = s.write_all(borrowed_account.get_key().as_ref());
+                let vm_owner_addr = s.write_all(borrowed_account.get_owner().as_ref());
+                let vm_lamports_addr = s.write::<u64>(borrowed_account.get_lamports().to_le());
+                s.write::<u64>((borrowed_account.get_data().len() as u64).to_le());
+                let vm_data_addr = s.write_account(&mut borrowed_account)?;
+                let rent_epoch = if mask_out_rent_epoch_in_vm_serialization {
+                    u64::MAX
+                } else {
+                    borrowed_account.get_rent_epoch()
+                };
+                s.write::<u64>(rent_epoch.to_le());
+                accounts_metadata.push(SerializedAccountMetadata {
+                    original_data_len: borrowed_account.get_data().len(),
+                    vm_key_addr,
+                    vm_owner_addr,
+                    vm_lamports_addr,
+                    vm_data_addr,
+                });
+            }
+            SerializeAccount::Duplicate(position) => {
+                accounts_metadata.push(accounts_metadata.get(position as usize).unwrap().clone());
+                s.write::<u8>(position as u8);
+                s.write_all(&[0u8, 0, 0, 0, 0, 0, 0]);
+            }
+        };
+    }
+    s.write::<u64>((instruction_data.len() as u64).to_le());
+    s.write_all(instruction_data);
+    s.write_all(program_id.as_ref());
+
+    let (mem, regions) = s.finish();
+    Ok((mem, regions, accounts_metadata))
+}
+
+fn serialize_parameters_aligned_v2(
+    accounts: Vec<SerializeAccount>,
+    instruction_data: &[u8],
+    program_id: &Pubkey,
+    copy_account_data: bool,
+    mask_out_rent_epoch_in_vm_serialization: bool,
+) -> Result<
+    (
+        AlignedMemory<HOST_ALIGN>,
+        Vec<MemoryRegion>,
+        Vec<SerializedAccountMetadata>,
+    ),
+    InstructionError,
+> {
+    let mut accounts_metadata = Vec::with_capacity(accounts.len());
+    // Calculate size in order to alloc once
+    let mut size = size_of::<u64>() // number of accounts
+        + size_of::<u64>(); // instruction data length
+    
+    for account in &accounts {
+        size += 1; // dup
+        match account {
+            SerializeAccount::Duplicate(_) => size += 7, // padding to 64-bit aligned
+            SerializeAccount::Account(_, account) => {
+                let data_len = account.get_data().len();
+                size += size_of::<u8>() // is_signer
+                + size_of::<u8>() // is_writable
+                + size_of::<u8>() // executable
+                + size_of::<u32>() // original_data_len
+                + size_of::<Pubkey>()  // key
+                + size_of::<Pubkey>() // owner
+                + size_of::<u64>()  // lamports
+                + size_of::<u64>()  // data len
+                + MAX_PERMITTED_DATA_INCREASE
+                + size_of::<u64>(); // rent epoch
+                if copy_account_data {
+                    size += data_len + (data_len as *const u8).align_offset(BPF_ALIGN_OF_U128);
+                } else {
+                    size += BPF_ALIGN_OF_U128;
+                }
+            }
+        }
+    }
+    size += size_of::<u64>() // data len
+    + instruction_data.len()
+    + size_of::<Pubkey>(); // program id;
+
+    let mut s = Serializer::new(size, MM_INPUT_START, true, copy_account_data);
+
+    // V2: Write metadata at the beginning
+    s.write::<u64>((accounts.len() as u64).to_le());
+    s.write::<u64>((instruction_data.len() as u64).to_le());
+    
+    // Serialize accounts
     for account in accounts {
         match account {
             SerializeAccount::Account(_, mut borrowed_account) => {

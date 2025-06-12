@@ -534,18 +534,30 @@ impl<'a> InvokeContext<'a> {
 
         // The Murmur3 hash value (used by RBPF) of the string "entrypoint"
         const ENTRYPOINT_KEY: u32 = 0x71E3CF81;
+        // The Murmur3 hash value (used by RBPF) of the string "entrypoint_v2"
+        const ENTRYPOINT_V2_KEY: u32 = 0x25B5A5FC;
         let entry = self
             .program_cache_for_tx_batch
             .find(&builtin_id)
             .ok_or(InstructionError::UnsupportedProgramId)?;
-        let function = match &entry.program {
-            ProgramCacheEntryType::Builtin(program) => program
-                .get_function_registry()
-                .lookup_by_key(ENTRYPOINT_KEY)
-                .map(|(_name, function)| function),
-            _ => None,
-        }
-        .ok_or(InstructionError::UnsupportedProgramId)?;
+        
+        // Try v2 entrypoint first, then fall back to v1
+        let (function, is_v2) = match &entry.program {
+            ProgramCacheEntryType::Builtin(program) => {
+                let registry = program.get_function_registry();
+                // First try v2 entrypoint
+                if let Some((_name, function)) = registry.lookup_by_key(ENTRYPOINT_V2_KEY) {
+                    (Some(function), true)
+                } else {
+                    // Fall back to v1 entrypoint
+                    (registry.lookup_by_key(ENTRYPOINT_KEY)
+                        .map(|(_name, function)| function), false)
+                }
+            }
+            _ => (None, false),
+        };
+        
+        let function = function.ok_or(InstructionError::UnsupportedProgramId)?;
         entry.ix_usage_counter.fetch_add(1, Ordering::Relaxed);
 
         let program_id = *instruction_context.get_last_program_key(self.transaction_context)?;
