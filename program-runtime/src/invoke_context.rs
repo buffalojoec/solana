@@ -657,6 +657,12 @@ impl<'a> InvokeContext<'a> {
             .deprecate_legacy_vote_ixs
     }
 
+    pub fn additional_entrypoint_metadata_in_vm_registers_active(&self) -> bool {
+        self.environment_config
+            .feature_set
+            .additional_entrypoint_metadata_in_vm_registers
+    }
+
     /// Get cached sysvars
     pub fn get_sysvar_cache(&self) -> &SysvarCache {
         self.environment_config.sysvar_cache

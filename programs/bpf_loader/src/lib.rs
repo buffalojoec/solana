@@ -1605,6 +1605,12 @@ fn execute<'a, 'b: 'a>(
     let mask_out_rent_epoch_in_vm_serialization = invoke_context
         .get_feature_set()
         .mask_out_rent_epoch_in_vm_serialization;
+    let additional_entrypoint_metadata_active =
+        invoke_context.additional_entrypoint_metadata_in_vm_registers_active();
+
+    // Get data for additional entrypoint metadata before VM creation.
+    let num_accounts = instruction_context.get_number_of_instruction_accounts();
+    let instruction_data_len = instruction_context.get_instruction_data().len();
 
     let mut serialize_time = Measure::start("serialize");
     let (parameter_bytes, regions, accounts_metadata) = serialization::serialize_parameters(
@@ -1644,6 +1650,16 @@ fn execute<'a, 'b: 'a>(
             }
         };
         create_vm_time.stop();
+
+        // Provide additional entrypoint metadata in registers 2 & 3 when
+        // feature is active.
+        if additional_entrypoint_metadata_active {
+            // r1 = input region pointer (*mut u8)
+            // r2 = number of accounts (u64)
+            // r3 = instruction data length (u64)
+            vm.registers[2] = num_accounts as u64;
+            vm.registers[3] = instruction_data_len as u64;
+        }
 
         vm.context_object_pointer.execute_time = Some(Measure::start("execute"));
         let (compute_units_consumed, result) = vm.execute_program(executable, !use_jit);

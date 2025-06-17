@@ -39,6 +39,7 @@ pub struct SVMFeatureSet {
     pub formalize_loaded_transaction_data_size: bool,
     pub disable_zk_elgamal_proof_program: bool,
     pub reenable_zk_elgamal_proof_program: bool,
+    pub additional_entrypoint_metadata_in_vm_registers: bool,
 }
 
 impl SVMFeatureSet {
@@ -83,6 +84,7 @@ impl SVMFeatureSet {
             formalize_loaded_transaction_data_size: true,
             disable_zk_elgamal_proof_program: true,
             reenable_zk_elgamal_proof_program: true,
+            additional_entrypoint_metadata_in_vm_registers: true,
         }
     }
 }
