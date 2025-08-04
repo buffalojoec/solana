@@ -4,6 +4,7 @@ members = [
     "svm-log-collector",
     "svm-measure",
     "svm-metrics",
+    "svm-timings",
 ]
 
 [workspace.package]
@@ -16,6 +17,8 @@ edition = "2021"
 
 [workspace.dependencies]
 crossbeam-channel = "0.5.12"
+eager = "0.1.0"
+enum-iterator = "1.5.0"
 env_logger = "0.9.3"
 gethostname = "0.2.3"
 log = "0.4.22"
@@ -23,6 +26,7 @@ rand = "0.8.5"
 reqwest = { version = "0.12.20", default-features = false }
 serial_test = "3.0.0"
 solana-cluster-type = "2.2.1"
+solana-pubkey = "2.4.0"
 solana-sha256-hasher = "2.2.1" 
 solana-time-utils = "2.2.1"
 thiserror = "2.0.12"

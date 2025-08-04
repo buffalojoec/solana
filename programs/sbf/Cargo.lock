@@ -168,11 +168,11 @@ dependencies = [
  "solana-svm-feature-set",
  "solana-sysvar",
  "solana-sysvar-id",
- "solana-timings",
  "solana-transaction-context",
  "solana-type-overrides",
  "svm-log-collector",
  "svm-measure",
+ "svm-timings",
  "thiserror 2.0.12",
 ]
 
@@ -7512,12 +7512,12 @@ dependencies = [
  "solana-system-interface",
  "solana-sysvar",
  "solana-sysvar-id",
- "solana-timings",
  "solana-transaction-context",
  "solana-type-overrides",
  "svm-log-collector",
  "svm-measure",
  "svm-metrics",
+ "svm-timings",
 ]
 
 [[package]]
@@ -9263,13 +9263,13 @@ dependencies = [
  "solana-svm-transaction",
  "solana-system-interface",
  "solana-sysvar-id",
- "solana-timings",
  "solana-transaction-context",
  "solana-transaction-error",
  "solana-type-overrides",
  "spl-generic-token",
  "svm-log-collector",
  "svm-measure",
+ "svm-timings",
  "thiserror 2.0.12",
 ]
 
@@ -10374,6 +10374,15 @@ dependencies = [
  "solana-sha256-hasher",
  "solana-time-utils",
  "thiserror 2.0.12",
+]
+
+[[package]]
+name = "svm-timings"
+version = "3.0.0"
+dependencies = [
+ "eager",
+ "enum-iterator",
+ "solana-pubkey",
 ]
 
 [[package]]
