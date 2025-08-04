@@ -76,7 +76,7 @@ solana-sysvar-id = { workspace = true }
 solana-timings = { path = "../svm-infrastructure-crates/svm-timings", version = "=3.0.0", package = "svm-timings" }
 solana-transaction-context = { workspace = true }
 solana-transaction-error = { workspace = true }
-solana-type-overrides = { workspace = true }
+solana-type-overrides = { path = "../svm-infrastructure-crates/svm-type-overrides", version = "=3.0.0", package = "svm-type-overrides" }
 spl-generic-token = { workspace = true }
 thiserror = { workspace = true }
 

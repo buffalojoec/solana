@@ -47,7 +47,8 @@ solana-sdk-ids = { workspace = true }
 solana-svm-feature-set = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-transaction-context = { workspace = true, features = ["bincode"] }
-solana-type-overrides = { workspace = true }
+solana-type-overrides = { path = "../../svm-infrastructure-crates/svm-type-overrides", version = "=3.0.0", package = "svm-type-overrides" }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }

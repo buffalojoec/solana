@@ -5846,9 +5846,10 @@ dependencies = [
  "solana-svm-feature-set",
  "solana-system-interface",
  "solana-transaction-context",
- "solana-type-overrides",
  "svm-log-collector",
  "svm-measure",
+ "svm-type-overrides",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -7071,9 +7072,9 @@ dependencies = [
  "solana-sbpf",
  "solana-sdk-ids",
  "solana-transaction-context",
- "solana-type-overrides",
  "svm-log-collector",
  "svm-measure",
+ "svm-type-overrides",
 ]
 
 [[package]]
@@ -9265,11 +9266,11 @@ dependencies = [
  "solana-sysvar-id",
  "solana-transaction-context",
  "solana-transaction-error",
- "solana-type-overrides",
  "spl-generic-token",
  "svm-log-collector",
  "svm-measure",
  "svm-timings",
+ "svm-type-overrides",
  "thiserror 2.0.12",
 ]
 
@@ -10383,6 +10384,13 @@ dependencies = [
  "eager",
  "enum-iterator",
  "solana-pubkey",
+]
+
+[[package]]
+name = "svm-type-overrides"
+version = "3.0.0"
+dependencies = [
+ "rand 0.8.5",
 ]
 
 [[package]]
