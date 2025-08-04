@@ -14,3 +14,7 @@ version = "3.0.0"
 dependencies = [
  "log",
 ]
+
+[[package]]
+name = "svm-measure"
+version = "3.0.0"

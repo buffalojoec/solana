@@ -155,8 +155,6 @@ dependencies = [
  "solana-instruction",
  "solana-keccak-hasher",
  "solana-loader-v3-interface 5.0.0",
- "solana-log-collector",
- "solana-measure",
  "solana-poseidon",
  "solana-program-entrypoint",
  "solana-program-runtime",
@@ -173,6 +171,8 @@ dependencies = [
  "solana-timings",
  "solana-transaction-context",
  "solana-type-overrides",
+ "svm-log-collector",
+ "svm-measure",
  "thiserror 2.0.12",
 ]
 
@@ -5837,7 +5837,6 @@ dependencies = [
  "solana-instruction",
  "solana-loader-v3-interface 5.0.0",
  "solana-loader-v4-interface",
- "solana-measure",
  "solana-packet",
  "solana-program-entrypoint",
  "solana-program-runtime",
@@ -5849,6 +5848,7 @@ dependencies = [
  "solana-transaction-context",
  "solana-type-overrides",
  "svm-log-collector",
+ "svm-measure",
 ]
 
 [[package]]
@@ -7065,7 +7065,6 @@ dependencies = [
  "solana-instruction",
  "solana-loader-v3-interface 5.0.0",
  "solana-loader-v4-interface",
- "solana-measure",
  "solana-packet",
  "solana-program-runtime",
  "solana-pubkey",
@@ -7074,6 +7073,7 @@ dependencies = [
  "solana-transaction-context",
  "solana-type-overrides",
  "svm-log-collector",
+ "svm-measure",
 ]
 
 [[package]]
@@ -7500,7 +7500,6 @@ dependencies = [
  "solana-hash",
  "solana-instruction",
  "solana-last-restart-slot",
- "solana-measure",
  "solana-metrics",
  "solana-program-entrypoint",
  "solana-pubkey",
@@ -7518,6 +7517,7 @@ dependencies = [
  "solana-transaction-context",
  "solana-type-overrides",
  "svm-log-collector",
+ "svm-measure",
 ]
 
 [[package]]
@@ -9248,7 +9248,6 @@ dependencies = [
  "solana-loader-v3-interface 5.0.0",
  "solana-loader-v4-interface",
  "solana-loader-v4-program",
- "solana-measure",
  "solana-message",
  "solana-nonce",
  "solana-nonce-account",
@@ -9270,6 +9269,7 @@ dependencies = [
  "solana-type-overrides",
  "spl-generic-token",
  "svm-log-collector",
+ "svm-measure",
  "thiserror 2.0.12",
 ]
 
@@ -10357,6 +10357,10 @@ version = "3.0.0"
 dependencies = [
  "log",
 ]
+
+[[package]]
+name = "svm-measure"
+version = "3.0.0"
 
 [[package]]
 name = "symlink"

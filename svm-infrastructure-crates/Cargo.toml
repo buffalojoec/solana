@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "svm-log-collector",
+    "svm-measure",
 ]
 
 [workspace.package]
