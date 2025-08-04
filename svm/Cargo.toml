@@ -56,7 +56,7 @@ solana-instructions-sysvar = { workspace = true }
 solana-loader-v3-interface = { workspace = true, features = ["bincode"] }
 solana-loader-v4-interface = { workspace = true }
 solana-loader-v4-program = { workspace = true }
-solana-log-collector = { workspace = true }
+solana-log-collector = { path = "../svm-infrastructure-crates/svm-log-collector", version = "=3.0.0", package = "svm-log-collector" }
 solana-measure = { workspace = true }
 solana-message = { workspace = true }
 solana-nonce = { workspace = true }

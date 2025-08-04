@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "svm-log-collector",
+]
+
+[workspace.package]
+version = "3.0.0"
+authors = ["Anza Maintainers <maintainers@anza.xyz>"]
+repository = "https://github.com/anza-xyz/agave"
+homepage = "https://anza.xyz/"
+license = "Apache-2.0"
+edition = "2021"
+
+[workspace.dependencies]
+log = "0.4.22"

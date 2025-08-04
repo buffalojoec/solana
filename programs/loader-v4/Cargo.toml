@@ -33,7 +33,7 @@ solana-bpf-loader-program = { workspace = true, features = ["svm-internal"] }
 solana-instruction = { workspace = true }
 solana-loader-v3-interface = { workspace = true }
 solana-loader-v4-interface = { workspace = true, features = ["serde"] }
-solana-log-collector = { workspace = true }
+solana-log-collector = { path = "../../svm-infrastructure-crates/svm-log-collector", version = "=3.0.0", package = "svm-log-collector" }
 solana-measure = { workspace = true }
 solana-packet = { workspace = true }
 solana-program-runtime = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "svm-log-collector"
+description = "SVM log collector (forked from solana-log-collector)"
+documentation = "https://docs.rs/svm-log-collector"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+log = { workspace = true }

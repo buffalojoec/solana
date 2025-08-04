@@ -36,7 +36,7 @@ solana-clock = { workspace = true }
 solana-instruction = { workspace = true }
 solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 solana-loader-v4-interface = { workspace = true, features = ["bincode"] }
-solana-log-collector = { workspace = true }
+solana-log-collector = { path = "../../svm-infrastructure-crates/svm-log-collector", version = "=3.0.0", package = "svm-log-collector" }
 solana-measure = { workspace = true }
 solana-packet = { workspace = true }
 solana-program-entrypoint = { workspace = true }

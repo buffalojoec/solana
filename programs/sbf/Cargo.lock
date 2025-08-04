@@ -5837,7 +5837,6 @@ dependencies = [
  "solana-instruction",
  "solana-loader-v3-interface 5.0.0",
  "solana-loader-v4-interface",
- "solana-log-collector",
  "solana-measure",
  "solana-packet",
  "solana-program-entrypoint",
@@ -5849,6 +5848,7 @@ dependencies = [
  "solana-system-interface",
  "solana-transaction-context",
  "solana-type-overrides",
+ "svm-log-collector",
 ]
 
 [[package]]
@@ -7065,7 +7065,6 @@ dependencies = [
  "solana-instruction",
  "solana-loader-v3-interface 5.0.0",
  "solana-loader-v4-interface",
- "solana-log-collector",
  "solana-measure",
  "solana-packet",
  "solana-program-runtime",
@@ -7074,6 +7073,7 @@ dependencies = [
  "solana-sdk-ids",
  "solana-transaction-context",
  "solana-type-overrides",
+ "svm-log-collector",
 ]
 
 [[package]]
@@ -7500,7 +7500,6 @@ dependencies = [
  "solana-hash",
  "solana-instruction",
  "solana-last-restart-slot",
- "solana-log-collector",
  "solana-measure",
  "solana-metrics",
  "solana-program-entrypoint",
@@ -7518,6 +7517,7 @@ dependencies = [
  "solana-timings",
  "solana-transaction-context",
  "solana-type-overrides",
+ "svm-log-collector",
 ]
 
 [[package]]
@@ -9248,7 +9248,6 @@ dependencies = [
  "solana-loader-v3-interface 5.0.0",
  "solana-loader-v4-interface",
  "solana-loader-v4-program",
- "solana-log-collector",
  "solana-measure",
  "solana-message",
  "solana-nonce",
@@ -9270,6 +9269,7 @@ dependencies = [
  "solana-transaction-error",
  "solana-type-overrides",
  "spl-generic-token",
+ "svm-log-collector",
  "thiserror 2.0.12",
 ]
 
@@ -10350,6 +10350,13 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "svm-log-collector"
+version = "3.0.0"
+dependencies = [
+ "log",
+]
 
 [[package]]
 name = "symlink"

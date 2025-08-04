@@ -45,7 +45,7 @@ solana-frozen-abi-macro = { workspace = true, optional = true, features = [
 solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-last-restart-slot = { workspace = true }
-solana-log-collector = { workspace = true }
+solana-log-collector = { path = "../svm-infrastructure-crates/svm-log-collector", version = "=3.0.0", package = "svm-log-collector" }
 solana-measure = { workspace = true }
 solana-metrics = { workspace = true, optional = true }
 solana-program-entrypoint = { workspace = true }
