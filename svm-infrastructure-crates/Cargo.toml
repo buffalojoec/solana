@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "svm-log-collector",
     "svm-measure",
+    "svm-metrics",
 ]
 
 [workspace.package]
@@ -14,4 +15,14 @@ license = "Apache-2.0"
 edition = "2021"
 
 [workspace.dependencies]
+crossbeam-channel = "0.5.12"
+env_logger = "0.9.3"
+gethostname = "0.2.3"
 log = "0.4.22"
+rand = "0.8.5"
+reqwest = { version = "0.12.20", default-features = false }
+serial_test = "3.0.0"
+solana-cluster-type = "2.2.1"
+solana-sha256-hasher = "2.2.1" 
+solana-time-utils = "2.2.1"
+thiserror = "2.0.12"

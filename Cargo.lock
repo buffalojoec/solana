@@ -9663,7 +9663,6 @@ dependencies = [
  "solana-instruction",
  "solana-keypair",
  "solana-last-restart-slot",
- "solana-metrics",
  "solana-program-entrypoint",
  "solana-program-runtime",
  "solana-pubkey",
@@ -9684,6 +9683,7 @@ dependencies = [
  "solana-type-overrides",
  "svm-log-collector",
  "svm-measure",
+ "svm-metrics",
  "test-case",
 ]
 
@@ -12365,6 +12365,20 @@ dependencies = [
 [[package]]
 name = "svm-measure"
 version = "3.0.0"
+
+[[package]]
+name = "svm-metrics"
+version = "3.0.0"
+dependencies = [
+ "crossbeam-channel",
+ "gethostname",
+ "log",
+ "reqwest 0.12.22",
+ "solana-cluster-type",
+ "solana-sha256-hasher",
+ "solana-time-utils",
+ "thiserror 2.0.12",
+]
 
 [[package]]
 name = "symlink"
