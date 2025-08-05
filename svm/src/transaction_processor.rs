@@ -1094,7 +1094,6 @@ mod tests {
             nonce_info::NonceInfo,
             rollback_accounts::RollbackAccounts,
         },
-        agave_reserved_account_keys::ReservedAccountKeys,
         solana_account::{create_account_shared_data_for_test, WritableAccount},
         solana_clock::Clock,
         solana_compute_budget_interface::ComputeBudgetInstruction,
@@ -1126,7 +1125,7 @@ mod tests {
     fn new_unchecked_sanitized_message(message: Message) -> SanitizedMessage {
         SanitizedMessage::Legacy(LegacyMessage::new(
             message,
-            &ReservedAccountKeys::empty_key_set(),
+            &HashSet::new(),
         ))
     }
 

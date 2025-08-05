@@ -834,7 +834,6 @@ mod tests {
     use {
         super::*,
         crate::transaction_account_state_info::TransactionAccountStateInfo,
-        agave_reserved_account_keys::ReservedAccountKeys,
         rand0_7::prelude::*,
         solana_account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
         solana_hash::Hash,
@@ -964,7 +963,7 @@ mod tests {
     fn new_unchecked_sanitized_message(message: Message) -> SanitizedMessage {
         SanitizedMessage::Legacy(LegacyMessage::new(
             message,
-            &ReservedAccountKeys::empty_key_set(),
+            &HashSet::new(),
         ))
     }
 
