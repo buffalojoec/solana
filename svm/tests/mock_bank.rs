@@ -3,11 +3,6 @@
 #[allow(deprecated)]
 use solana_sysvar::recent_blockhashes::{Entry as BlockhashesEntry, RecentBlockhashes};
 use {
-    agave_syscalls::{
-        SyscallAbort, SyscallGetClockSysvar, SyscallGetEpochScheduleSysvar, SyscallGetRentSysvar,
-        SyscallInvokeSignedRust, SyscallLog, SyscallMemcmp, SyscallMemcpy, SyscallMemmove,
-        SyscallMemset, SyscallSetReturnData,
-    },
     solana_account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
     solana_clock::{Clock, Slot, UnixTimestamp},
     solana_epoch_schedule::EpochSchedule,
@@ -356,65 +351,4 @@ pub fn register_builtins(
             solana_compute_budget_program::Entrypoint::vm,
         ),
     );
-}
-
-pub fn create_custom_loader<'a>() -> BuiltinProgram<InvokeContext<'a>> {
-    let compute_budget = SVMTransactionExecutionBudget::default();
-    let vm_config = Config {
-        max_call_depth: compute_budget.max_call_depth,
-        stack_frame_size: compute_budget.stack_frame_size,
-        enable_address_translation: true,
-        enable_stack_frame_gaps: true,
-        instruction_meter_checkpoint_distance: 10000,
-        enable_instruction_meter: true,
-        enable_instruction_tracing: true,
-        enable_symbol_and_section_labels: true,
-        reject_broken_elfs: true,
-        noop_instruction_rate: 256,
-        sanitize_user_provided_values: true,
-        enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V3,
-        optimize_rodata: false,
-        aligned_memory_mapping: false,
-    };
-
-    // These functions are system calls the compile contract calls during execution, so they
-    // need to be registered.
-    let mut loader = BuiltinProgram::new_loader(vm_config);
-    loader
-        .register_function("abort", SyscallAbort::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_log_", SyscallLog::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_memcpy_", SyscallMemcpy::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_memset_", SyscallMemset::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_memcmp_", SyscallMemcmp::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_memmove_", SyscallMemmove::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_invoke_signed_rust", SyscallInvokeSignedRust::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_set_return_data", SyscallSetReturnData::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_get_clock_sysvar", SyscallGetClockSysvar::vm)
-        .expect("Registration failed");
-    loader
-        .register_function("sol_get_rent_sysvar", SyscallGetRentSysvar::vm)
-        .expect("Registration failed");
-    loader
-        .register_function(
-            "sol_get_epoch_schedule_sysvar",
-            SyscallGetEpochScheduleSysvar::vm,
-        )
-        .expect("Registration failed");
-    loader
 }

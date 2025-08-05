@@ -1,7 +1,11 @@
 #![cfg(feature = "shuttle-test")]
 
 use {
-    crate::mock_bank::{create_custom_loader, deploy_program, register_builtins, MockForkGraph},
+    crate::{
+        mock_bank::{deploy_program, register_builtins, MockForkGraph},
+        mock_syscalls::create_custom_loader,
+        transaction_builder::SanitizedTransactionBuilder,
+    },
     assert_matches::assert_matches,
     mock_bank::MockBankCallback,
     shuttle::{
@@ -32,6 +36,8 @@ use {
 };
 
 mod mock_bank;
+mod mock_syscalls;
+mod transaction_builder;
 
 fn program_cache_execution(threads: usize) {
     let mut mock_bank = MockBankCallback::default();

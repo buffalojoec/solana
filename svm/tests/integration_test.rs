@@ -2,10 +2,13 @@
 #![allow(clippy::arithmetic_side_effects)]
 
 use {
-    crate::mock_bank::{
-        create_custom_loader, deploy_program_with_upgrade_authority, load_program, program_address,
-        program_data_size, register_builtins, MockBankCallback, MockForkGraph, EXECUTION_EPOCH,
-        EXECUTION_SLOT, WALLCLOCK_TIME,
+    crate::{
+        mock_bank::{
+            deploy_program_with_upgrade_authority, program_address,
+            program_data_size, register_builtins, MockBankCallback, MockForkGraph, EXECUTION_EPOCH,
+            EXECUTION_SLOT, WALLCLOCK_TIME,
+        },
+        mock_syscalls::create_custom_loader,
     },
     solana_account::{AccountSharedData, ReadableAccount, WritableAccount, PROGRAM_OWNERS},
     solana_clock::Slot,
@@ -58,6 +61,7 @@ use {
 
 // This module contains the implementation of TransactionProcessingCallback
 mod mock_bank;
+mod mock_syscalls;
 
 const DEPLOYMENT_SLOT: u64 = 0;
 const LAMPORTS_PER_SIGNATURE: u64 = 5000;
