@@ -10876,7 +10876,6 @@ dependencies = [
 name = "solana-svm"
 version = "3.0.0"
 dependencies = [
- "agave-feature-set",
  "agave-syscalls",
  "ahash 0.8.11",
  "assert_matches",
@@ -10892,6 +10891,7 @@ dependencies = [
  "serde_derive",
  "shuttle",
  "solana-account",
+ "solana-borsh",
  "solana-bpf-loader-program",
  "solana-clock",
  "solana-compute-budget-instruction",

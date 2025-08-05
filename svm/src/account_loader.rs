@@ -837,6 +837,7 @@ mod tests {
         rand0_7::prelude::*,
         solana_account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
         solana_hash::Hash,
+        std::collections::HashSet,
         solana_instruction::{AccountMeta, Instruction},
         solana_keypair::Keypair,
         solana_loader_v3_interface::state::UpgradeableLoaderState,

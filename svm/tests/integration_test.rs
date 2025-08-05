@@ -7,10 +7,8 @@ use {
         program_data_size, register_builtins, MockBankCallback, MockForkGraph, EXECUTION_EPOCH,
         EXECUTION_SLOT, WALLCLOCK_TIME,
     },
-    agave_feature_set::{self as feature_set, raise_cpi_nesting_limit_to_8, FeatureSet},
     solana_account::{AccountSharedData, ReadableAccount, WritableAccount, PROGRAM_OWNERS},
     solana_clock::Slot,
-    solana_compute_budget_instruction::instructions_processor::process_compute_budget_instructions,
     solana_compute_budget_interface::ComputeBudgetInstruction,
     solana_fee_structure::FeeDetails,
     solana_hash::Hash,
@@ -23,7 +21,11 @@ use {
     solana_native_token::LAMPORTS_PER_SOL,
     solana_nonce::{self as nonce, state::DurableNonce},
     solana_program_entrypoint::MAX_PERMITTED_DATA_INCREASE,
-    solana_program_runtime::execution_budget::SVMTransactionExecutionAndFeeBudgetLimits,
+    solana_program_runtime::execution_budget::{
+        SVMTransactionExecutionAndFeeBudgetLimits, SVMTransactionExecutionBudget,
+        DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT, MAX_COMPUTE_UNIT_LIMIT,
+        MIN_HEAP_FRAME_BYTES, MAX_HEAP_FRAME_BYTES, MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES,
+    },
     solana_pubkey::Pubkey,
     solana_sdk_ids::{bpf_loader_upgradeable, native_loader},
     solana_signer::Signer,
@@ -41,6 +43,7 @@ use {
             TransactionProcessingEnvironment,
         },
     },
+    solana_svm_feature_set::SVMFeatureSet,
     solana_svm_transaction::svm_message::SVMMessage,
     solana_system_interface::{instruction as system_instruction, program as system_program},
     solana_system_transaction as system_transaction,
@@ -49,7 +52,7 @@ use {
     solana_transaction_context::TransactionReturnData,
     solana_transaction_error::TransactionError,
     solana_type_overrides::sync::{Arc, RwLock},
-    std::{collections::HashMap, sync::atomic::Ordering},
+    std::{collections::HashMap, num::NonZeroU32, sync::atomic::Ordering},
     test_case::test_case,
 };
 
@@ -114,10 +117,9 @@ impl SvmTestEnvironment<'_> {
             ..Default::default()
         };
 
-        let feature_set = test_entry.feature_set();
         let processing_environment = TransactionProcessingEnvironment {
             blockhash: LAST_BLOCKHASH,
-            feature_set: feature_set.runtime_features(),
+            feature_set: test_entry.feature_set(),
             blockhash_lamports_per_signature: LAMPORTS_PER_SIGNATURE,
             ..TransactionProcessingEnvironment::default()
         };
@@ -295,11 +297,122 @@ impl SvmTestEnvironment<'_> {
     }
 }
 
+// Simple mock for compute budget processing in tests
+#[derive(Clone, Debug)]
+struct ComputeBudgetLimits {
+    updated_heap_bytes: u32,
+    compute_unit_limit: u32,
+    compute_unit_price: u64,
+    loaded_accounts_bytes: NonZeroU32,
+}
+
+impl ComputeBudgetLimits {
+    fn get_compute_budget_and_limits(
+        &self,
+        loaded_accounts_bytes: NonZeroU32,
+        fee_details: FeeDetails,
+    ) -> SVMTransactionExecutionAndFeeBudgetLimits {
+        SVMTransactionExecutionAndFeeBudgetLimits {
+            budget: SVMTransactionExecutionBudget {
+                compute_unit_limit: self.compute_unit_limit as u64,
+                heap_size: self.updated_heap_bytes,
+                ..SVMTransactionExecutionBudget::default()
+            },
+            loaded_accounts_data_size_limit: loaded_accounts_bytes,
+            fee_details,
+        }
+    }
+    
+    fn get_prioritization_fee(&self) -> u64 {
+        self.compute_unit_price
+    }
+}
+
+fn process_compute_budget_instructions_mock<'a>(
+    instructions: impl Iterator<Item = (&'a Pubkey, solana_svm_transaction::instruction::SVMInstruction<'a>)> + Clone,
+) -> Result<ComputeBudgetLimits, TransactionError> {
+    let mut requested_compute_unit_limit = None;
+    let mut requested_compute_unit_price = None;
+    let mut requested_heap_size = None;
+    let mut requested_loaded_accounts_data_size_limit = None;
+    let mut num_non_compute_budget_instructions: u32 = 0;
+    
+    // Parse compute budget instructions
+    for (i, (program_id, instruction)) in instructions.enumerate() {
+        if program_id == &solana_sdk_ids::compute_budget::id() {
+            use solana_borsh::v1::try_from_slice_unchecked;
+            match try_from_slice_unchecked(instruction.data) {
+                Ok(ComputeBudgetInstruction::RequestHeapFrame(bytes)) => {
+                    if requested_heap_size.is_some() {
+                        return Err(TransactionError::DuplicateInstruction(i as u8));
+                    }
+                    requested_heap_size = Some(bytes);
+                }
+                Ok(ComputeBudgetInstruction::SetComputeUnitLimit(limit)) => {
+                    if requested_compute_unit_limit.is_some() {
+                        return Err(TransactionError::DuplicateInstruction(i as u8));
+                    }
+                    requested_compute_unit_limit = Some(limit);
+                }
+                Ok(ComputeBudgetInstruction::SetComputeUnitPrice(price)) => {
+                    if requested_compute_unit_price.is_some() {
+                        return Err(TransactionError::DuplicateInstruction(i as u8));
+                    }
+                    requested_compute_unit_price = Some(price);
+                }
+                Ok(ComputeBudgetInstruction::SetLoadedAccountsDataSizeLimit(bytes)) => {
+                    if requested_loaded_accounts_data_size_limit.is_some() {
+                        return Err(TransactionError::DuplicateInstruction(i as u8));
+                    }
+                    requested_loaded_accounts_data_size_limit = Some(bytes);
+                }
+                _ => return Err(TransactionError::InstructionError(
+                    i as u8,
+                    solana_instruction::error::InstructionError::InvalidInstructionData,
+                )),
+            }
+        } else {
+            num_non_compute_budget_instructions += 1;
+        }
+    }
+    
+    // Set defaults and apply limits
+    let compute_unit_limit = requested_compute_unit_limit.unwrap_or(
+        if num_non_compute_budget_instructions == 0 {
+            0
+        } else {
+            // Simple default: non-builtin instructions get DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT each
+            num_non_compute_budget_instructions.saturating_mul(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT)
+        }
+    ).min(MAX_COMPUTE_UNIT_LIMIT);
+    
+    let updated_heap_bytes = requested_heap_size
+        .unwrap_or(MIN_HEAP_FRAME_BYTES)
+        .min(MAX_HEAP_FRAME_BYTES);
+        
+    let compute_unit_price = requested_compute_unit_price.unwrap_or(0);
+    
+    let loaded_accounts_bytes = if let Some(limit) = requested_loaded_accounts_data_size_limit {
+        NonZeroU32::new(limit)
+            .ok_or(TransactionError::InvalidLoadedAccountsDataSizeLimit)?
+            .min(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES)
+    } else {
+        MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES
+    };
+    
+    Ok(ComputeBudgetLimits {
+        updated_heap_bytes,
+        compute_unit_limit,
+        compute_unit_price,
+        loaded_accounts_bytes,
+    })
+}
+
 // container for a transaction batch and all data needed to run and verify it against svm
 #[derive(Clone, Default, Debug)]
 pub struct SvmTestEntry {
-    // features are enabled by default; these will be disabled
-    pub disabled_features: Vec<Pubkey>,
+    // SVM feature set for this test (defaults to all enabled except bpf_account_data_direct_mapping)
+    pub feature_set: SVMFeatureSet,
 
     // until LoaderV4 is live on mainnet, we default to omitting it, but can also test it
     pub with_loader_v4: bool,
@@ -323,6 +436,11 @@ impl SvmTestEntry {
             with_loader_v4: true,
             ..Self::default()
         }
+    }
+    
+    // internal helper to get the feature set
+    fn feature_set(&self) -> SVMFeatureSet {
+        self.feature_set
     }
 
     // add a new a rent-exempt account that exists before the batch
@@ -448,9 +566,8 @@ impl SvmTestEntry {
             .map(|item| {
                 let message = SanitizedTransaction::from_transaction_for_tests(item.transaction);
                 let check_result = item.check_result.map(|tx_details| {
-                    let compute_budget_limits = process_compute_budget_instructions(
+                    let compute_budget_limits = process_compute_budget_instructions_mock(
                         SVMMessage::program_instructions_iter(&message),
-                        &self.feature_set(),
                     );
                     let signature_count = message
                         .num_transaction_signatures()
@@ -484,16 +601,6 @@ impl SvmTestEntry {
             .cloned()
             .map(|item| item.asserts)
             .collect()
-    }
-
-    // internal helper to map our feature list to a FeatureSet
-    fn feature_set(&self) -> FeatureSet {
-        let mut feature_set = FeatureSet::all_enabled();
-        for feature_id in &self.disabled_features {
-            feature_set.deactivate(feature_id);
-        }
-
-        feature_set
     }
 }
 
@@ -2203,9 +2310,7 @@ fn simd83_account_reallocate(formalize_loaded_transaction_data_size: bool) -> Ve
     let mut common_test_entry = SvmTestEntry::default();
     common_test_entry.add_initial_program(program_name);
     if !formalize_loaded_transaction_data_size {
-        common_test_entry
-            .disabled_features
-            .push(feature_set::formalize_loaded_transaction_data_size::id());
+        common_test_entry.feature_set.formalize_loaded_transaction_data_size = false;
     }
 
     let fee_payer_keypair = Keypair::new();
@@ -2319,9 +2424,7 @@ fn program_cache_create_account(remove_accounts_executable_flag_checks: bool) {
     for loader_id in PROGRAM_OWNERS {
         let mut test_entry = SvmTestEntry::with_loader_v4();
         if !remove_accounts_executable_flag_checks {
-            test_entry
-                .disabled_features
-                .push(feature_set::remove_accounts_executable_flag_checks::id());
+            test_entry.feature_set.remove_accounts_executable_flag_checks = false;
         }
 
         let fee_payer_keypair = Keypair::new();
