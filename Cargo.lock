@@ -11144,6 +11144,7 @@ dependencies = [
  "prost",
  "solana-svm-test-harness-fixture",
  "solana-svm-test-harness-instr",
+ "solana-svm-test-harness-syscall",
 ]
 
 [[package]]
@@ -11195,6 +11196,10 @@ dependencies = [
  "solana-sysvar-id",
  "solana-transaction-context",
 ]
+
+[[package]]
+name = "solana-svm-test-harness-syscall"
+version = "4.0.0-alpha.0"
 
 [[package]]
 name = "solana-svm-timings"
