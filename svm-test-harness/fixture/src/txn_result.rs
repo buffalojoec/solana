@@ -1,7 +1,8 @@
 //! Transaction result (output).
 
 use {
-    solana_account::Account, solana_fee_structure::FeeDetails, solana_pubkey::Pubkey,
+    solana_account::Account, solana_fee_structure::FeeDetails,
+    solana_message::inner_instruction::InnerInstructionsList, solana_pubkey::Pubkey,
     solana_transaction_error::TransactionResult,
 };
 
@@ -14,6 +15,8 @@ pub struct TxnResult {
     pub executed_units: u64,
     pub fee_details: FeeDetails,
     pub loaded_accounts_data_size: u64,
+    pub inner_instructions: Option<InnerInstructionsList>,
+    pub log_messages: Option<Vec<String>>,
 }
 
 #[cfg(feature = "fuzz")]
