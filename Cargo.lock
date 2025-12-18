@@ -11128,6 +11128,7 @@ dependencies = [
  "prost",
  "solana-svm-test-harness-fixture",
  "solana-svm-test-harness-instr",
+ "solana-svm-test-harness-txn",
 ]
 
 [[package]]
@@ -11188,6 +11189,43 @@ dependencies = [
  "solana-svm-transaction",
  "solana-sysvar-id",
  "solana-transaction-context",
+]
+
+[[package]]
+name = "solana-svm-test-harness-txn"
+version = "4.0.0-alpha.0"
+dependencies = [
+ "agave-feature-set",
+ "agave-logger",
+ "agave-precompiles",
+ "agave-syscalls",
+ "bincode",
+ "prost",
+ "solana-account",
+ "solana-builtins",
+ "solana-clock",
+ "solana-compute-budget",
+ "solana-compute-budget-instruction",
+ "solana-epoch-schedule",
+ "solana-fee-structure",
+ "solana-hash 3.1.0",
+ "solana-keypair",
+ "solana-message",
+ "solana-precompile-error",
+ "solana-program-runtime",
+ "solana-pubkey 4.0.0",
+ "solana-rent",
+ "solana-sdk-ids",
+ "solana-signer",
+ "solana-svm",
+ "solana-svm-callback",
+ "solana-svm-test-harness-fixture",
+ "solana-svm-test-harness-instr",
+ "solana-svm-timings",
+ "solana-svm-transaction",
+ "solana-system-interface 3.0.0",
+ "solana-sysvar-id",
+ "solana-transaction",
 ]
 
 [[package]]

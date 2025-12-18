@@ -19,7 +19,6 @@ fuzz = [
     "dep:prost-build",
     "dep:protosol",
     "dep:solana-address-lookup-table-interface",
-    "dep:solana-message",
     "dep:solana-signature",
     "dep:solana-svm-transaction",
     "solana-pubkey/default",
@@ -37,7 +36,7 @@ solana-fee-structure = { workspace = true }
 solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-instruction-error = { workspace = true, features = ["serde"] }
-solana-message = { workspace = true, optional = true }
+solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true, optional = true }
 solana-stable-layout = { workspace = true }
