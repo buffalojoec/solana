@@ -232,7 +232,11 @@ fn transfer_verified(
             from.get_lamports(),
             lamports
         );
-        return Err(SystemError::ResultWithNegativeLamports.into());
+        // HACK: Return a different error code to prove that error codes
+        // do not affect consensus. Stock validators return
+        // SystemError::ResultWithNegativeLamports (Custom(1)) here.
+        // See ERROR_CODES_AND_CONSENSUS.md for the full writeup.
+        return Err(InstructionError::InvalidArgument);
     }
 
     from.checked_sub_lamports(lamports)?;

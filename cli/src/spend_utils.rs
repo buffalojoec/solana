@@ -166,30 +166,11 @@ where
             build_message,
         )
         .await?;
-        if from_pubkey == fee_pubkey {
-            if from_balance == 0 || from_balance < spend.saturating_add(fee) {
-                return Err(CliError::InsufficientFundsForSpendAndFee(
-                    build_balance_message(spend, false, false),
-                    build_balance_message(fee, false, false),
-                    *from_pubkey,
-                ));
-            }
-        } else {
-            if from_balance < spend {
-                return Err(CliError::InsufficientFundsForSpend(
-                    build_balance_message(spend, false, false),
-                    *from_pubkey,
-                ));
-            }
-            if !check_account_for_balance_with_commitment(rpc_client, fee_pubkey, fee, commitment)
-                .await?
-            {
-                return Err(CliError::InsufficientFundsForFee(
-                    build_balance_message(fee, false, false),
-                    *fee_pubkey,
-                ));
-            }
-        }
+        // HACK: Skip balance checks so we can submit a transfer
+        // that will fail during execution (not during validation).
+        // This lets us test that error codes don't affect consensus.
+        // See ERROR_CODES_AND_CONSENSUS.md for the full writeup.
+        let _ = (from_pubkey, from_balance, fee_pubkey, fee, commitment);
         Ok((message, spend))
     }
 }
