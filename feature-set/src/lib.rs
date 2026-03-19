@@ -45,6 +45,7 @@ pub struct FeatureSnapshot {
     pub vote_only_retransmitter_signed_fec_sets: bool,
     pub move_precompile_verification_to_svm: bool,
     pub deprecate_legacy_vote_ixs: bool,
+    pub disable_sbpf_elf_verification: bool,
     pub disable_sbpf_v0_execution: bool,
     pub reenable_sbpf_v0_execution: bool,
     pub enable_sbpf_v1_deployment_and_execution: bool,
@@ -142,6 +143,7 @@ impl From<&AHashMap<Pubkey, u64>> for FeatureSnapshot {
                 &move_precompile_verification_to_svm::ID,
             ),
             deprecate_legacy_vote_ixs: is_active(&deprecate_legacy_vote_ixs::ID),
+            disable_sbpf_elf_verification: is_active(&disable_sbpf_elf_verification::ID),
             disable_sbpf_v0_execution: is_active(&disable_sbpf_v0_execution::ID),
             reenable_sbpf_v0_execution: is_active(&reenable_sbpf_v0_execution::ID),
             enable_sbpf_v1_deployment_and_execution: is_active(
@@ -321,6 +323,7 @@ impl FeatureSet {
             blake3_syscall_enabled: snapshot.blake3_syscall_enabled,
             curve25519_syscall_enabled: snapshot.curve25519_syscall_enabled,
             disable_fees_sysvar: snapshot.disable_fees_sysvar,
+            disable_sbpf_elf_verification: snapshot.disable_sbpf_elf_verification,
             disable_sbpf_v0_execution: snapshot.disable_sbpf_v0_execution,
             enable_alt_bn128_compression_syscall: snapshot.enable_alt_bn128_compression_syscall,
             enable_alt_bn128_syscall: snapshot.enable_alt_bn128_syscall,
@@ -1212,6 +1215,10 @@ pub mod enable_turbine_extended_fanout_experiments {
 
 pub mod deprecate_legacy_vote_ixs {
     solana_pubkey::declare_id!("depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv");
+}
+
+pub mod disable_sbpf_elf_verification {
+    solana_pubkey::declare_id!("Disab1eSBPFELFVerifier1111111111111111111111");
 }
 
 pub mod disable_sbpf_v0_execution {
@@ -2297,6 +2304,10 @@ pub static FEATURE_NAMES: LazyLock<AHashMap<Pubkey, &'static str>> = LazyLock::n
             partitioned_epoch_rewards_superfeature::id(),
             "SIMD-0118: replaces enable_partitioned_epoch_reward to enable partitioned rewards at \
              epoch boundary",
+        ),
+        (
+            disable_sbpf_elf_verification::id(),
+            "SIMD-XXXX: Disable SBPF ELF verification",
         ),
         (
             disable_sbpf_v0_execution::id(),

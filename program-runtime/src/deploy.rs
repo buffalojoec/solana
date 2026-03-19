@@ -48,6 +48,7 @@ fn morph_into_deployment_environment(
 /// Directly deploy a program using a provided invoke context.
 /// This function should only be invoked from the runtime, since it does not
 /// provide any account loads or checks.
+#[allow(clippy::too_many_arguments)]
 pub fn deploy_program(
     log_collector: Option<Rc<RefCell<LogCollector>>>,
     #[cfg(feature = "metrics")] load_program_metrics: &mut LoadProgramMetrics,
@@ -58,6 +59,7 @@ pub fn deploy_program(
     account_size: usize,
     programdata: &[u8],
     deployment_slot: Slot,
+    skip_verification: bool,
 ) -> Result<(), InstructionError> {
     #[cfg(feature = "metrics")]
     let mut register_syscalls_time = Measure::start("register_syscalls_time");
@@ -73,46 +75,61 @@ pub fn deploy_program(
         register_syscalls_time.stop();
         load_program_metrics.register_syscalls_us = register_syscalls_time.as_us();
     }
-    // Verify using stricter deployment_program_runtime_environment
-    #[cfg(feature = "metrics")]
-    let mut load_elf_time = Measure::start("load_elf_time");
-    let executable = Executable::<InvokeContext>::load(
-        programdata,
-        Arc::new(deployment_program_runtime_environment),
-    )
-    .map_err(|err| {
-        ic_logger_msg!(log_collector, "{}", err);
-        InstructionError::InvalidAccountData
-    })?;
-    #[cfg(feature = "metrics")]
-    {
-        load_elf_time.stop();
-        load_program_metrics.load_elf_us = load_elf_time.as_us();
-    }
-    #[cfg(feature = "metrics")]
-    let mut verify_code_time = Measure::start("verify_code_time");
-    executable.verify::<RequisiteVerifier>().map_err(|err| {
-        ic_logger_msg!(log_collector, "{}", err);
-        InstructionError::InvalidAccountData
-    })?;
-    #[cfg(feature = "metrics")]
-    {
-        verify_code_time.stop();
-        load_program_metrics.verify_code_us = verify_code_time.as_us();
-    }
-    // Reload but with program_runtime_environment
-    let executor = unsafe {
-        // SAFETY: The executable has been verified just above.
-        ProgramCacheEntry::reload(
+    let executor = if skip_verification {
+        // Single load with deployment env, no verification, no reload.
+        ProgramCacheEntry::new(
             loader_key,
-            program_runtime_environment,
+            ProgramRuntimeEnvironment::from(deployment_program_runtime_environment),
             deployment_slot,
             deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
             programdata,
             account_size,
             #[cfg(feature = "metrics")]
             load_program_metrics,
+            /* skip_verification */ true,
         )
+    } else {
+        // Legacy path: load with deployment env, verify, reload with production env.
+        #[cfg(feature = "metrics")]
+        let mut load_elf_time = Measure::start("load_elf_time");
+        let executable = Executable::<InvokeContext>::load(
+            programdata,
+            Arc::new(deployment_program_runtime_environment),
+        )
+        .map_err(|err| {
+            ic_logger_msg!(log_collector, "{}", err);
+            InstructionError::InvalidAccountData
+        })?;
+        #[cfg(feature = "metrics")]
+        {
+            load_elf_time.stop();
+            load_program_metrics.load_elf_us = load_elf_time.as_us();
+        }
+        #[cfg(feature = "metrics")]
+        let mut verify_code_time = Measure::start("verify_code_time");
+        executable.verify::<RequisiteVerifier>().map_err(|err| {
+            ic_logger_msg!(log_collector, "{}", err);
+            InstructionError::InvalidAccountData
+        })?;
+        #[cfg(feature = "metrics")]
+        {
+            verify_code_time.stop();
+            load_program_metrics.verify_code_us = verify_code_time.as_us();
+        }
+        // Reload but with program_runtime_environment
+        unsafe {
+            // SAFETY: The executable has been verified just above.
+            ProgramCacheEntry::reload(
+                loader_key,
+                program_runtime_environment,
+                deployment_slot,
+                deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
+                programdata,
+                account_size,
+                #[cfg(feature = "metrics")]
+                load_program_metrics,
+            )
+        }
     }
     .map_err(|err| {
         ic_logger_msg!(log_collector, "{}", err);
@@ -151,6 +168,9 @@ macro_rules! deploy_program {
             $account_size,
             $programdata,
             $deployment_slot,
+            $invoke_context
+                .get_feature_set()
+                .disable_sbpf_elf_verification,
         )?;
         #[cfg(feature = "metrics")]
         load_program_metrics.submit_datapoint(&mut $invoke_context.timings);

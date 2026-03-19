@@ -205,6 +205,7 @@ impl Bank {
                 UpgradeableLoaderState::size_of_program().saturating_add(data_len),
                 elf,
                 self.slot,
+                feature_set.disable_sbpf_elf_verification,
             )?;
             load_program_metrics.submit_datapoint(&mut dummy_invoke_context.timings);
         }

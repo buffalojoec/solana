@@ -515,6 +515,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                             config.check_program_deployment_slot,
                             config.limit_to_load_programs,
                             true, // increment_usage_counter
+                            environment.feature_set.disable_sbpf_elf_verification,
                         );
                     });
                     execute_timings.saturating_add_in_place(
@@ -837,6 +838,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         check_program_deployment_slot: bool,
         limit_to_load_programs: bool,
         increment_usage_counter: bool,
+        skip_verification: bool,
     ) {
         let mut missing_programs: Vec<(Pubkey, ProgramCacheMatchCriteria, Slot)> =
             program_accounts_set
@@ -880,6 +882,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     &key,
                     self.slot,
                     execute_timings,
+                    skip_verification,
                 )
                 .expect("called load_program_with_pubkey() with nonexistent account");
                 (key, program, last_modification_slot)
@@ -1711,6 +1714,7 @@ mod tests {
             false,
             true,
             true,
+            false, // skip_verification
         );
     }
 
@@ -1749,6 +1753,7 @@ mod tests {
                 false,
                 limit_to_load_programs,
                 true,
+                false, // skip_verification
             );
             assert!(!program_cache_for_tx_batch.hit_max_limit);
             if program_cache_for_tx_batch.loaded_missing {

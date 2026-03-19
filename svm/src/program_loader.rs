@@ -91,6 +91,7 @@ pub fn load_program_with_pubkey<CB: TransactionProcessingCallback>(
     pubkey: &Pubkey,
     current_slot: Slot,
     execute_timings: &mut ExecuteTimings,
+    skip_verification: bool,
 ) -> Option<(Arc<ProgramCacheEntry>, Slot)> {
     #[cfg(feature = "metrics")]
     let mut load_program_metrics = LoadProgramMetrics {
@@ -115,6 +116,7 @@ pub fn load_program_with_pubkey<CB: TransactionProcessingCallback>(
             program_account.data().len(),
             #[cfg(feature = "metrics")]
             &mut load_program_metrics,
+            skip_verification,
         )
         .map_err(|_| (0, ProgramCacheEntryOwner::LoaderV1)),
 
@@ -127,6 +129,7 @@ pub fn load_program_with_pubkey<CB: TransactionProcessingCallback>(
             program_account.data().len(),
             #[cfg(feature = "metrics")]
             &mut load_program_metrics,
+            skip_verification,
         )
         .map_err(|_| (0, ProgramCacheEntryOwner::LoaderV2)),
 
@@ -151,6 +154,7 @@ pub fn load_program_with_pubkey<CB: TransactionProcessingCallback>(
                         .saturating_add(programdata_account.data().len()),
                     #[cfg(feature = "metrics")]
                     &mut load_program_metrics,
+                    skip_verification,
                 )
                 .map_err(|_| ())
             })
@@ -171,6 +175,7 @@ pub fn load_program_with_pubkey<CB: TransactionProcessingCallback>(
                         program_account.data().len(),
                         #[cfg(feature = "metrics")]
                         &mut load_program_metrics,
+                        skip_verification,
                     )
                     .map_err(|_| ())
                 })
@@ -474,6 +479,7 @@ mod tests {
             size,
             #[cfg(feature = "metrics")]
             &mut metrics,
+            false, // skip_verification
         );
 
         assert!(result.is_ok());
@@ -491,6 +497,7 @@ mod tests {
             &key,
             500,
             &mut ExecuteTimings::default(),
+            false, // skip_verification
         );
         assert!(result.is_none());
     }
@@ -513,6 +520,7 @@ mod tests {
             &key,
             0, // Slot 0
             &mut ExecuteTimings::default(),
+            false, // skip_verification
         );
 
         let loaded_program = ProgramCacheEntry::new_tombstone(
@@ -544,6 +552,7 @@ mod tests {
             &key,
             200,
             &mut ExecuteTimings::default(),
+            false, // skip_verification
         );
         let loaded_program = ProgramCacheEntry::new_tombstone(
             0,
@@ -568,6 +577,7 @@ mod tests {
             &key,
             200,
             &mut ExecuteTimings::default(),
+            false, // skip_verification
         );
 
         let program_runtime_environment = get_mock_program_runtime_environment();
@@ -580,6 +590,7 @@ mod tests {
             account_data.data().len(),
             #[cfg(feature = "metrics")]
             &mut LoadProgramMetrics::default(),
+            false, // skip_verification
         );
 
         assert_eq!(result.unwrap(), (Arc::new(expected.unwrap()), 0));
@@ -622,6 +633,7 @@ mod tests {
             &key1,
             0,
             &mut ExecuteTimings::default(),
+            false, // skip_verification
         );
         let loaded_program = ProgramCacheEntry::new_tombstone(
             0,
@@ -656,6 +668,7 @@ mod tests {
             &key1,
             200,
             &mut ExecuteTimings::default(),
+            false, // skip_verification
         );
 
         let data = account_data.data();
@@ -672,6 +685,7 @@ mod tests {
             account_data.data().len(),
             #[cfg(feature = "metrics")]
             &mut LoadProgramMetrics::default(),
+            false, // skip_verification
         );
         assert_eq!(result.unwrap(), (Arc::new(expected.unwrap()), 0));
     }
@@ -706,6 +720,7 @@ mod tests {
             &key,
             0,
             &mut ExecuteTimings::default(),
+            false, // skip_verification
         );
         let loaded_program = ProgramCacheEntry::new_tombstone(
             0,
@@ -736,6 +751,7 @@ mod tests {
             &key,
             200,
             &mut ExecuteTimings::default(),
+            false, // skip_verification
         );
 
         let data = account_data.data()[LoaderV4State::program_data_offset()..].to_vec();
@@ -755,6 +771,7 @@ mod tests {
             account_data.data().len(),
             #[cfg(feature = "metrics")]
             &mut LoadProgramMetrics::default(),
+            false, // skip_verification
         );
         assert_eq!(result.unwrap(), (Arc::new(expected.unwrap()), 0));
     }
@@ -787,6 +804,7 @@ mod tests {
                 &key,
                 200,
                 &mut ExecuteTimings::default(),
+                false, // skip_verification
             )
             .unwrap();
             assert_ne!(

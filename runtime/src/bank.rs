@@ -1569,6 +1569,8 @@ impl Bank {
                     &key,
                     self.slot,
                     &mut ExecuteTimings::default(),
+                    self.feature_set
+                        .is_active(&feature_set::disable_sbpf_elf_verification::id()),
                 ) {
                     recompiled.stats.merge_from(&program_to_recompile.stats);
                     let mut program_cache = self
@@ -6386,6 +6388,8 @@ impl Bank {
             pubkey,
             self.slot(),
             &mut ExecuteTimings::default(), // Called by ledger-tool, metrics not accumulated.
+            self.feature_set
+                .is_active(&feature_set::disable_sbpf_elf_verification::id()),
         )
         .map(|(loaded_program, _last_modification_slot)| loaded_program)
     }

@@ -3417,7 +3417,9 @@ fn svm_inspect_account() {
 // Tests for proper accumulation of metrics across loaded programs in a batch.
 #[test]
 fn svm_metrics_accumulation() {
-    for test_entry in program_medley(false) {
+    for mut test_entry in program_medley(false) {
+        // Verification must run for metrics to be recorded.
+        test_entry.feature_set.disable_sbpf_elf_verification = false;
         let env = SvmTestEnvironment::create(test_entry);
 
         let (transactions, check_results) = env.test_entry.prepare_transactions();

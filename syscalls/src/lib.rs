@@ -335,6 +335,7 @@ pub fn create_program_runtime_environment(
         enable_register_tracing: debugging_features,
         enable_symbol_and_section_labels: debugging_features,
         reject_broken_elfs: reject_deployment_of_broken_elfs,
+        stricter_loader_checks: feature_set.disable_sbpf_elf_verification,
         noop_instruction_rate: 256,
         sanitize_user_provided_values: true,
         enabled_sbpf_versions: min_sbpf_version..=max_sbpf_version,

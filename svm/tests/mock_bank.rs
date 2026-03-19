@@ -368,6 +368,7 @@ pub fn create_custom_loader() -> ProgramRuntimeEnvironment {
         enable_register_tracing: true,
         enable_symbol_and_section_labels: true,
         reject_broken_elfs: true,
+        stricter_loader_checks: false,
         noop_instruction_rate: 256,
         sanitize_user_provided_values: true,
         enabled_sbpf_versions: SBPFVersion::V0..=SBPFVersion::V3,

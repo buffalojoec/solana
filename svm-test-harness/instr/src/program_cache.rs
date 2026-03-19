@@ -59,6 +59,7 @@ pub fn add_program(
         elf,
         elf.len(),
         &mut LoadProgramMetrics::default(),
+        false, // skip_verification
     )
     .unwrap();
 
@@ -106,6 +107,7 @@ pub fn fill_from_accounts(
                     &acc.0,
                     slot,
                     &mut ExecuteTimings::default(),
+                    false, // skip_verification
                 )
             {
                 program_cache.replenish(acc.0, loaded_program);

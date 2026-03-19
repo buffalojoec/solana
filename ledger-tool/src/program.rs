@@ -292,6 +292,7 @@ fn load_program<'a>(
             &contents,
             account_size,
             &mut load_program_metrics,
+            false, // skip_verification
         );
         match result {
             Ok(loaded_program) => match loaded_program.program {

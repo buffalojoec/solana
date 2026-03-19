@@ -311,6 +311,7 @@ impl ProgramCacheEntry {
         elf_bytes: &[u8],
         account_size: usize,
         #[cfg(feature = "metrics")] metrics: &mut LoadProgramMetrics,
+        skip_verification: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         Self::new_internal(
             loader_key,
@@ -321,7 +322,7 @@ impl ProgramCacheEntry {
             account_size,
             #[cfg(feature = "metrics")]
             metrics,
-            false, /* reloading */
+            skip_verification, /* reloading */
         )
     }
 
