@@ -48,7 +48,32 @@ for lock_file in $files; do
     echo "--- [$lock_file]: cargo " "${shifted_args[@]}" "$@"
   fi
 
-  if (set -x && cd "$(dirname "$lock_file")" && cargo "${shifted_args[@]}" "$@"); then
+  # When running `cargo fmt --all`, replace --all with explicit workspace
+  # packages to avoid formatting local path dependencies (e.g. ../sbpf).
+  local_args=("$@")
+  is_fmt=false
+  for arg in "${shifted_args[@]}" "${local_args[@]}"; do
+    if [[ $arg = "fmt" ]]; then
+      is_fmt=true
+      break
+    fi
+  done
+  if $is_fmt; then
+    new_args=()
+    for arg in "${local_args[@]}"; do
+      if [[ $arg = "--all" ]]; then
+        # Replace --all with per-workspace-member -p flags
+        lock_dir="$(dirname "$lock_file")"
+        while IFS= read -r pkg; do
+          new_args+=("-p" "$pkg")
+        done < <(cargo metadata --no-deps --format-version 1 --manifest-path "$lock_dir/Cargo.toml" 2>/dev/null | python3 -c "import sys,json; [print(p['name']) for p in json.load(sys.stdin)['packages']]")
+      else
+        new_args+=("$arg")
+      fi
+    done
+    local_args=("${new_args[@]}")
+  fi
+  if (set -x && cd "$(dirname "$lock_file")" && cargo "${shifted_args[@]}" "${local_args[@]}"); then
     # noop
     true
   else
