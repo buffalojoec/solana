@@ -29,7 +29,7 @@ use {
         elf::Executable,
         program::{BuiltinProgram, SBPFVersion},
         verifier::RequisiteVerifier,
-        vm::Config,
+        vm::{Config, EbpfVm},
     },
     solana_sdk_ids::bpf_loader_upgradeable,
     std::sync::Arc,
@@ -45,6 +45,10 @@ struct ErrorMigration {
     deploy_error: String,
     /// Whether loading without verification succeeds.
     load_without_verify_ok: bool,
+    /// Error from invoking the program after loading without verification.
+    /// `None` if the program could not be loaded, `Some(Ok(()))` if invoke
+    /// succeeded, `Some(Err(msg))` if invoke failed.
+    invoke_error: Option<Result<(), String>>,
 }
 
 /// Build a `ProgramRuntimeEnvironment` that accepts V3 ELFs.
@@ -86,6 +90,62 @@ fn load_without_verification(elf: &[u8]) -> Result<Executable<TestContextObject>
     Executable::<TestContextObject>::load(elf, loader).map_err(|e| format!("{e}"))
 }
 
+/// Execute a loaded executable through the interpreter (no JIT).
+/// Returns `Ok(())` if the program exits successfully, `Err(msg)` if
+/// the VM returns an error, or `Err("PANIC: ...")` if execution panics
+/// (indicating an unhardened code path).
+fn invoke_via_interpreter(executable: &Executable<TestContextObject>) -> Result<(), String> {
+    let sbpf_version = executable.get_sbpf_version();
+    let config = executable.get_config();
+
+    let mut stack =
+        solana_sbpf::aligned_memory::AlignedMemory::zero_filled(config.stack_size());
+    let mut heap = solana_sbpf::aligned_memory::AlignedMemory::with_capacity(0);
+    let stack_len = stack.len();
+    let mut context_object = TestContextObject::new(1_000_000);
+
+    let memory_mapping = sbpf_test_utils::create_memory_mapping(
+        executable,
+        &mut stack,
+        &mut heap,
+        vec![],
+        None,
+    )
+    .unwrap();
+
+    let mut vm = EbpfVm::new(
+        executable.get_loader().clone(),
+        sbpf_version,
+        &mut context_object,
+        memory_mapping,
+        stack_len,
+    );
+    vm.registers[1] = solana_sbpf::ebpf::MM_INPUT_START;
+
+    // Catch panics from unhardened code paths (e.g. OOB register access).
+    let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        vm.execute_program(
+            executable,
+            &mut solana_sbpf::vm::ExecutionMode::Interpreted,
+        )
+    }));
+
+    match panic_result {
+        Ok((_instruction_count, result)) => match result {
+            solana_sbpf::error::ProgramResult::Ok(_) => Ok(()),
+            solana_sbpf::error::ProgramResult::Err(e) => Err(format!("{e:?}")),
+        },
+        Err(panic) => {
+            let msg = panic
+                .downcast_ref::<String>()
+                .map(|s| s.as_str())
+                .or_else(|| panic.downcast_ref::<&str>().copied())
+                .unwrap_or("unknown panic");
+            Err(format!("PANIC: {msg}"))
+        }
+    }
+}
+
 /// Run the full error-migration check for a given ELF.
 fn check_error_migration(elf: &[u8]) -> ErrorMigration {
     // With verification: deploy must fail
@@ -95,15 +155,20 @@ fn check_error_migration(elf: &[u8]) -> ErrorMigration {
     // Without verification: load must succeed
     let load_result = load_without_verification(elf);
     let load_without_verify_ok = load_result.is_ok();
-    if let Ok(ref executable) = load_result {
+    let invoke_error = if let Ok(ref executable) = load_result {
         // Confirm it actually fails verification
         let verify_result = executable.verify::<RequisiteVerifier>();
         assert!(verify_result.is_err(), "expected verification to fail");
-    }
+        // Invoke via interpreter
+        Some(invoke_via_interpreter(executable))
+    } else {
+        None
+    };
 
     ErrorMigration {
         deploy_error: deploy_err,
         load_without_verify_ok,
+        invoke_error,
     }
 }
 
@@ -116,7 +181,7 @@ fn record_valid_result(name: &str) {
             .append(true)
             .open("error_migration_table.md")
             .unwrap();
-        writeln!(file, "| {name} | OK | OK |").unwrap();
+        writeln!(file, "| {name} | OK | OK | OK |").unwrap();
     }
 }
 
@@ -129,12 +194,17 @@ fn record_result(name: &str, migration: &ErrorMigration) {
             .append(true)
             .open("error_migration_table.md")
             .unwrap();
+        let invoke_col = match &migration.invoke_error {
+            Some(Ok(())) => "OK".to_owned(),
+            Some(Err(e)) => e.clone(),
+            None => "N/A".to_owned(),
+        };
         writeln!(
             file,
-            "| {name} | {deploy_err} | {skip_ok} |",
+            "| {name} | {deploy_err} | {skip_ok} | {invoke_col} |",
             deploy_err = migration.deploy_error,
             skip_ok = if migration.load_without_verify_ok {
-                "OK (loaded)"
+                "OK"
             } else {
                 "FAIL"
             },
@@ -158,6 +228,13 @@ fn division_by_zero() {
         m.deploy_error
     );
     assert!(m.load_without_verify_ok);
+    // With Phase 1 hardening: interpreter returns DivideByZero at execution.
+    let invoke_err = m.invoke_error.as_ref().unwrap().as_ref().unwrap_err();
+    assert!(
+        invoke_err.contains("DivideByZero"),
+        "expected 'DivideByZero', got: {}",
+        invoke_err
+    );
 }
 
 #[test]
@@ -377,9 +454,9 @@ fn aaa_emit_table_header() {
             .unwrap();
         writeln!(
             file,
-            "| Violation | Deploy Error (verification ON) | Deploy (verification OFF) |"
+            "| Violation | Deploy Error (verify ON) | Load (verify OFF) | Invoke (verify OFF) |"
         )
         .unwrap();
-        writeln!(file, "|---|---|---|").unwrap();
+        writeln!(file, "|---|---|---|---|").unwrap();
     }
 }
