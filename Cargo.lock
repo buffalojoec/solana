@@ -9423,6 +9423,7 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-context",
  "test-case",
+ "test_utils",
  "thiserror 2.0.18",
 ]
 
@@ -12004,6 +12005,14 @@ dependencies = [
  "quote",
  "syn 2.0.117",
  "test-case-core",
+]
+
+[[package]]
+name = "test_utils"
+version = "0.16.0"
+dependencies = [
+ "libc",
+ "solana-sbpf",
 ]
 
 [[package]]
