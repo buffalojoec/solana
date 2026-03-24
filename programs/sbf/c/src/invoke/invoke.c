@@ -51,6 +51,7 @@ static const uint8_t TEST_MAX_ACCOUNT_INFOS_EXCEEDED_BEFORE_INCREASE_TX_ACCOUNT_
 static const uint8_t TEST_CU_USAGE_MINIMUM = 53;
 static const uint8_t TEST_CU_USAGE_BASELINE = 54;
 static const uint8_t TEST_CU_USAGE_MAX = 55;
+static const uint8_t TEST_NESTED_INVOKE_SIMD_0268_INTERMEDIATE = 56;
 
 static const int MINT_INDEX = 0;
 static const int ARGUMENT_INDEX = 1;
@@ -739,6 +740,10 @@ extern uint64_t entrypoint(const uint8_t *input) {
   }
   case TEST_NESTED_INVOKE_SIMD_0268_TOO_DEEP: {
     do_nested_invokes(9, accounts, params.ka_num);
+    break;
+  }
+  case TEST_NESTED_INVOKE_SIMD_0268_INTERMEDIATE: {
+    do_nested_invokes(6, accounts, params.ka_num);
     break;
   }
   case TEST_CALL_PRECOMPILE: {

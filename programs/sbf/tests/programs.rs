@@ -994,6 +994,20 @@ fn test_program_sbf_invoke_sanity() {
             &[invoked_program_id.clone(); 16], // 16, 8 for each invoke
             &bank,
         );
+        {
+            // Reset the account balances for intermediate depth test
+            let account = AccountSharedData::new(42, 100, &invoke_program_id);
+            bank.store_account(&argument_keypair.pubkey(), &account);
+
+            let account = AccountSharedData::new(20, 10, &invoked_program_id);
+            bank.store_account(&invoked_argument_keypair.pubkey(), &account);
+        }
+        do_invoke_success(
+            TEST_NESTED_INVOKE_SIMD_0268_INTERMEDIATE,
+            &[],
+            &[invoked_program_id.clone(); 12], // 12, 6 for each invoke
+            &bank,
+        );
         do_invoke_success(
             TEST_MAX_ACCOUNT_INFOS_OK,
             &[],

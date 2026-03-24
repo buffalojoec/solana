@@ -696,6 +696,11 @@ fn process_instruction<'a>(
             // Test that 9 nested invokes fail even with SIMD-0268 enabled
             let _ = do_nested_invokes(9, accounts);
         }
+        TEST_NESTED_INVOKE_SIMD_0268_INTERMEDIATE => {
+            // Test that 6 nested invokes succeed with SIMD-0268 enabled
+            // (exceeds old limit of 4, within new limit of 8)
+            let _ = do_nested_invokes(6, accounts);
+        }
         TEST_CALL_PRECOMPILE => {
             msg!("Test calling precompiled program from cpi");
             let instruction =

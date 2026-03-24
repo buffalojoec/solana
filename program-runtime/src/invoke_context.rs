@@ -1085,7 +1085,9 @@ pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut Invo
 mod tests {
     use {
         super::*,
-        crate::execution_budget::DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT,
+        crate::execution_budget::{
+            DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT, SVMTransactionExecutionBudget,
+        },
         serde::{Deserialize, Serialize},
         solana_account::Account,
         solana_keypair::Keypair,
@@ -1093,6 +1095,7 @@ mod tests {
         solana_sbpf::program::BuiltinFunctionDefinition,
         solana_sdk_ids::system_program,
         solana_signer::Signer,
+        solana_svm_feature_set::SVMFeatureSet,
         solana_transaction::{Transaction, sanitized::SanitizedTransaction},
         solana_transaction_context::MAX_ACCOUNTS_PER_INSTRUCTION,
         test_case::test_case,
@@ -1268,6 +1271,166 @@ mod tests {
         }
         assert_ne!(depth_reached, 0);
         assert!(depth_reached < one_more_than_max_depth);
+    }
+
+    #[test_case(false, 5; "SIMD-0268 disabled max depth 5")]
+    #[test_case(true, 9; "SIMD-0268 enabled max depth 9")]
+    fn test_instruction_stack_height_exact_boundaries(
+        simd_0268_active: bool,
+        expected_max_depth: usize,
+    ) {
+        let feature_set = &SVMFeatureSet {
+            raise_cpi_nesting_limit_to_8: simd_0268_active,
+            ..SVMFeatureSet::all_enabled()
+        };
+
+        let num_accounts = expected_max_depth + 1;
+        let mut invoke_stack = vec![];
+        let mut transaction_accounts = vec![];
+        let mut instruction_accounts = vec![];
+        for index in 0..num_accounts {
+            invoke_stack.push(solana_pubkey::new_rand());
+            transaction_accounts.push((
+                solana_pubkey::new_rand(),
+                AccountSharedData::new(index as u64, 1, invoke_stack.get(index).unwrap()),
+            ));
+            instruction_accounts.push(InstructionAccount::new(
+                index as IndexOfAccount,
+                false,
+                true,
+            ));
+        }
+        for (index, program_id) in invoke_stack.iter().enumerate() {
+            transaction_accounts.push((
+                *program_id,
+                AccountSharedData::new(1, 1, &solana_pubkey::Pubkey::default()),
+            ));
+            instruction_accounts.push(InstructionAccount::new(
+                index as IndexOfAccount,
+                false,
+                false,
+            ));
+        }
+        with_mock_invoke_context_with_feature_set!(
+            invoke_context,
+            transaction_context,
+            feature_set,
+            transaction_accounts,
+        );
+
+        // Every push up to max_depth must succeed.
+        for depth in 0..expected_max_depth {
+            invoke_context
+                .transaction_context
+                .configure_top_level_instruction_for_tests(
+                    num_accounts.saturating_add(depth) as IndexOfAccount,
+                    instruction_accounts.clone(),
+                    vec![],
+                )
+                .unwrap();
+            assert!(
+                invoke_context.push().is_ok(),
+                "push at depth {depth} should succeed (max_depth={expected_max_depth})",
+            );
+        }
+
+        // The next push must fail with CallDepth.
+        invoke_context
+            .transaction_context
+            .configure_top_level_instruction_for_tests(
+                num_accounts.saturating_add(expected_max_depth) as IndexOfAccount,
+                instruction_accounts.clone(),
+                vec![],
+            )
+            .unwrap();
+        assert_eq!(
+            invoke_context.push(),
+            Err(InstructionError::CallDepth),
+            "push at depth {expected_max_depth} should fail with CallDepth",
+        );
+    }
+
+    #[test_case(false; "SIMD-0268 disabled")]
+    #[test_case(true; "SIMD-0268 enabled")]
+    fn test_instruction_stack_height_mixed_program_types(simd_0268_active: bool) {
+        let feature_set = &SVMFeatureSet {
+            raise_cpi_nesting_limit_to_8: simd_0268_active,
+            ..SVMFeatureSet::all_enabled()
+        };
+        let expected_max_depth = SVMTransactionExecutionBudget::new_with_defaults(simd_0268_active)
+            .max_instruction_stack_depth;
+
+        // Two distinct program IDs to alternate between.
+        let program_id_a = solana_pubkey::new_rand();
+        let program_id_b = solana_pubkey::new_rand();
+        let program_ids = [program_id_a, program_id_b];
+
+        let num_accounts = expected_max_depth + 1;
+        let mut transaction_accounts = vec![];
+        let mut instruction_accounts = vec![];
+        for index in 0..num_accounts {
+            transaction_accounts.push((
+                solana_pubkey::new_rand(),
+                AccountSharedData::new(index as u64, 1, &program_ids[index % 2]),
+            ));
+            instruction_accounts.push(InstructionAccount::new(
+                index as IndexOfAccount,
+                false,
+                true,
+            ));
+        }
+        // Add program accounts.
+        transaction_accounts.push((
+            program_id_a,
+            AccountSharedData::new(1, 1, &solana_pubkey::Pubkey::default()),
+        ));
+        transaction_accounts.push((
+            program_id_b,
+            AccountSharedData::new(1, 1, &solana_pubkey::Pubkey::default()),
+        ));
+
+        with_mock_invoke_context_with_feature_set!(
+            invoke_context,
+            transaction_context,
+            feature_set,
+            transaction_accounts,
+        );
+
+        // Push alternating program IDs up to max_depth.
+        for depth in 0..expected_max_depth {
+            invoke_context
+                .transaction_context
+                .configure_top_level_instruction_for_tests(
+                    num_accounts.saturating_add(depth) as IndexOfAccount,
+                    instruction_accounts.clone(),
+                    vec![],
+                )
+                .unwrap();
+            assert!(
+                invoke_context.push().is_ok(),
+                "push at depth {depth} with program {} should succeed",
+                if depth % 2 == 0 { "A" } else { "B" },
+            );
+        }
+
+        // Verify we reached max depth.
+        assert_eq!(
+            invoke_context
+                .transaction_context
+                .get_instruction_stack_height(),
+            expected_max_depth,
+        );
+
+        // The next push must fail regardless of program type.
+        invoke_context
+            .transaction_context
+            .configure_top_level_instruction_for_tests(
+                num_accounts.saturating_add(expected_max_depth) as IndexOfAccount,
+                instruction_accounts.clone(),
+                vec![],
+            )
+            .unwrap();
+        assert_eq!(invoke_context.push(), Err(InstructionError::CallDepth));
     }
 
     #[test]
