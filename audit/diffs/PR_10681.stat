@@ -1,0 +1,10 @@
+# PR #10681 — program-runtime: harden native_invoke to take signer seeds (#10681)
+# Commit: 76e33c3369c5d9b6d52fce0c9a7de7fc70ea41ab
+# Date: 2026-02-26 02:10:52 -0700
+#
+ program-runtime/src/invoke_context.rs              | 176 ++++++++++++++++++++-
+ programs/bpf_loader/src/lib.rs                     |  27 ++--
+ programs/vote/src/vote_state/mod.rs                |   2 +-
+ rpc/src/rpc.rs                                     |   2 +-
+ .../src/bank/builtins/core_bpf_migration/mod.rs    |   2 +-
+ 5 files changed, 182 insertions(+), 27 deletions(-)

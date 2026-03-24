@@ -1,0 +1,26 @@
+# PR #1152 — Syscall: `GetEpochStake` (#1152)
+# Commit: b1508010c0a861ba248eb2ad9e576c102d9d8037
+# Date: 2024-06-11 09:28:31 -0500
+#
+ Cargo.lock                                         |   3 +
+ program-runtime/Cargo.toml                         |   1 +
+ program-runtime/src/invoke_context.rs              |  19 ++
+ programs/bpf_loader/Cargo.toml                     |   1 +
+ programs/bpf_loader/src/syscalls/mod.rs            | 274 ++++++++++++++++++++-
+ programs/sbf/Cargo.lock                            |   2 +
+ runtime/src/bank.rs                                |  15 ++
+ .../src/bank/builtins/core_bpf_migration/mod.rs    |   9 +-
+ sdk/program/src/epoch_stake.rs                     |  30 +++
+ sdk/program/src/lib.rs                             |   1 +
+ sdk/program/src/program_stubs.rs                   |  10 +
+ sdk/program/src/syscalls/definitions.rs            |   1 +
+ sdk/src/feature_set.rs                             |   5 +
+ svm/Cargo.toml                                     |   1 +
+ svm/src/account_loader.rs                          |   9 +
+ svm/src/message_processor.rs                       |  14 ++
+ svm/src/program_loader.rs                          |   9 +
+ svm/src/transaction_processing_callback.rs         |   5 +
+ svm/src/transaction_processor.rs                   |  11 +
+ svm/tests/conformance.rs                           |   2 +
+ svm/tests/mock_bank.rs                             |   9 +
+ 21 files changed, 427 insertions(+), 4 deletions(-)

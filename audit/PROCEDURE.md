@@ -12,13 +12,13 @@ Procedure for auditing Joe C's sensitive PRs in anza-xyz/agave.
 | **Deploy refactor** | #9588 (+ 2 already reviewed) | PASS | `audit/refactor/deploy_refactor/` |
 | **VM Invoke refactor** | #9593 (+ 2 already reviewed) | PASS | `audit/refactor/vm_invoke_refactor/` |
 
-### Implementation (pending)
+### Implementation (in review)
 
-| Ticket | PRs | Focus Area |
-|--------|-----|------------|
-| **SIMD-0296: Raise CPI Nesting Limit** | #6487 | Raises CPI nesting limit from 4 to 8 |
-| **Harden native_invoke** | #10681 | native_invoke takes signer seeds |
-| **GetEpochStake syscall** | #889 (draft, superseded), #1152 (merged) | New syscall for querying epoch stake |
+| Ticket | PRs | Verdict | Reports |
+|--------|-----|---------|---------|
+| **SIMD-0296: Raise CPI Nesting Limit** | #6487 | PASS | `audit/implementation/PR_6487.md` |
+| **Harden native_invoke** | #10681 | PASS | `audit/implementation/PR_10681.md` |
+| **GetEpochStake syscall** | #1152 | PASS | `audit/implementation/PR_1152.md` |
 
 ---
 
@@ -177,9 +177,9 @@ verification. For each PR:
 
 | # | Verdict | PR | Commit | Title |
 |---|---------|-----|--------|-------|
-| 1 | | #6487 | `99c82435bd` | SIMD-0296: Raise CPI Nesting Limit to 8 |
-| 2 | | #10681 | `76e33c3369` | Harden native_invoke to take signer seeds |
-| 3 | | #1152 | `b1508010c0` | GetEpochStake syscall |
+| 1 | **PASS** | #6487 | `99c82435bd` | SIMD-0296: Raise CPI Nesting Limit to 8 |
+| 2 | **PASS** | #10681 | `76e33c3369` | Harden native_invoke to take signer seeds |
+| 3 | **PASS** | #1152 | `b1508010c0` | GetEpochStake syscall |
 
 ---
 

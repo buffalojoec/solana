@@ -1,0 +1,31 @@
+# PR #6487 — SIMD-0296: Raise CPI Nesting Limit to 8 (#6487)
+# Commit: 99c82435bdb839cb4bb3cde222b71e46fdd2ecf9
+# Date: 2025-08-02 18:32:49 +0800
+#
+ cli/src/program.rs                                 |   6 +-
+ cli/src/program_v4.rs                              |   6 +-
+ compute-budget/Cargo.toml                          |   5 +-
+ compute-budget/src/compute_budget.rs               |  20 +-
+ compute-budget/src/compute_budget_limits.rs        |   5 +-
+ feature-set/src/lib.rs                             |   6 +
+ program-runtime/src/execution_budget.rs            |  19 +-
+ program-runtime/src/invoke_context.rs              |  16 +-
+ program-test/src/lib.rs                            |   8 +-
+ programs/sbf/benches/bpf_loader.rs                 |  20 +-
+ programs/sbf/c/src/invoke/invoke.c                 |  12 +-
+ programs/sbf/c/src/invoked/invoked.c               |   2 +-
+ programs/sbf/rust/invoke/src/lib.rs                |   8 +
+ programs/sbf/rust/invoke_dep/src/lib.rs            |   2 +
+ programs/sbf/rust/invoked/src/lib.rs               |   2 +-
+ programs/sbf/tests/programs.rs                     | 377 ++++++++++++++-------
+ runtime/src/bank.rs                                |  23 +-
+ .../src/bank/builtins/core_bpf_migration/mod.rs    |   7 +-
+ runtime/src/bank/check_transactions.rs             |   4 +-
+ runtime/src/bank/tests.rs                          |  18 +-
+ svm-feature-set/src/lib.rs                         |   2 +
+ svm/Cargo.toml                                     |   5 +-
+ svm/examples/json-rpc/server/src/svm_bridge.rs     |   2 +-
+ svm/examples/paytube/src/processor.rs              |   3 +-
+ svm/tests/integration_test.rs                      |   4 +-
+ test-validator/src/lib.rs                          |   8 +-
+ 26 files changed, 419 insertions(+), 171 deletions(-)
