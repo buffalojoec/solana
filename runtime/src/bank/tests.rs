@@ -80,7 +80,7 @@ use {
     solana_program_runtime::{
         declare_process_instruction,
         execution_budget::{self, MAX_COMPUTE_UNIT_LIMIT},
-        loaded_programs::{ProgramCacheEntry, ProgramCacheEntryType},
+        loaded_programs::{ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType},
         solana_sbpf::program::BuiltinFunctionDefinition,
     },
     solana_pubkey::Pubkey,
@@ -10803,6 +10803,277 @@ fn test_feature_activation_loaded_programs_epoch_transition() {
     let bank = new_from_parent_with_fork_next_slot(bank, bank_forks.as_ref());
     let transaction = Transaction::new(&signers, message, bank.last_blockhash());
     assert!(bank.process_transaction(&transaction).is_ok());
+}
+
+#[test]
+fn test_disable_verification_epoch_transition() {
+    agave_logger::setup();
+
+    // Bank Setup: all features enabled except disable_sbpf_elf_verification.
+    let (mut genesis_config, mint_keypair) = create_genesis_config(1_000_000 * LAMPORTS_PER_SOL);
+    genesis_config
+        .accounts
+        .remove(&feature_set::disable_sbpf_elf_verification::id());
+    let (root_bank, bank_forks) = Bank::new_with_bank_forks_for_tests(&genesis_config);
+
+    // Program Setup: deploy a valid BPF program.
+    let program_keypair = Keypair::new();
+    let program_data = include_bytes!("../../../programs/bpf_loader/test_elfs/out/noop_aligned.so");
+    let program_account = AccountSharedData::from(Account {
+        lamports: Rent::default().minimum_balance(program_data.len()).min(1),
+        data: program_data.to_vec(),
+        owner: bpf_loader::id(),
+        executable: true,
+        rent_epoch: 0,
+    });
+    root_bank.store_account(&program_keypair.pubkey(), &program_account);
+
+    // Compose a message that invokes the deployed program.
+    let instruction = Instruction::new_with_bytes(program_keypair.pubkey(), &[], Vec::new());
+    let message = Message::new(&[instruction], Some(&mint_keypair.pubkey()));
+    let binding = mint_keypair.insecure_clone();
+    let signers = vec![&binding];
+
+    // Advance so the program becomes effective.
+    goto_end_of_slot(root_bank.clone());
+    let bank = new_from_parent_with_fork_next_slot(root_bank, bank_forks.as_ref());
+
+    // Execute with the old environment (disable_sbpf_elf_verification inactive).
+    let transaction = Transaction::new(&signers, message.clone(), bank.last_blockhash());
+    assert_eq!(bank.process_transaction(&transaction), Ok(()));
+
+    // Schedule disable_sbpf_elf_verification for activation at the next epoch boundary.
+    let feature_account_balance =
+        std::cmp::max(genesis_config.rent.minimum_balance(Feature::size_of()), 1);
+    bank.store_account(
+        &feature_set::disable_sbpf_elf_verification::id(),
+        &feature::create_account(&Feature { activated_at: None }, feature_account_balance),
+    );
+
+    // Advance to the middle of the epoch (slot 16) to enter the preparation phase.
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 16);
+
+    // Capture both environments now that the preparation phase has started.
+    let current_env = bank
+        .transaction_processor
+        .program_runtime_environment_for_epoch(0);
+    let upcoming_env = bank
+        .transaction_processor
+        .program_runtime_environment_for_epoch(1);
+
+    // The environments must differ because disable_sbpf_elf_verification changes the Config.
+    assert!(!Arc::ptr_eq(&current_env, &upcoming_env));
+
+    // At this point, only the original entry (old environment) should exist.
+    {
+        let program_cache = bank
+            .transaction_processor
+            .global_program_cache
+            .read()
+            .unwrap();
+        let slot_versions = program_cache.get_slot_versions_for_tests(&program_keypair.pubkey());
+        assert_eq!(slot_versions.len(), 1);
+        assert_eq!(
+            slot_versions[0].program.get_environment().unwrap(),
+            &current_env,
+        );
+    }
+
+    // Advance one more slot to trigger the recompilation of the program.
+    goto_end_of_slot(bank.clone());
+    let bank = new_from_parent_with_fork_next_slot(bank, bank_forks.as_ref());
+
+    // Now there should be two entries: the original (current env) and the recompiled (upcoming env).
+    // Since both entries share the same deployment_slot and effective_slot, the ordering
+    // is determined by the `is_current_env` tiebreaker in `assign_program`.
+    {
+        let program_cache = bank
+            .transaction_processor
+            .global_program_cache
+            .write()
+            .unwrap();
+        let slot_versions = program_cache.get_slot_versions_for_tests(&program_keypair.pubkey());
+        assert_eq!(slot_versions.len(), 2);
+        assert_eq!(
+            slot_versions[0].program.get_environment().unwrap(),
+            &current_env,
+        );
+        assert_eq!(
+            slot_versions[1].program.get_environment().unwrap(),
+            &upcoming_env,
+        );
+    }
+
+    // Cross the epoch boundary (slot 33 = first slot of epoch 1).
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 33);
+
+    // Execute the program under the new environment — it should still succeed.
+    let transaction = Transaction::new(&signers, message.clone(), bank.last_blockhash());
+    assert_eq!(bank.process_transaction(&transaction), Ok(()));
+
+    // Prune for rerooting: this removes the old-environment entry.
+    {
+        let upcoming_environment = bank
+            .transaction_processor
+            .epoch_boundary_preparation
+            .write()
+            .unwrap()
+            .reroot(bank.epoch());
+        assert!(upcoming_environment.is_some());
+        let mut program_cache = bank
+            .transaction_processor
+            .global_program_cache
+            .write()
+            .unwrap();
+        program_cache.prune(bank.slot(), upcoming_environment);
+
+        // After pruning, only the entry compiled with the new environment should remain.
+        let slot_versions = program_cache.get_slot_versions_for_tests(&program_keypair.pubkey());
+        assert_eq!(slot_versions.len(), 1);
+        assert_eq!(
+            slot_versions[0].program.get_environment().unwrap(),
+            &upcoming_env,
+        );
+    }
+
+    // Unload and reload: verify the program still works after cache eviction.
+    {
+        let mut program_cache = bank
+            .transaction_processor
+            .global_program_cache
+            .write()
+            .unwrap();
+        program_cache.sort_and_unload(percentage::Percentage::from(0));
+    }
+    goto_end_of_slot(bank.clone());
+    let bank = new_from_parent_with_fork_next_slot(bank, bank_forks.as_ref());
+    let transaction = Transaction::new(&signers, message, bank.last_blockhash());
+    assert_eq!(bank.process_transaction(&transaction), Ok(()));
+}
+
+#[test]
+fn test_disable_verification_tombstone_flush() {
+    agave_logger::setup();
+
+    // Bank Setup: all features enabled except disable_sbpf_elf_verification.
+    let (mut genesis_config, mint_keypair) = create_genesis_config(1_000_000 * LAMPORTS_PER_SOL);
+    genesis_config
+        .accounts
+        .remove(&feature_set::disable_sbpf_elf_verification::id());
+    let (root_bank, bank_forks) = Bank::new_with_bank_forks_for_tests(&genesis_config);
+
+    // Deploy a valid BPF program (needed so the bank has at least one real program).
+    let program_keypair = Keypair::new();
+    let program_data = include_bytes!("../../../programs/bpf_loader/test_elfs/out/noop_aligned.so");
+    let program_account = AccountSharedData::from(Account {
+        lamports: Rent::default().minimum_balance(program_data.len()).min(1),
+        data: program_data.to_vec(),
+        owner: bpf_loader::id(),
+        executable: true,
+        rent_epoch: 0,
+    });
+    root_bank.store_account(&program_keypair.pubkey(), &program_account);
+
+    // Advance so the program becomes effective and gets loaded into the cache.
+    goto_end_of_slot(root_bank.clone());
+    let bank = new_from_parent_with_fork_next_slot(root_bank, bank_forks.as_ref());
+
+    // Execute the program once to ensure it gets cached.
+    let instruction = Instruction::new_with_bytes(program_keypair.pubkey(), &[], Vec::new());
+    let message = Message::new(&[instruction], Some(&mint_keypair.pubkey()));
+    let binding = mint_keypair.insecure_clone();
+    let signers = vec![&binding];
+    let transaction = Transaction::new(&signers, message.clone(), bank.last_blockhash());
+    assert_eq!(bank.process_transaction(&transaction), Ok(()));
+
+    // Insert a FailedVerification tombstone for a separate program key using the current env.
+    let tombstone_key = Pubkey::new_unique();
+    let current_env = bank
+        .transaction_processor
+        .program_runtime_environment_for_epoch(0);
+    {
+        let tombstone = Arc::new(ProgramCacheEntry::new_tombstone(
+            0,
+            ProgramCacheEntryOwner::LoaderV2,
+            ProgramCacheEntryType::FailedVerification(current_env.clone()),
+        ));
+        let mut program_cache = bank
+            .transaction_processor
+            .global_program_cache
+            .write()
+            .unwrap();
+        program_cache.assign_program(&current_env, tombstone_key, 0, tombstone);
+
+        // Verify the tombstone was inserted.
+        let slot_versions = program_cache.get_slot_versions_for_tests(&tombstone_key);
+        assert_eq!(slot_versions.len(), 1);
+        assert!(matches!(
+            slot_versions[0].program,
+            ProgramCacheEntryType::FailedVerification(_)
+        ));
+    }
+
+    // Schedule disable_sbpf_elf_verification for activation.
+    let feature_account_balance =
+        std::cmp::max(genesis_config.rent.minimum_balance(Feature::size_of()), 1);
+    bank.store_account(
+        &feature_set::disable_sbpf_elf_verification::id(),
+        &feature::create_account(&Feature { activated_at: None }, feature_account_balance),
+    );
+
+    // Advance to the preparation phase (slot 16).
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 16);
+
+    // Advance through a few more slots to allow staggered recompilation.
+    goto_end_of_slot(bank.clone());
+    let bank = new_from_parent_with_fork_next_slot(bank, bank_forks.as_ref());
+    goto_end_of_slot(bank.clone());
+    let bank = new_from_parent_with_fork_next_slot(bank, bank_forks.as_ref());
+
+    // Advance to the end of the epoch.
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 31);
+
+    // Cross the epoch boundary (slot 32 = first slot of epoch 1).
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 32);
+
+    // Prune for rerooting: the upcoming environment should be set because the feature changed it.
+    let upcoming_environment = bank
+        .transaction_processor
+        .epoch_boundary_preparation
+        .write()
+        .unwrap()
+        .reroot(bank.epoch());
+    assert!(
+        upcoming_environment.is_some(),
+        "Environment must change when disable_sbpf_elf_verification activates"
+    );
+
+    let mut program_cache = bank
+        .transaction_processor
+        .global_program_cache
+        .write()
+        .unwrap();
+    program_cache.prune(bank.slot(), upcoming_environment);
+
+    // The tombstone should be gone: its environment (old) doesn't match the new one.
+    let tombstone_versions = program_cache.get_slot_versions_for_tests(&tombstone_key);
+    assert!(
+        tombstone_versions.is_empty(),
+        "FailedVerification tombstone from old environment should be pruned, but found {} entries",
+        tombstone_versions.len(),
+    );
+
+    // The valid program should still have an entry (recompiled with the new environment).
+    let program_versions = program_cache.get_slot_versions_for_tests(&program_keypair.pubkey());
+    assert!(
+        !program_versions.is_empty(),
+        "Valid program should survive the epoch transition"
+    );
 }
 
 #[test]
