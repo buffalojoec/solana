@@ -7764,4 +7764,48 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_stricter_loader_checks_changes_environment() {
+        let compute_budget = SVMTransactionExecutionBudget::default();
+
+        let features_disabled = SVMFeatureSet {
+            disable_sbpf_elf_verification: false,
+            ..SVMFeatureSet::all_enabled()
+        };
+        let features_enabled = SVMFeatureSet {
+            disable_sbpf_elf_verification: true,
+            ..SVMFeatureSet::all_enabled()
+        };
+
+        let env_disabled = create_program_runtime_environment(
+            &features_disabled,
+            &compute_budget,
+            /* reject_deployment_of_broken_elfs */ false,
+            /* debugging_features */ false,
+        )
+        .unwrap();
+        let env_enabled = create_program_runtime_environment(
+            &features_enabled,
+            &compute_budget,
+            /* reject_deployment_of_broken_elfs */ false,
+            /* debugging_features */ false,
+        )
+        .unwrap();
+        let env_disabled_clone = create_program_runtime_environment(
+            &features_disabled,
+            &compute_budget,
+            /* reject_deployment_of_broken_elfs */ false,
+            /* debugging_features */ false,
+        )
+        .unwrap();
+
+        // Content comparison via BuiltinProgram::eq(). Epoch transition
+        // uses `*old_env != *new_env` to detect environment changes, so
+        // different stricter_loader_checks values must produce unequal
+        // environments. If this ever fails, the program cache won't
+        // reload after the feature gate activates.
+        assert!(**env_disabled != **env_enabled);
+        assert!(**env_disabled == **env_disabled_clone);
+    }
 }
