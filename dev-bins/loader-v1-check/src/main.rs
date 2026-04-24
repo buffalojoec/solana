@@ -19,6 +19,7 @@ const TARGET_SYSCALLS: &[&str] = &[
     "sol_get_rent_sysvar",
     "sol_get_last_restart_slot",
     "sol_get_epoch_rewards_sysvar",
+    "sol_get_sysvar",
 ];
 
 const BPFLOADER1: &str = "BPFLoader1111111111111111111111111111111111";
