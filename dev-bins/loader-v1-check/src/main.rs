@@ -84,6 +84,7 @@ fn main() {
     let mut elf_count: usize = 0;
     let mut gifted: usize = 0;
     let mut non_elf_nonzero: usize = 0;
+    let mut elf_parse_failed: usize = 0;
 
     for (idx, (pubkey, account)) in accounts.iter().enumerate() {
         let data = &account.data;
@@ -108,6 +109,7 @@ fn main() {
                 search_bytecode(&elf, data, &target_hashes, &mut hits);
             } else {
                 // ELF parse failed, fall back to raw string search
+                elf_parse_failed += 1;
                 search_strings_raw(data, &mut hits);
                 scan_instructions_raw(data, &target_hashes, &mut hits);
             }
@@ -143,6 +145,10 @@ fn main() {
         elf_count,
         gifted,
         non_elf_nonzero
+    );
+    println!(
+        "  ELFs that failed Elf64::parse (fell through to raw fallback): {}",
+        elf_parse_failed
     );
     println!("Scan time: {:.2}s", elapsed.as_secs_f64());
     println!();
