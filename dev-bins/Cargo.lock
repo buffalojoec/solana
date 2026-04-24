@@ -3935,6 +3935,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 
 [[package]]
+name = "loader-v1-check"
+version = "0.0.0"
+dependencies = [
+ "clap 4.6.1",
+ "solana-pubkey 4.2.0",
+ "solana-rpc-client",
+ "solana-sbpf",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"

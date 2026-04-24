@@ -3,6 +3,7 @@ members = [
     "../accounts-db/store-tool",
     "../bench-tps",
     "../ledger-tool",
+    "loader-v1-check",
     "../svm-test-harness",
     "../svm-test-harness/fixture",
     "../svm-test-harness/instr",

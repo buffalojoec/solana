@@ -1,0 +1,11 @@
+[package]
+name = "loader-v1-check"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+solana-pubkey = { workspace = true, features = ["std"] }
+solana-rpc-client = { workspace = true, features = ["default"] }
+solana-sbpf = { workspace = true }
