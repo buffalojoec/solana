@@ -81,39 +81,26 @@ fn main() {
 
     let start = Instant::now();
     let mut matches_by_program: Vec<(Pubkey, Vec<Hit>)> = Vec::new();
-    let mut elf_count: usize = 0;
     let mut gifted: usize = 0;
-    let mut non_elf_nonzero: usize = 0;
-    let mut elf_parse_failed: usize = 0;
+    let mut parsed: usize = 0;
+    let mut parse_failed: usize = 0;
 
     for (idx, (pubkey, account)) in accounts.iter().enumerate() {
         let data = &account.data;
 
-        let is_elf = data.len() >= 4 && &data[..4] == b"\x7fELF";
-        if is_elf {
-            elf_count += 1;
-        } else {
-            if data.iter().all(|&b| b == 0) {
-                gifted += 1;
-                continue;
-            }
-            non_elf_nonzero += 1;
+        if data.iter().all(|&b| b == 0) {
+            gifted += 1;
+            continue;
         }
 
         let mut hits = Vec::new();
 
-        // Method A: parse ELF dynamic symbol table for syscall name strings
-        if is_elf {
-            if let Ok(elf) = Elf64::parse(data) {
-                search_dynstr(&elf, &mut hits);
-                search_bytecode(&elf, data, &target_hashes, &mut hits);
-            } else {
-                // ELF parse failed, fall back to raw string search
-                elf_parse_failed += 1;
-                search_strings_raw(data, &mut hits);
-                scan_instructions_raw(data, &target_hashes, &mut hits);
-            }
+        if let Ok(elf) = Elf64::parse(data) {
+            parsed += 1;
+            search_dynstr(&elf, &mut hits);
+            search_bytecode(&elf, data, &target_hashes, &mut hits);
         } else {
+            parse_failed += 1;
             search_strings_raw(data, &mut hits);
             scan_instructions_raw(data, &target_hashes, &mut hits);
         }
@@ -140,15 +127,11 @@ fn main() {
     println!("RESULTS");
     println!("{}", "=".repeat(70));
     println!(
-        "Programs scanned: {}  (ELF: {}, gifted: {}, non-ELF non-zero: {})",
+        "Programs scanned: {}  (gifted: {}, parsed: {}, parse failed: {})",
         accounts.len(),
-        elf_count,
         gifted,
-        non_elf_nonzero
-    );
-    println!(
-        "  ELFs that failed Elf64::parse (fell through to raw fallback): {}",
-        elf_parse_failed
+        parsed,
+        parse_failed
     );
     println!("Scan time: {:.2}s", elapsed.as_secs_f64());
     println!();
