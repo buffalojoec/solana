@@ -82,21 +82,21 @@ fn main() {
     let start = Instant::now();
     let mut matches_by_program: Vec<(Pubkey, Vec<Hit>)> = Vec::new();
     let mut elf_count: usize = 0;
-    let mut non_elf_count: usize = 0;
-    let mut errors: usize = 0;
+    let mut gifted: usize = 0;
+    let mut non_elf_nonzero: usize = 0;
 
     for (idx, (pubkey, account)) in accounts.iter().enumerate() {
         let data = &account.data;
-        if data.is_empty() {
-            errors += 1;
-            continue;
-        }
 
         let is_elf = data.len() >= 4 && &data[..4] == b"\x7fELF";
         if is_elf {
             elf_count += 1;
         } else {
-            non_elf_count += 1;
+            if data.iter().all(|&b| b == 0) {
+                gifted += 1;
+                continue;
+            }
+            non_elf_nonzero += 1;
         }
 
         let mut hits = Vec::new();
@@ -138,11 +138,11 @@ fn main() {
     println!("RESULTS");
     println!("{}", "=".repeat(70));
     println!(
-        "Programs scanned: {}  (ELF: {}, non-ELF: {}, errors: {})",
+        "Programs scanned: {}  (ELF: {}, gifted: {}, non-ELF non-zero: {})",
         accounts.len(),
         elf_count,
-        non_elf_count,
-        errors
+        gifted,
+        non_elf_nonzero
     );
     println!("Scan time: {:.2}s", elapsed.as_secs_f64());
     println!();
