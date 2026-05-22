@@ -282,7 +282,10 @@ mod tests {
     use {
         super::{
             super::{
-                programs::{fill_program_cache_from_accounts, new_program_cache_with_builtins},
+                programs::{
+                    fill_program_cache_from_accounts, keyed_account_for_system_program,
+                    new_program_cache_with_builtins,
+                },
                 sysvar::fill_sysvar_cache_from_accounts,
             },
             *,
@@ -293,84 +296,92 @@ mod tests {
         solana_sysvar_id::SysvarId,
     };
 
-    #[test]
-    fn test_system_program_exec() {
-        let system_program_id = solana_sdk_ids::system_program::id();
-        let native_loader_id = solana_sdk_ids::native_loader::id();
-        let sysvar_id = solana_sysvar_id::id();
+    fn system_account_with_lamports(lamports: u64) -> Account {
+        Account {
+            lamports,
+            data: vec![],
+            owner: solana_sdk_ids::system_program::id(),
+            executable: false,
+            rent_epoch: u64::MAX,
+        }
+    }
 
-        let from_pubkey = Pubkey::new_from_array([1u8; 32]);
-        let to_pubkey = Pubkey::new_from_array([2u8; 32]);
+    fn sysvar_account(data: Vec<u8>) -> Account {
+        Account {
+            lamports: 1,
+            data,
+            owner: solana_sysvar_id::id(),
+            executable: false,
+            rent_epoch: u64::MAX,
+        }
+    }
 
-        let cu_avail = 10000u64;
-        let slot = 10;
-        let feature_set = SVMFeatureSet::default();
-
-        // Create Clock sysvar.
+    fn keyed_account_for_clock_sysvar(slot: u64) -> (Pubkey, Account) {
         let clock = solana_clock::Clock {
             slot,
             ..Default::default()
         };
-        let clock_data = bincode::serialize(&clock).unwrap();
+        (
+            solana_clock::Clock::id(),
+            sysvar_account(bincode::serialize(&clock).unwrap()),
+        )
+    }
 
-        // Create Rent sysvar.
+    fn keyed_account_for_rent_sysvar() -> (Pubkey, Account) {
         let rent = solana_rent::Rent::default();
-        let rent_data = bincode::serialize(&rent).unwrap();
+        (
+            solana_rent::Rent::id(),
+            sysvar_account(bincode::serialize(&rent).unwrap()),
+        )
+    }
 
-        // Build the instruction context.
+    fn compute_budget_with_cu_limit(cu_avail: u64) -> ComputeBudget {
+        let mut budget = ComputeBudget::new_with_defaults(false);
+        budget.compute_unit_limit = cu_avail;
+        budget
+    }
+
+    fn setup_caches(
+        context: &InstrContext,
+        compute_budget: &ComputeBudget,
+        slot: u64,
+    ) -> (SysvarCache, ProgramCacheForTxBatch) {
+        let mut sysvar_cache = SysvarCache::default();
+        fill_sysvar_cache_from_accounts(&mut sysvar_cache, &context.accounts);
+
+        let environments = create_program_runtime_environment(
+            &context.feature_set,
+            &compute_budget.to_budget(),
+            false, /* deployment */
+            false, /* debugging_features */
+        )
+        .unwrap();
+
+        let mut program_cache = new_program_cache_with_builtins(slot);
+        fill_program_cache_from_accounts(
+            &mut program_cache,
+            &environments,
+            &context.accounts,
+            slot,
+        )
+        .unwrap();
+
+        (sysvar_cache, program_cache)
+    }
+
+    fn system_transfer_context(slot: u64) -> (Pubkey, Pubkey, InstrContext) {
+        let system_program_id = solana_sdk_ids::system_program::id();
+        let from_pubkey = Pubkey::new_from_array([1u8; 32]);
+        let to_pubkey = Pubkey::new_from_array([2u8; 32]);
+
         let context = InstrContext {
-            feature_set,
+            feature_set: SVMFeatureSet::default(),
             accounts: vec![
-                (
-                    from_pubkey,
-                    Account {
-                        lamports: 1000,
-                        data: vec![],
-                        owner: system_program_id,
-                        executable: false,
-                        rent_epoch: u64::MAX,
-                    },
-                ),
-                (
-                    to_pubkey,
-                    Account {
-                        lamports: 0,
-                        data: vec![],
-                        owner: system_program_id,
-                        executable: false,
-                        rent_epoch: u64::MAX,
-                    },
-                ),
-                (
-                    system_program_id,
-                    Account {
-                        lamports: 10000000,
-                        data: b"Solana Program".to_vec(),
-                        owner: native_loader_id,
-                        executable: true,
-                        rent_epoch: u64::MAX,
-                    },
-                ),
-                (
-                    solana_clock::Clock::id(),
-                    Account {
-                        lamports: 1,
-                        data: clock_data,
-                        owner: sysvar_id,
-                        executable: false,
-                        rent_epoch: u64::MAX,
-                    },
-                ),
-                (
-                    solana_rent::Rent::id(),
-                    Account {
-                        lamports: 1,
-                        data: rent_data,
-                        owner: sysvar_id,
-                        executable: false,
-                        rent_epoch: u64::MAX,
-                    },
-                ),
+                (from_pubkey, system_account_with_lamports(1000)),
+                (to_pubkey, system_account_with_lamports(0)),
+                keyed_account_for_system_program(),
+                keyed_account_for_clock_sysvar(slot),
+                keyed_account_for_rent_sysvar(),
             ],
             instruction: Instruction {
                 program_id: system_program_id,
@@ -394,58 +405,112 @@ mod tests {
             },
         };
 
-        // Set up the Compute Budget.
-        let compute_budget = {
-            let mut budget = ComputeBudget::new_with_defaults(false);
-            budget.compute_unit_limit = cu_avail;
-            budget
-        };
+        (from_pubkey, to_pubkey, context)
+    }
 
-        // Create Sysvar Cache.
-        let mut sysvar_cache = SysvarCache::default();
-        fill_sysvar_cache_from_accounts(&mut sysvar_cache, &context.accounts);
-
-        // Create Program Cache
-        let mut program_cache = new_program_cache_with_builtins(slot);
-
-        let environments = create_program_runtime_environment(
-            &context.feature_set,
-            &compute_budget.to_budget(),
-            false, /* deployment */
-            false, /* debugging_features */
-        )
-        .unwrap();
-
-        fill_program_cache_from_accounts(
-            &mut program_cache,
-            &environments,
-            &context.accounts,
-            slot,
-        )
-        .unwrap();
-
-        // Execute the instruction.
-        let effects = execute_instr(&context, &compute_budget, &mut program_cache, &sysvar_cache);
-
-        // Verify the results.
+    fn assert_one_lamport_transferred(
+        effects: &InstrEffects,
+        from_pubkey: &Pubkey,
+        to_pubkey: &Pubkey,
+    ) {
         assert_eq!(effects.result, None);
         assert_eq!(effects.custom_err, None);
         assert_eq!(effects.cu_avail, 9850u64);
-        assert_eq!(effects.return_data, Vec::<u8>::new(),);
+        assert_eq!(effects.return_data, Vec::<u8>::new());
 
-        // Verify account changes.
         let from_account = effects
             .resulting_accounts
             .iter()
-            .find(|(k, _)| k == &from_pubkey)
+            .find(|(k, _)| k == from_pubkey)
             .unwrap();
         assert_eq!(from_account.1.lamports, 999);
 
         let to_account = effects
             .resulting_accounts
             .iter()
-            .find(|(k, _)| k == &to_pubkey)
+            .find(|(k, _)| k == to_pubkey)
             .unwrap();
         assert_eq!(to_account.1.lamports, 1);
+    }
+
+    #[test]
+    fn test_system_program_exec() {
+        let slot = 10;
+        let (from_pubkey, to_pubkey, context) = system_transfer_context(slot);
+
+        let compute_budget = compute_budget_with_cu_limit(10_000);
+        let (sysvar_cache, mut program_cache) = setup_caches(&context, &compute_budget, slot);
+
+        let effects = execute_instr(&context, &compute_budget, &mut program_cache, &sysvar_cache);
+
+        assert_one_lamport_transferred(&effects, &from_pubkey, &to_pubkey);
+    }
+
+    #[test]
+    fn test_system_program_exec_with_callback() {
+        // Confirms that the callback parameter is wired through. Uses a no-op
+        // callback and the same Transfer instruction as test_system_program_exec.
+        struct NoOpCallback;
+        impl InvokeContextCallback for NoOpCallback {}
+
+        let slot = 10;
+        let (from_pubkey, to_pubkey, context) = system_transfer_context(slot);
+
+        let compute_budget = compute_budget_with_cu_limit(10_000);
+        let (sysvar_cache, mut program_cache) = setup_caches(&context, &compute_budget, slot);
+
+        let effects = execute_instr_with_callback(
+            &context,
+            &NoOpCallback,
+            &compute_budget,
+            &mut program_cache,
+            &sysvar_cache,
+        );
+
+        assert_one_lamport_transferred(&effects, &from_pubkey, &to_pubkey);
+    }
+
+    #[test]
+    fn test_bpf_noop_aligned() {
+        // Gut-check that the harness can dispatch to a non-builtin on-chain
+        // program: load the BPF loader test ELF that returns success without
+        // touching any accounts. Broader BPF coverage lives in programs/sbf.
+        let bpf_loader_id = solana_sdk_ids::bpf_loader::id();
+        let program_id = Pubkey::new_from_array([3u8; 32]);
+        let elf =
+            include_bytes!("../../../programs/bpf_loader/test_elfs/out/noop_aligned.so").to_vec();
+
+        let slot = 10;
+
+        let context = InstrContext {
+            feature_set: SVMFeatureSet::default(),
+            accounts: vec![
+                (
+                    program_id,
+                    Account {
+                        lamports: 1_000_000,
+                        data: elf,
+                        owner: bpf_loader_id,
+                        executable: true,
+                        rent_epoch: u64::MAX,
+                    },
+                ),
+                keyed_account_for_clock_sysvar(slot),
+                keyed_account_for_rent_sysvar(),
+            ],
+            instruction: Instruction {
+                program_id,
+                accounts: vec![],
+                data: vec![],
+            },
+        };
+
+        let compute_budget = compute_budget_with_cu_limit(10_000);
+        let (sysvar_cache, mut program_cache) = setup_caches(&context, &compute_budget, slot);
+
+        let effects = execute_instr(&context, &compute_budget, &mut program_cache, &sysvar_cache);
+
+        assert_eq!(effects.result, None);
+        assert_eq!(effects.custom_err, None);
     }
 }
