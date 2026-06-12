@@ -289,8 +289,9 @@ pub mod tests {
         solana_pubkey as pubkey,
         solana_rent::Rent,
         solana_signer::Signer,
+        solana_svm_type_overrides::sync::RwLock,
         solana_vote_interface::state::{VoteStateV4, VoteStateVersions},
-        std::sync::{Arc, RwLock},
+        std::sync::Arc,
         test_case::test_case,
     };
 

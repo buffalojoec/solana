@@ -228,7 +228,9 @@ mod tests {
 
     fn new_from_parent(
         parent: Arc<Bank>,
-        bank_forks: &std::sync::Arc<std::sync::RwLock<crate::bank_forks::BankForks>>,
+        bank_forks: &std::sync::Arc<
+            solana_svm_type_overrides::sync::RwLock<crate::bank_forks::BankForks>,
+        >,
     ) -> Arc<Bank> {
         let slot = parent.slot() + 1;
         Bank::new_from_parent_with_bank_forks(

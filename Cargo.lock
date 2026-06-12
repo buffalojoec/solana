@@ -10045,6 +10045,7 @@ dependencies = [
  "solana-svm-callback",
  "solana-svm-timings",
  "solana-svm-transaction",
+ "solana-svm-type-overrides",
  "solana-syscalls",
  "solana-system-interface 3.2.0",
  "solana-system-transaction",

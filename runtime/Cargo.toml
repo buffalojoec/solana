@@ -51,6 +51,7 @@ frozen-abi = [
 shuttle-test = [
     "dep:shuttle",
     "solana-program-runtime/shuttle-test",
+    "solana-svm-type-overrides/shuttle-test",
     "solana-svm/shuttle-test",
     "solana-syscalls/shuttle-test",
 ]
@@ -166,6 +167,7 @@ solana-svm = { workspace = true, features = ["metrics"] }
 solana-svm-callback = { workspace = true }
 solana-svm-timings = { workspace = true }
 solana-svm-transaction = { workspace = true }
+solana-svm-type-overrides = { workspace = true }
 solana-syscalls = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-system-transaction = { workspace = true }

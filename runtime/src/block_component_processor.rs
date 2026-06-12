@@ -554,7 +554,8 @@ mod tests {
             BlockFooterV1, BlockHeaderV1, UpdateParentV1, VersionedUpdateParent,
         },
         solana_hash::Hash,
-        std::sync::{Arc, RwLock},
+        solana_svm_type_overrides::sync::RwLock,
+        std::sync::Arc,
     };
 
     const DEFAULT_NS_PER_SLOT: u64 = DEFAULT_MS_PER_SLOT * 1_000_000;

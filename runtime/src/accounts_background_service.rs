@@ -20,13 +20,14 @@ use {
     rayon::iter::{IntoParallelIterator, ParallelIterator},
     solana_clock::{BankId, Slot},
     solana_measure::{measure::Measure, measure_us},
+    solana_svm_type_overrides::sync::RwLock,
     stats::StatsManager,
     std::{
         boxed::Box,
         cmp,
         fmt::{self, Debug, Formatter},
         sync::{
-            Arc, LazyLock, Mutex, RwLock,
+            Arc, LazyLock, Mutex,
             atomic::{AtomicBool, AtomicU64, Ordering},
         },
         thread::{self, Builder, JoinHandle, sleep},

@@ -19,14 +19,11 @@ use {
         stake_flags::StakeFlags,
         state::{Delegation, Meta, Stake, StakeStateV2},
     },
+    solana_svm_type_overrides::sync::RwLock,
     solana_sysvar::epoch_rewards::{self, EpochRewards},
     solana_vote_interface::state::{MAX_LOCKOUT_HISTORY, VoteStateV4, VoteStateVersions},
     solana_vote_program::vote_state::{handler::VoteStateHandler, process_slot_vote_unchecked},
-    std::{
-        hint::black_box,
-        sync::{Arc, RwLock},
-        time::Duration,
-    },
+    std::{hint::black_box, sync::Arc, time::Duration},
 };
 
 #[cfg(not(any(target_env = "msvc", target_os = "freebsd")))]

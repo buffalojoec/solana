@@ -29,7 +29,7 @@ mod transaction {
 #[cfg(feature = "dev-context-only-utils")]
 use {
     crate::bank_forks::BankForks, solana_clock as clock, solana_leader_schedule::SlotLeader,
-    std::sync::RwLock,
+    solana_svm_type_overrides::sync::RwLock,
 };
 
 pub struct BankClient {

@@ -1132,13 +1132,14 @@ mod tests {
             stake_flags::StakeFlags,
             state::{Authorized, Delegation, Meta, Stake, StakeStateV2},
         },
+        solana_svm_type_overrides::sync::RwLock,
         solana_vote_interface::state::{
             BLS_PUBLIC_KEY_COMPRESSED_SIZE, VoteInitV2, VoteStateV4, VoteStateVersions,
         },
         solana_vote_program::vote_state::{self, create_bls_proof_of_possession},
         std::{
             collections::HashSet,
-            sync::{Arc, RwLock, RwLockReadGuard},
+            sync::{Arc, RwLockReadGuard},
         },
         test_case::{test_case, test_matrix},
     };

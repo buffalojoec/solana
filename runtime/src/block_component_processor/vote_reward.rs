@@ -634,10 +634,11 @@ mod tests {
         solana_signer::Signer,
         solana_signer_store::encode_base2,
         solana_stake_interface::state::StakeStateV2,
+        solana_svm_type_overrides::sync::RwLock,
         solana_vote_interface::state::{VoteStateV4, VoteStateVersions},
         std::{
             collections::HashMap,
-            sync::{Arc, RwLock},
+            sync::Arc,
             time::{SystemTime, UNIX_EPOCH},
         },
         test_case::test_matrix,

@@ -436,11 +436,12 @@ mod tests {
         solana_reward_info::RewardType,
         solana_signer::Signer,
         solana_stake_interface::state::StakeStateV2,
+        solana_svm_type_overrides::sync::RwLock,
         solana_system_transaction as system_transaction,
         solana_vote::vote_transaction,
         solana_vote_interface::state::{MAX_LOCKOUT_HISTORY, VoteStateV4, VoteStateVersions},
         solana_vote_program::vote_state::{self, TowerSync, handler::VoteStateHandler},
-        std::sync::{Arc, RwLock},
+        std::sync::Arc,
     };
 
     impl PartitionedStakeReward {

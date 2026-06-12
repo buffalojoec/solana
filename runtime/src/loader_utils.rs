@@ -17,13 +17,8 @@ use {
     solana_rent::Rent,
     solana_sdk_ids::bpf_loader_upgradeable,
     solana_signer::Signer,
-    std::{
-        env,
-        fs::File,
-        io::Read,
-        path::PathBuf,
-        sync::{Arc, RwLock},
-    },
+    solana_svm_type_overrides::sync::RwLock,
+    std::{env, fs::File, io::Read, path::PathBuf, sync::Arc},
 };
 
 const CHUNK_SIZE: usize = 512; // Size of chunk just needs to fit into tx

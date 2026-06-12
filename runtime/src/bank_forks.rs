@@ -16,11 +16,12 @@ use {
     solana_hash::Hash,
     solana_measure::measure::Measure,
     solana_program_runtime::loaded_programs::{BlockRelation, ForkGraph},
+    solana_svm_type_overrides::sync::RwLock,
     solana_unified_scheduler_logic::SchedulingMode,
     std::{
         collections::{BTreeSet, HashMap, HashSet, hash_map::Entry},
         ops::Index,
-        sync::{Arc, RwLock},
+        sync::Arc,
         time::Instant,
     },
 };

@@ -174,6 +174,7 @@ use {
     solana_svm_callback::{AccountState, InvokeContextCallback, TransactionProcessingCallback},
     solana_svm_timings::{ExecuteTimingType, ExecuteTimings},
     solana_svm_transaction::svm_message::SVMMessage,
+    solana_svm_type_overrides::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
     solana_syscalls::create_program_runtime_environment,
     solana_system_transaction as system_transaction,
     solana_sysvar::{self as sysvar, SysvarSerialize, last_restart_slot::LastRestartSlot},
@@ -200,8 +201,7 @@ use {
         path::PathBuf,
         slice,
         sync::{
-            Arc, LazyLock, LockResult, Mutex, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard,
-            Weak,
+            Arc, LazyLock, LockResult, Mutex, OnceLock, Weak,
             atomic::{
                 AtomicBool, AtomicI64, AtomicU64,
                 Ordering::{AcqRel, Acquire, Relaxed},
