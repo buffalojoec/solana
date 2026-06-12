@@ -1581,6 +1581,7 @@ impl Bank {
             if let Some((key, program_to_recompile)) =
                 epoch_boundary_preparation.programs_to_recompile.pop()
             {
+                let num_remaining = epoch_boundary_preparation.programs_to_recompile.len();
                 drop(epoch_boundary_preparation);
                 drop(program_cache);
                 if let Some((recompiled, last_modification_slot)) = load_program_with_pubkey(
@@ -1590,6 +1591,11 @@ impl Bank {
                     self.slot,
                     &mut ExecuteTimings::default(),
                 ) {
+                    debug!(
+                        "epoch boundary preparation: recompiled {key} at slot {}, {num_remaining} \
+                         programs remaining",
+                        self.slot,
+                    );
                     recompiled.stats.merge_from(&program_to_recompile.stats);
                     let mut program_cache = self
                         .transaction_processor
@@ -1601,6 +1607,12 @@ impl Bank {
                         key,
                         last_modification_slot,
                         recompiled,
+                    );
+                } else {
+                    debug!(
+                        "epoch boundary preparation: failed to reload {key} at slot {}, \
+                         {num_remaining} programs remaining",
+                        self.slot,
                     );
                 }
             }
@@ -1629,6 +1641,25 @@ impl Bank {
             }
             epoch_boundary_preparation.upcoming_epoch = self.epoch.saturating_add(1);
             epoch_boundary_preparation.upcoming_environment = Some(upcoming_environment);
+            datapoint_info!(
+                "epoch_boundary_preparation_start",
+                ("slot", self.slot, i64),
+                (
+                    "upcoming_epoch",
+                    epoch_boundary_preparation.upcoming_epoch,
+                    i64
+                ),
+                (
+                    "environment_changed",
+                    changed_program_runtime_environment,
+                    bool
+                ),
+                (
+                    "num_programs_to_recompile",
+                    epoch_boundary_preparation.programs_to_recompile.len(),
+                    i64
+                ),
+            );
         }
     }
 
@@ -1639,6 +1670,13 @@ impl Bank {
             .write()
             .unwrap()
             .reroot(self.epoch());
+        if upcoming_environment.is_some() {
+            datapoint_info!(
+                "epoch_boundary_preparation_conclude",
+                ("slot", self.slot(), i64),
+                ("epoch", self.epoch(), i64),
+            );
+        }
         self.transaction_processor
             .global_program_cache
             .write()
