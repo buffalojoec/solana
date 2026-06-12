@@ -1772,6 +1772,13 @@ impl Bank {
         let slot = self.slot();
         let thread_pool = rewards_calculation_thread_pool();
 
+        // Under shuttle, rayon worker threads are invisible to the scheduler and must not
+        // touch shuttle-instrumented locks (feature activations can reach the global
+        // program cache), so apply feature activations on the current thread instead.
+        #[cfg(feature = "shuttle-test")]
+        let (_, apply_feature_activations_time_us) =
+            measure_us!(self.compute_and_apply_new_feature_activations());
+        #[cfg(not(feature = "shuttle-test"))]
         let (_, apply_feature_activations_time_us) = measure_us!(
             thread_pool.install(|| { self.compute_and_apply_new_feature_activations() })
         );
