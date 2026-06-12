@@ -10,6 +10,8 @@ pub struct Scenario {
     pub num_submitter_threads: usize,
     /// Invocations of each program per submitter thread per slot.
     pub num_invocations_per_slot: usize,
+    /// Concurrent forks to advanced round-robin.
+    pub num_forks: usize,
     /// Slots to walk past the epoch boundary before rerooting.
     pub num_post_boundary_slots: u64,
 }
@@ -20,6 +22,7 @@ impl Scenario {
             num_programs: 20,
             num_submitter_threads: 2,
             num_invocations_per_slot: 2,
+            num_forks: 2,
             num_post_boundary_slots: 1,
         }
     }
