@@ -48,7 +48,12 @@ frozen-abi = [
     "solana-vote/frozen-abi",
     "solana-vote-program/frozen-abi",
 ]
-shuttle-test = ["dep:shuttle"]
+shuttle-test = [
+    "dep:shuttle",
+    "solana-program-runtime/shuttle-test",
+    "solana-svm/shuttle-test",
+    "solana-syscalls/shuttle-test",
+]
 
 [dependencies]
 agave-bls-cert-verify = { workspace = true }
