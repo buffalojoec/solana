@@ -1,0 +1,37 @@
+[package]
+name = "agave-program-cache-harness"
+publish = false
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+workspace = "../dev-bins"
+
+[features]
+shuttle-test = [
+    "dep:shuttle",
+    "solana-runtime/shuttle-test",
+    "solana-svm-type-overrides/shuttle-test",
+]
+
+[dependencies]
+agave-feature-set = { workspace = true }
+agave-logger = { workspace = true }
+shuttle = { workspace = true, optional = true }
+solana-account = { workspace = true }
+solana-feature-gate-interface = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-leader-schedule = { workspace = true }
+solana-message = { workspace = true }
+solana-native-token = { workspace = true }
+solana-program-runtime = { workspace = true, features = ["dev-context-only-utils"] }
+solana-pubkey = { workspace = true }
+solana-rent = { workspace = true }
+solana-runtime = { workspace = true, features = ["dev-context-only-utils"] }
+solana-sdk-ids = { workspace = true }
+solana-signer = { workspace = true }
+solana-svm-type-overrides = { workspace = true }
+solana-transaction = { workspace = true }

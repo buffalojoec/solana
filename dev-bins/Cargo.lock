@@ -251,6 +251,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "agave-program-cache-harness"
+version = "4.2.0-alpha.0"
+dependencies = [
+ "agave-feature-set",
+ "agave-logger",
+ "shuttle",
+ "solana-account 4.3.0",
+ "solana-feature-gate-interface",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-leader-schedule",
+ "solana-message",
+ "solana-native-token",
+ "solana-program-runtime",
+ "solana-pubkey 4.2.0",
+ "solana-rent",
+ "solana-runtime",
+ "solana-sdk-ids",
+ "solana-signer",
+ "solana-svm-type-overrides",
+ "solana-transaction",
+]
+
+[[package]]
 name = "agave-random"
 version = "4.2.0-alpha.0"
 dependencies = [
@@ -905,6 +929,12 @@ name = "assert_matches"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
+
+[[package]]
+name = "assoc"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfdc70193dadb9d7287fa4b633f15f90c876915b31f6af17da307fc59c9859a8"
 
 [[package]]
 name = "async-compression"
@@ -2692,6 +2722,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "generator"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3b854b0e584ead1a33f18b2fcad7cf7be18b3875c78816b753639aa501513ae"
+dependencies = [
+ "cc",
+ "cfg-if 1.0.4",
+ "libc",
+ "log",
+ "rustversion",
+ "windows-link",
+ "windows-result",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4359,6 +4404,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "owo-colors"
+version = "3.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1b04fb49957986fdce4d6ee7a65027d55d4b6d2265e5848bbb507b58ccfdb6f"
+
+[[package]]
 name = "pairing"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4998,6 +5049,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_pcg"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59cad018caf63deb318e5a4586d99a24424a364f40f1e5778c29aca23f4fc73e"
+dependencies = [
+ "rand_core 0.6.4",
+]
+
+[[package]]
 name = "rand_xorshift"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5451,6 +5511,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "scoped-tls"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5727,6 +5793,25 @@ name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
+
+[[package]]
+name = "shuttle"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d9a8db61a44e2b663f169a08206a789bcbd22ba32011e14951562848e7b9c98"
+dependencies = [
+ "assoc",
+ "bitvec",
+ "generator",
+ "hex",
+ "owo-colors",
+ "rand 0.8.6",
+ "rand_core 0.6.4",
+ "rand_pcg",
+ "scoped-tls",
+ "smallvec",
+ "tracing",
+]
 
 [[package]]
 name = "signal-hook"
@@ -6315,6 +6400,7 @@ version = "4.2.0-alpha.0"
 dependencies = [
  "bincode",
  "qualifier_attr",
+ "shuttle",
  "solana-account 4.3.0",
  "solana-bincode",
  "solana-clock",
@@ -8370,6 +8456,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "shuttle",
  "smallvec",
  "solana-account 4.3.0",
  "solana-account-info",
@@ -8437,6 +8524,7 @@ dependencies = [
  "solana-svm-callback",
  "solana-svm-timings",
  "solana-svm-transaction",
+ "solana-svm-type-overrides",
  "solana-syscalls",
  "solana-system-interface 3.2.0",
  "solana-system-transaction",
@@ -8502,6 +8590,7 @@ dependencies = [
  "log",
  "rand 0.8.6",
  "rustc-demangle",
+ "shuttle",
  "thiserror 2.0.18",
  "winapi",
 ]
@@ -8970,6 +9059,7 @@ name = "solana-svm-type-overrides"
 version = "4.2.0-alpha.0"
 dependencies = [
  "rand 0.9.4",
+ "shuttle",
 ]
 
 [[package]]
