@@ -8739,6 +8739,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-kita-cache"
+version = "4.2.0-alpha.0"
+dependencies = [
+ "solana-clock",
+ "solana-pubkey 4.2.0",
+ "solana-sbpf",
+]
+
+[[package]]
 name = "solana-last-restart-slot"
 version = "3.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
