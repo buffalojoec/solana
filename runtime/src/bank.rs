@@ -6679,12 +6679,17 @@ impl InvokeContextProgramLoader<InvokeContext<'static, 'static>> for Bank {
         &self,
         program_id: &Pubkey,
     ) -> Option<Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>> {
-        // TODO: cache-on-miss. On a kita cache miss, compile the program
-        // on-the-fly and insert it into the kita cache before returning, so
-        // subsequent lookups hit. Deferred to follow-up work.
         self.kita_cache
             .find(program_id)
             .map(|entry| Arc::new(entry) as Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>)
+    }
+
+    fn load(&self, program_id: &Pubkey, elf_bytes: &[u8]) {
+        let entry = solana_kita_cache::compile::compile(
+            &self.transaction_processor.program_runtime_environment,
+            elf_bytes,
+        );
+        self.kita_cache.insert(program_id, entry, self.slot);
     }
 }
 

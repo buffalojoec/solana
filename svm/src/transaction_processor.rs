@@ -8,7 +8,10 @@ use {
         account_overrides::AccountOverrides,
         message_processor::process_message,
         nonce_info::NonceInfo,
-        program_loader::{filter_executable_program_accounts_legacy, load_program_with_pubkey},
+        program_loader::{
+            filter_executable_program_accounts_legacy, load_program_with_pubkey,
+            prepare_kita_cache_for_batch,
+        },
         rollback_accounts::RollbackAccounts,
         transaction_account_state_info::{
             TransactionAccountStateInfo, get_uninitialized_accounts_size, verify_changes,
@@ -529,10 +532,16 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     }
                 },
                 TransactionLoadResult::Loaded(loaded_transaction) => {
-                    // The legacy program cache is replenished from the global
-                    // cache here; with the kita cache enabled this lookup is
-                    // skipped entirely.
-                    if !self.use_kita_cache {
+                    if self.use_kita_cache {
+                        let ((), program_cache_us) = measure_us!(prepare_kita_cache_for_batch(
+                            callbacks,
+                            tx.account_keys().iter(),
+                        ));
+                        execute_timings.saturating_add_in_place(
+                            ExecuteTimingType::ProgramCacheUs,
+                            program_cache_us,
+                        );
+                    } else {
                         let (missing_programs, filter_executable_us) =
                             measure_us!(filter_executable_program_accounts_legacy(
                                 &account_loader,
@@ -1448,6 +1457,8 @@ mod tests {
         ) -> Option<Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>> {
             None
         }
+
+        fn load(&self, _program_id: &Pubkey, _elf_bytes: &[u8]) {}
     }
 
     impl TransactionProcessingCallback for MockBankCallback {

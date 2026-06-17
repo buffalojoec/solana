@@ -7582,6 +7582,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-program-account"
+version = "4.2.0-alpha.0"
+dependencies = [
+ "solana-account 4.3.0",
+ "solana-loader-v3-interface",
+ "solana-loader-v4-interface",
+ "solana-pubkey 4.2.0",
+ "solana-sdk-ids",
+]
+
+[[package]]
 name = "solana-program-binaries"
 version = "4.2.0-alpha.0"
 dependencies = [
@@ -8549,6 +8560,7 @@ dependencies = [
  "solana-nonce",
  "solana-nonce-account",
  "solana-precompile-error",
+ "solana-program-account",
  "solana-program-entrypoint",
  "solana-program-pack",
  "solana-program-runtime",

@@ -78,6 +78,8 @@ impl InvokeContextProgramLoader<InvokeContext<'static, 'static>> for MockBankCal
     ) -> Option<Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>> {
         None
     }
+
+    fn load(&self, _program_id: &Pubkey, _elf_bytes: &[u8]) {}
 }
 
 impl TransactionProcessingCallback for MockBankCallback {

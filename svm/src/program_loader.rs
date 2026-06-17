@@ -6,7 +6,9 @@ use {
     solana_instruction::error::InstructionError,
     solana_loader_v3_interface::state::UpgradeableLoaderState,
     solana_loader_v4_interface::state::{LoaderV4State, LoaderV4Status},
+    solana_program_account::{ProgramAccount, V3ProgramType},
     solana_program_runtime::{
+        invoke_context::InvokeContext,
         loaded_programs::{
             ProgramCacheForTxBatch, ProgramCacheMatchCriteria, ProgramRuntimeEnvironment,
             ProgramToLoad,
@@ -18,7 +20,7 @@ use {
     },
     solana_pubkey::Pubkey,
     solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, loader_v4},
-    solana_svm_callback::TransactionProcessingCallback,
+    solana_svm_callback::{InvokeContextProgramLoader, TransactionProcessingCallback},
     solana_svm_timings::ExecuteTimings,
     solana_svm_type_overrides::sync::Arc,
     solana_transaction_error::{TransactionError, TransactionResult},
@@ -301,6 +303,46 @@ fn loader_v4_get_state(data: &[u8]) -> Result<&LoaderV4State, InstructionError> 
             &[u8; LoaderV4State::program_data_offset()],
             &LoaderV4State,
         >(data))
+    }
+}
+
+/// Populate the kita cache for a transaction batch.
+///
+/// For each program key, this checks whether the program is already cached via
+/// [`find`](InvokeContextProgramLoader::find); on a miss it loads the program
+/// account, extracts its ELF, and compiles it into the cache via
+/// [`load`](InvokeContextProgramLoader::load) so execution resolves it through
+/// the kita cache. This is the kita-cache counterpart to the legacy
+/// filter-then-replenish workflow.
+pub fn prepare_kita_cache_for_batch<'a, CB>(callbacks: &CB, keys: impl Iterator<Item = &'a Pubkey>)
+where
+    CB: TransactionProcessingCallback + InvokeContextProgramLoader<InvokeContext<'static, 'static>>,
+{
+    for key in keys {
+        if callbacks.find(key).is_some() {
+            continue;
+        }
+        let Some((account, _slot)) = callbacks.get_account_shared_data(key) else {
+            continue;
+        };
+        let elf_account = match ProgramAccount::get_loader_v3_type(&account) {
+            Some(V3ProgramType::Program {
+                programdata_address,
+            }) => {
+                let Some((programdata, _slot)) =
+                    callbacks.get_account_shared_data(&programdata_address)
+                else {
+                    continue;
+                };
+                programdata
+            }
+            Some(V3ProgramType::ProgramData) => continue,
+            None => account,
+        };
+        let Some(program) = ProgramAccount::try_new(&elf_account) else {
+            continue;
+        };
+        callbacks.load(key, program.get_elf_bytes());
     }
 }
 

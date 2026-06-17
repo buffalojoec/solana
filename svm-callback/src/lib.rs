@@ -59,6 +59,10 @@ pub enum AccountState<'a> {
 pub trait InvokeContextProgramLoader<C: ContextObject> {
     /// Find the loaded program for `program_id`, if present.
     fn find(&self, program_id: &Pubkey) -> Option<Arc<dyn LoadedProgram<C>>>;
+
+    /// Compile `elf_bytes` for `program_id` and insert the result into the
+    /// cache, so a subsequent [`find`](Self::find) hits.
+    fn load(&self, program_id: &Pubkey, elf_bytes: &[u8]);
 }
 
 /// This trait lets us abstract over the program JIT cache implementation in SVM

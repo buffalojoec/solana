@@ -10671,6 +10671,7 @@ dependencies = [
  "solana-nonce",
  "solana-nonce-account",
  "solana-precompile-error",
+ "solana-program-account",
  "solana-program-binaries",
  "solana-program-entrypoint",
  "solana-program-pack",
