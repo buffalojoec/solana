@@ -1116,6 +1116,15 @@ pub fn add_args<'a>(app: App<'a, 'a>, default_args: &'a DefaultArgs) -> App<'a, 
             .help("Maximum number of bytes written to the program log before truncation"),
     )
     .arg(
+        Arg::with_name("use_kita_cache")
+            .long("use-kita-cache")
+            .takes_value(false)
+            .help(
+                "Use the experimental Kita Cache (JIT cache v2) instead of the \
+                 legacy program JIT cache",
+            ),
+    )
+    .arg(
         Arg::with_name("banking_trace_dir_byte_limit")
             // expose friendly alternative name to cli than internal
             // implementation-oriented one

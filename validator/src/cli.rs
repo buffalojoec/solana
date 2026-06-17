@@ -892,20 +892,6 @@ pub fn test_app<'a>(version: &'a str, default_args: &'a DefaultTestArgs) -> App<
                 .takes_value(true)
                 .help("Maximum number of bytes written to the program log before truncation"),
         )
-        // TODO(kita): wire up the kita cache (JIT cache v2). Uncomment this arg,
-        // then consume it in commands/run/execute.rs where `use_kita_cache` is
-        // currently hardcoded to `false` (i.e. `use_kita_cache:
-        // matches.is_present("use_kita_cache")`).
-        // .arg(
-        //     Arg::with_name("use_kita_cache")
-        //         .long("use-kita-cache")
-        //         .takes_value(false)
-        //         .hidden(true)
-        //         .help(
-        //             "Use the experimental kita cache (JIT cache v2) instead \
-        //              of the legacy program JIT cache",
-        //         ),
-        // )
         .arg(
             Arg::with_name("transaction_account_lock_limit")
                 .long("transaction-account-lock-limit")
