@@ -124,7 +124,10 @@ use {
     solana_hash::Hash,
     solana_inflation::Inflation,
     solana_keypair::Keypair,
-    solana_kita_cache::cache::KitaCache,
+    solana_kita_cache::{
+        cache::KitaCache,
+        entry::{DelayedProgram, Entry},
+    },
     solana_lattice_hash::lt_hash::LtHash,
     solana_measure::{measure::Measure, measure_time, measure_us},
     solana_message::{
@@ -135,8 +138,8 @@ use {
     solana_program_runtime::{
         invoke_context::{BuiltinFunctionRegisterer, InvokeContext},
         loaded_programs::{ProgramRuntimeEnvironment, ProgramRuntimeEnvironments},
-        program_cache_entry::ProgramCacheEntry,
-        solana_sbpf::program::BuiltinProgram,
+        program_cache_entry::{DELAY_VISIBILITY_SLOT_OFFSET, ProgramCacheEntry},
+        solana_sbpf::{elf::Executable, program::BuiltinProgram},
     },
     solana_pubkey::Pubkey,
     solana_rent::Rent,
@@ -6679,9 +6682,23 @@ impl InvokeContextProgramLoader<InvokeContext<'static, 'static>> for Bank {
         &self,
         program_id: &Pubkey,
     ) -> Option<Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>> {
-        self.kita_cache
-            .find(program_id)
-            .map(|entry| Arc::new(entry) as Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>)
+        let entry = self.kita_cache.find(program_id)?;
+        // The Kita Cache has no inherent need for delay visibility - it could
+        // serve a freshly deployed program immediately. We honor it only to
+        // match the legacy cache and stay in consensus while both run (see
+        // `DelayedProgram`). A delayed program whose effective slot has arrived
+        // graduates to a plain `Program`, recorded so later lookups skip the
+        // check; one still within its window is returned as-is (not executable).
+        let entry = match entry {
+            Entry::DelayedVisibility(delayed) if delayed.effective_slot <= self.slot => {
+                let graduated = Entry::Program(Arc::clone(&delayed.program));
+                self.kita_cache
+                    .insert(program_id, graduated.clone(), self.slot);
+                graduated
+            }
+            entry => entry,
+        };
+        Some(Arc::new(entry) as Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>)
     }
 
     fn load(&self, program_id: &Pubkey, elf_bytes: &[u8]) {
@@ -6689,6 +6706,23 @@ impl InvokeContextProgramLoader<InvokeContext<'static, 'static>> for Bank {
             &self.transaction_processor.program_runtime_environment,
             elf_bytes,
         );
+        self.kita_cache.insert(program_id, entry, self.slot);
+    }
+
+    fn deploy(
+        &self,
+        program_id: &Pubkey,
+        program: Arc<Executable<InvokeContext<'static, 'static>>>,
+    ) {
+        // The Kita Cache does not inherently need delay visibility; we apply it
+        // only to match the legacy cache for consensus while both run (see
+        // `DelayedProgram`). The program is recorded now but withheld from
+        // `find` until the next slot.
+        let effective_slot = self.slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET);
+        let entry = Entry::DelayedVisibility(DelayedProgram {
+            program,
+            effective_slot,
+        });
         self.kita_cache.insert(program_id, entry, self.slot);
     }
 }

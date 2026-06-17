@@ -1,20 +1,46 @@
 //! Program JIT cache entry.
 
 use {
+    solana_clock::Slot,
     solana_sbpf::{elf::Executable, program::BuiltinProgram, vm::ContextObject},
     solana_svm_callback::LoadedProgram,
     std::sync::Arc,
 };
 
-/// A program JIT cache entry: a compiled program, a built-in, or a tombstone.
+/// A program JIT cache entry: a compiled program, a built-in, a delayed-
+/// visibility program, or a tombstone.
 pub enum Entry<C: ContextObject> {
     /// A successfully JIT-compiled program.
     Program(Arc<Executable<C>>),
     /// A built-in program, backed into the validator rather than compiled from
     /// an on-chain ELF.
     Builtin(Arc<BuiltinProgram<C>>),
+    /// A compiled program that is not yet visible (see [`DelayedProgram`]).
+    DelayedVisibility(DelayedProgram<C>),
     /// A program that could not be JIT-compiled, marked with the [`Reason`].
     Tombstone(Reason),
+}
+
+/// A compiled program withheld from execution until its `effective_slot`.
+///
+/// The Kita Cache itself has no need to delay a freshly deployed program - it
+/// could compile and serve it immediately. This variant exists solely to match
+/// the legacy program cache, which makes a newly deployed program effective only
+/// one slot after deployment; honoring that is required to stay in consensus
+/// while both caches coexist. Once the Kita Cache is the production cache, delay
+/// visibility should be removed from the protocol and this variant deleted.
+pub struct DelayedProgram<C: ContextObject> {
+    pub program: Arc<Executable<C>>,
+    pub effective_slot: Slot,
+}
+
+impl<C: ContextObject> Clone for DelayedProgram<C> {
+    fn clone(&self) -> Self {
+        Self {
+            program: Arc::clone(&self.program),
+            effective_slot: self.effective_slot,
+        }
+    }
 }
 
 impl<C: ContextObject> Clone for Entry<C> {
@@ -22,6 +48,7 @@ impl<C: ContextObject> Clone for Entry<C> {
         match self {
             Entry::Program(program) => Entry::Program(Arc::clone(program)),
             Entry::Builtin(builtin) => Entry::Builtin(Arc::clone(builtin)),
+            Entry::DelayedVisibility(delayed) => Entry::DelayedVisibility(delayed.clone()),
             Entry::Tombstone(reason) => Entry::Tombstone(reason.clone()),
         }
     }
@@ -32,7 +59,7 @@ impl<C: ContextObject> Entry<C> {
     /// activation.
     pub fn should_recompile_for_feature_activation(&self) -> bool {
         match self {
-            Entry::Program(_) => true,
+            Entry::Program(_) | Entry::DelayedVisibility(_) => true,
             // Built-ins are native, not compiled from an ELF.
             Entry::Builtin(_) => false,
             Entry::Tombstone(reason) => reason.should_recompile_for_feature_activation(),

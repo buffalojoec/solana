@@ -63,6 +63,9 @@ pub trait InvokeContextProgramLoader<C: ContextObject> {
     /// Compile `elf_bytes` for `program_id` and insert the result into the
     /// cache, so a subsequent [`find`](Self::find) hits.
     fn load(&self, program_id: &Pubkey, elf_bytes: &[u8]);
+
+    /// Insert a freshly deployed program into the cache.
+    fn deploy(&self, program_id: &Pubkey, program: Arc<Executable<C>>);
 }
 
 /// This trait lets us abstract over the program JIT cache implementation in SVM

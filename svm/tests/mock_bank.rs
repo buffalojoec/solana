@@ -14,6 +14,7 @@ use {
         loaded_programs::{BlockRelation, ForkGraph, ProgramRuntimeEnvironment},
         program_cache_entry::{LoadedProgram, ProgramCacheEntry},
         solana_sbpf::{
+            elf::Executable,
             program::{BuiltinFunctionDefinition, BuiltinProgram, SBPFVersion},
             vm::Config,
         },
@@ -80,6 +81,13 @@ impl InvokeContextProgramLoader<InvokeContext<'static, 'static>> for MockBankCal
     }
 
     fn load(&self, _program_id: &Pubkey, _elf_bytes: &[u8]) {}
+
+    fn deploy(
+        &self,
+        _program_id: &Pubkey,
+        _program: Arc<Executable<InvokeContext<'static, 'static>>>,
+    ) {
+    }
 }
 
 impl TransactionProcessingCallback for MockBankCallback {

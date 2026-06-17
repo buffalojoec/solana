@@ -16,6 +16,7 @@ use {
         program::{BuiltinProgram, SBPFVersion},
         verifier::RequisiteVerifier,
     },
+    solana_svm_callback::InvokeContextProgramLoader,
     solana_svm_log_collector::{LogCollector, ic_logger_msg},
     solana_svm_type_overrides::sync::Arc,
     std::{cell::RefCell, rc::Rc},
@@ -51,6 +52,7 @@ pub fn deploy_program(
     log_collector: Option<Rc<RefCell<LogCollector>>>,
     #[cfg(feature = "metrics")] load_program_metrics: &mut LoadProgramMetrics,
     program_cache_for_tx_batch: &mut ProgramCacheForTxBatch,
+    program_loader: Option<&dyn InvokeContextProgramLoader<InvokeContext<'static, 'static>>>,
     program_runtime_environment: ProgramRuntimeEnvironment,
     disable_sbpf_v0_v1_v2_deployment: bool,
     program_id: &Pubkey,
@@ -101,32 +103,63 @@ pub fn deploy_program(
         verify_code_time.stop();
         load_program_metrics.verify_code_us = verify_code_time.as_us();
     }
-    // Reload but with program_runtime_environment
-    let executor = unsafe {
-        // SAFETY: The executable has been verified just above.
-        ProgramCacheEntry::reload(
-            loader_key,
-            program_runtime_environment,
-            deployment_slot,
-            deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
-            programdata,
-            account_size,
+    // Compile against the runtime environment and record the deployment. The
+    // Kita Cache and the legacy cache are mutually exclusive, so each path does
+    // a single runtime compile - no double work. A compile failure fails the
+    // deployment on either path.
+    match program_loader {
+        // Kita Cache: it stores `Arc<Executable>` directly, so build and hand
+        // over the executable without a `ProgramCacheEntry`.
+        Some(loader) => {
+            let executable = Executable::<InvokeContext>::load(
+                programdata,
+                (*program_runtime_environment).clone(),
+            )
+            .map_err(|err| {
+                ic_logger_msg!(log_collector, "{}", err);
+                InstructionError::InvalidAccountData
+            })?;
+            executable.verify::<RequisiteVerifier>().map_err(|err| {
+                ic_logger_msg!(log_collector, "{}", err);
+                InstructionError::InvalidAccountData
+            })?;
+            #[cfg(all(not(target_os = "windows"), target_arch = "x86_64"))]
+            executable.jit_compile().map_err(|err| {
+                ic_logger_msg!(log_collector, "{}", err);
+                InstructionError::InvalidAccountData
+            })?;
+            loader.deploy(program_id, Arc::new(executable));
+        }
+        // Legacy cache: reload into a `ProgramCacheEntry` and store it in the
+        // batch program cache.
+        None => {
+            let executor = unsafe {
+                // SAFETY: The executable has been verified just above.
+                ProgramCacheEntry::reload(
+                    loader_key,
+                    program_runtime_environment,
+                    deployment_slot,
+                    deployment_slot.saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
+                    programdata,
+                    account_size,
+                    #[cfg(feature = "metrics")]
+                    load_program_metrics,
+                )
+            }
+            .map_err(|err| {
+                ic_logger_msg!(log_collector, "{}", err);
+                InstructionError::InvalidAccountData
+            })?;
+            if let Some(old_entry) = program_cache_for_tx_batch.find(program_id) {
+                executor.stats.merge_from(&old_entry.stats);
+            }
             #[cfg(feature = "metrics")]
-            load_program_metrics,
-        )
+            {
+                load_program_metrics.program_id = program_id.to_string();
+            }
+            program_cache_for_tx_batch.store_modified_entry(*program_id, Arc::new(executor));
+        }
     }
-    .map_err(|err| {
-        ic_logger_msg!(log_collector, "{}", err);
-        InstructionError::InvalidAccountData
-    })?;
-    if let Some(old_entry) = program_cache_for_tx_batch.find(program_id) {
-        executor.stats.merge_from(&old_entry.stats);
-    }
-    #[cfg(feature = "metrics")]
-    {
-        load_program_metrics.program_id = program_id.to_string();
-    }
-    program_cache_for_tx_batch.store_modified_entry(*program_id, Arc::new(executor));
     Ok(())
 }
 
@@ -150,6 +183,7 @@ macro_rules! deploy_program {
             #[cfg(feature = "metrics")]
             &mut load_program_metrics,
             $invoke_context.program_cache_for_tx_batch,
+            $invoke_context.program_loader,
             $invoke_context
                 .get_program_runtime_environment_for_deployment()
                 .clone(),

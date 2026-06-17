@@ -1405,7 +1405,7 @@ mod tests {
             program_cache_entry::{LoadedProgram, ProgramCacheEntryType},
         },
         solana_rent::Rent,
-        solana_sbpf::vm,
+        solana_sbpf::{elf::Executable, vm},
         solana_sdk_ids::{bpf_loader, system_program, sysvar},
         solana_signature::Signature,
         solana_svm_callback::{AccountState, InvokeContextCallback},
@@ -1459,6 +1459,13 @@ mod tests {
         }
 
         fn load(&self, _program_id: &Pubkey, _elf_bytes: &[u8]) {}
+
+        fn deploy(
+            &self,
+            _program_id: &Pubkey,
+            _program: Arc<Executable<InvokeContext<'static, 'static>>>,
+        ) {
+        }
     }
 
     impl TransactionProcessingCallback for MockBankCallback {
