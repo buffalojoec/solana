@@ -12740,12 +12740,20 @@ fn test_new_for_block_tests_with_vote_account() {
     );
 }
 
-// Build a test bank that resolves programs through the kita cache (JIT cache v2)
-// instead of the legacy global program cache. The flag must be set at
-// construction so built-ins are registered into the kita cache.
-fn new_bank_with_kita_cache_for_tests(genesis_config: &GenesisConfig) -> Bank {
+// Build a test bank whose program cache is the kita cache (JIT cache v2) when
+// `use_kita_cache` is set, or the legacy global cache otherwise. The flag must
+// be set at construction so built-ins land in the active cache. `all_features`
+// enables every feature so SBPF-v3 programs can be deployed and executed.
+//
+// Tests named `test_program_cache_*` run under both caches via `#[test_case]` to
+// assert the kita cache behaves identically to the legacy cache.
+fn new_program_cache_test_bank(
+    genesis_config: &GenesisConfig,
+    use_kita_cache: bool,
+    all_features: bool,
+) -> Bank {
     let runtime_config = Arc::new(RuntimeConfig {
-        use_kita_cache: true,
+        use_kita_cache,
         ..RuntimeConfig::default()
     });
     let mut bank = Bank::new_from_genesis(
@@ -12758,7 +12766,7 @@ fn new_bank_with_kita_cache_for_tests(genesis_config: &GenesisConfig) -> Bank {
         None,
         Arc::default(),
         None,
-        None,
+        all_features.then(FeatureSet::all_enabled),
     );
     bank.set_fee_structure(&FeeStructure {
         lamports_per_signature: genesis_config.fee_rate_governor.lamports_per_signature,
@@ -12769,7 +12777,13 @@ fn new_bank_with_kita_cache_for_tests(genesis_config: &GenesisConfig) -> Bank {
 
 // Read the no-op test program's ELF bytes.
 fn load_noop_program_elf() -> Vec<u8> {
-    let mut file = File::open("../programs/bpf_loader/test_elfs/out/noop_aligned.so").unwrap();
+    read_test_elf("noop_aligned")
+}
+
+// Read a checked-in test ELF by file stem (e.g. "sbpfv3_return_ok").
+fn read_test_elf(name: &str) -> Vec<u8> {
+    let path = format!("../programs/bpf_loader/test_elfs/out/{name}.so");
+    let mut file = File::open(path).unwrap();
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
     elf
@@ -12788,132 +12802,6 @@ fn store_sbpf_program_for_tests(bank: &Bank, elf: &[u8]) -> Pubkey {
     account.set_executable(true);
     bank.store_account_and_update_capitalization(&program_key, &account);
     program_key
-}
-
-// A built-in (the system program) resolves through the kita cache's built-in
-// tier and processes a transfer normally.
-#[test]
-fn test_kita_cache_executes_builtin() {
-    let (genesis_config, mint_keypair) = create_genesis_config_no_tx_fee(1_000_000_000);
-    let bank = new_bank_with_kita_cache_for_tests(&genesis_config);
-    let (bank, _bank_forks) = bank.wrap_with_bank_forks_for_tests();
-    assert!(bank.use_kita_cache());
-
-    let recipient = solana_pubkey::new_rand();
-    let amount = bank.get_minimum_balance_for_rent_exemption(0);
-    let transaction =
-        system_transaction::transfer(&mint_keypair, &recipient, amount, bank.last_blockhash());
-    assert_matches!(bank.process_transaction(&transaction), Ok(()));
-    assert_eq!(bank.get_balance(&recipient), amount);
-}
-
-// An on-chain SBPF program already present in the kita cache resolves through it
-// and executes. The compiled program is inserted directly to exercise the cache-
-// hit path independent of the on-miss load step.
-#[test]
-fn test_kita_cache_executes_sbpf_program() {
-    let (genesis_config, mint_keypair) = create_genesis_config_no_tx_fee(1_000_000_000);
-    let bank = new_bank_with_kita_cache_for_tests(&genesis_config);
-    let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
-    goto_end_of_slot(bank.clone());
-    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
-
-    let elf = load_noop_program_elf();
-    let program_key = store_sbpf_program_for_tests(&bank, &elf);
-
-    // Pre-load the kita cache: compile against the bank's execution environment,
-    // which is the same loader the VM runs with.
-    let environment = bank
-        .transaction_processor
-        .program_runtime_environment
-        .clone();
-    let entry = solana_kita_cache::compile::compile(&environment, &elf);
-    assert!(matches!(entry, solana_kita_cache::entry::Entry::Program(_)));
-    bank.kita_cache.insert(&program_key, entry, bank.slot());
-
-    let instruction = Instruction::new_with_bytes(program_key, &[], Vec::new());
-    let message = Message::new(&[instruction], Some(&mint_keypair.pubkey()));
-    let transaction = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
-    assert_matches!(bank.process_transaction(&transaction), Ok(()));
-}
-
-// A deployed SBPF program absent from the kita cache is compiled on miss (by the
-// batch-prepare step) and executes.
-#[test]
-fn test_kita_cache_compiles_sbpf_program_on_miss() {
-    let (genesis_config, mint_keypair) = create_genesis_config_no_tx_fee(1_000_000_000);
-    let bank = new_bank_with_kita_cache_for_tests(&genesis_config);
-    let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
-    goto_end_of_slot(bank.clone());
-    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
-
-    let elf = load_noop_program_elf();
-    let program_key = store_sbpf_program_for_tests(&bank, &elf);
-
-    let instruction = Instruction::new_with_bytes(program_key, &[], Vec::new());
-    let message = Message::new(&[instruction], Some(&mint_keypair.pubkey()));
-    let transaction = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
-    assert_matches!(bank.process_transaction(&transaction), Ok(()));
-}
-
-// A program compiled on miss stays cached: a later invocation on a descendant
-// bank resolves through the cache and executes.
-#[test]
-fn test_kita_cache_compiles_sbpf_program_on_miss_then_reuses() {
-    let (genesis_config, mint_keypair) = create_genesis_config_no_tx_fee(1_000_000_000);
-    let bank = new_bank_with_kita_cache_for_tests(&genesis_config);
-    let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
-    goto_end_of_slot(bank.clone());
-    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
-
-    let elf = load_noop_program_elf();
-    let program_key = store_sbpf_program_for_tests(&bank, &elf);
-
-    let instruction = Instruction::new_with_bytes(program_key, &[], Vec::new());
-    let message = Message::new(&[instruction.clone()], Some(&mint_keypair.pubkey()));
-    let transaction = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
-    assert_matches!(bank.process_transaction(&transaction), Ok(()));
-
-    goto_end_of_slot(bank.clone());
-    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 2);
-    let message = Message::new(&[instruction], Some(&mint_keypair.pubkey()));
-    let transaction = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
-    assert_matches!(bank.process_transaction(&transaction), Ok(()));
-}
-
-// Build a kita-cache bank with all features enabled, so SBPF-v3 programs can be
-// deployed and executed.
-fn new_kita_bank_all_features_for_tests(genesis_config: &GenesisConfig) -> Bank {
-    let runtime_config = Arc::new(RuntimeConfig {
-        use_kita_cache: true,
-        ..RuntimeConfig::default()
-    });
-    let mut bank = Bank::new_from_genesis(
-        genesis_config,
-        runtime_config,
-        vec![],
-        None,
-        BankTestConfig::default().accounts_db_config,
-        None,
-        None,
-        Arc::default(),
-        None,
-        Some(FeatureSet::all_enabled()),
-    );
-    bank.set_fee_structure(&FeeStructure {
-        lamports_per_signature: genesis_config.fee_rate_governor.lamports_per_signature,
-        ..FeeStructure::default()
-    });
-    bank
-}
-
-// Read a checked-in test ELF by file stem (e.g. "sbpfv3_return_ok").
-fn read_test_elf(name: &str) -> Vec<u8> {
-    let path = format!("../programs/bpf_loader/test_elfs/out/{name}.so");
-    let mut file = File::open(path).unwrap();
-    let mut elf = Vec::new();
-    file.read_to_end(&mut elf).unwrap();
-    elf
 }
 
 // Stage an upgradeable buffer account holding `elf`, owned by `authority`.
@@ -12958,11 +12846,7 @@ fn deploy_upgradeable_program_for_tests(
     )
     .unwrap();
     let message = Message::new(&instructions, Some(&payer.pubkey()));
-    let transaction = Transaction::new(
-        &[payer, &program, authority],
-        message,
-        bank.last_blockhash(),
-    );
+    let transaction = Transaction::new(&[payer, &program, authority], message, bank.last_blockhash());
     (program.pubkey(), bank.process_transaction(&transaction))
 }
 
@@ -13001,50 +12885,104 @@ fn invoke_program_for_tests(
     bank.process_transaction(&transaction)
 }
 
-// A program deployed in an earlier slot resolves through the kita cache and
-// executes in a later slot.
-#[test]
-fn test_kita_cache_deploy_then_invoke() {
-    let (genesis_config, mint) = create_genesis_config_no_tx_fee(100 * LAMPORTS_PER_SOL);
-    let bank = new_kita_bank_all_features_for_tests(&genesis_config);
+// A built-in (the system program) resolves through the program cache's built-in
+// tier and processes a transfer normally.
+#[test_case(false; "legacy")]
+#[test_case(true; "kita")]
+fn test_program_cache_executes_builtin(use_kita_cache: bool) {
+    let (genesis_config, mint_keypair) = create_genesis_config_no_tx_fee(1_000_000_000);
+    let bank = new_program_cache_test_bank(&genesis_config, use_kita_cache, false);
+    let (bank, _bank_forks) = bank.wrap_with_bank_forks_for_tests();
+
+    let recipient = solana_pubkey::new_rand();
+    let amount = bank.get_minimum_balance_for_rent_exemption(0);
+    let transaction =
+        system_transaction::transfer(&mint_keypair, &recipient, amount, bank.last_blockhash());
+    assert_matches!(bank.process_transaction(&transaction), Ok(()));
+    assert_eq!(bank.get_balance(&recipient), amount);
+}
+
+// A deployed SBPF program absent from the cache is compiled on miss and executes.
+#[test_case(false; "legacy")]
+#[test_case(true; "kita")]
+fn test_program_cache_compiles_sbpf_program_on_miss(use_kita_cache: bool) {
+    let (genesis_config, mint_keypair) = create_genesis_config_no_tx_fee(1_000_000_000);
+    let bank = new_program_cache_test_bank(&genesis_config, use_kita_cache, false);
     let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
     goto_end_of_slot(bank.clone());
     let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
 
-    let authority = Keypair::new();
-    let (program_id, result) = deploy_upgradeable_program_for_tests(
-        &bank,
-        &mint,
-        &authority,
-        &read_test_elf("sbpfv3_return_ok"),
-    );
-    assert_matches!(result, Ok(()));
+    let elf = load_noop_program_elf();
+    let program_key = store_sbpf_program_for_tests(&bank, &elf);
 
-    goto_end_of_slot(bank.clone());
-    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 2);
     assert_matches!(
-        invoke_program_for_tests(&bank, &mint, &program_id, &[]),
+        invoke_program_for_tests(&bank, &mint_keypair, &program_key, &[]),
         Ok(())
     );
 }
 
-// A program is not invocable in the same slot it was deployed: delayed
-// visibility keeps it from taking effect until the next slot.
-#[test]
-fn test_kita_cache_deploy_not_visible_in_deploy_slot() {
+// A program compiled on miss stays cached: a later invocation on a descendant
+// bank resolves through the cache and executes.
+#[test_case(false; "legacy")]
+#[test_case(true; "kita")]
+fn test_program_cache_reuses_compiled_program(use_kita_cache: bool) {
+    let (genesis_config, mint_keypair) = create_genesis_config_no_tx_fee(1_000_000_000);
+    let bank = new_program_cache_test_bank(&genesis_config, use_kita_cache, false);
+    let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
+
+    let elf = load_noop_program_elf();
+    let program_key = store_sbpf_program_for_tests(&bank, &elf);
+
+    assert_matches!(
+        invoke_program_for_tests(&bank, &mint_keypair, &program_key, &[]),
+        Ok(())
+    );
+
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 2);
+    assert_matches!(
+        invoke_program_for_tests(&bank, &mint_keypair, &program_key, &[]),
+        Ok(())
+    );
+}
+
+// A program deployed in an earlier slot resolves through the cache and executes
+// in a later slot.
+#[test_case(false; "legacy")]
+#[test_case(true; "kita")]
+fn test_program_cache_deploy_then_invoke(use_kita_cache: bool) {
     let (genesis_config, mint) = create_genesis_config_no_tx_fee(100 * LAMPORTS_PER_SOL);
-    let bank = new_kita_bank_all_features_for_tests(&genesis_config);
+    let bank = new_program_cache_test_bank(&genesis_config, use_kita_cache, true);
     let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
     goto_end_of_slot(bank.clone());
     let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
 
     let authority = Keypair::new();
-    let (program_id, result) = deploy_upgradeable_program_for_tests(
-        &bank,
-        &mint,
-        &authority,
-        &read_test_elf("sbpfv3_return_ok"),
-    );
+    let (program_id, result) =
+        deploy_upgradeable_program_for_tests(&bank, &mint, &authority, &read_test_elf("sbpfv3_return_ok"));
+    assert_matches!(result, Ok(()));
+
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 2);
+    assert_matches!(invoke_program_for_tests(&bank, &mint, &program_id, &[]), Ok(()));
+}
+
+// A program is not invocable in the same slot it was deployed: delayed
+// visibility keeps it from taking effect until the next slot.
+#[test_case(false; "legacy")]
+#[test_case(true; "kita")]
+fn test_program_cache_deploy_not_visible_in_deploy_slot(use_kita_cache: bool) {
+    let (genesis_config, mint) = create_genesis_config_no_tx_fee(100 * LAMPORTS_PER_SOL);
+    let bank = new_program_cache_test_bank(&genesis_config, use_kita_cache, true);
+    let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
+
+    let authority = Keypair::new();
+    let (program_id, result) =
+        deploy_upgradeable_program_for_tests(&bank, &mint, &authority, &read_test_elf("sbpfv3_return_ok"));
     assert_matches!(result, Ok(()));
 
     // Same slot as the deployment: the program must not be executable yet.
@@ -13052,39 +12990,27 @@ fn test_kita_cache_deploy_not_visible_in_deploy_slot() {
 }
 
 // An upgrade replaces the cached program: a later invocation runs the new code.
-#[test]
-fn test_kita_cache_upgrade_replaces_program() {
+#[test_case(false; "legacy")]
+#[test_case(true; "kita")]
+fn test_program_cache_upgrade_replaces_program(use_kita_cache: bool) {
     let (genesis_config, mint) = create_genesis_config_no_tx_fee(100 * LAMPORTS_PER_SOL);
-    let bank = new_kita_bank_all_features_for_tests(&genesis_config);
+    let bank = new_program_cache_test_bank(&genesis_config, use_kita_cache, true);
     let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
     goto_end_of_slot(bank.clone());
     let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
 
     let authority = Keypair::new();
-    let (program_id, result) = deploy_upgradeable_program_for_tests(
-        &bank,
-        &mint,
-        &authority,
-        &read_test_elf("sbpfv3_return_ok"),
-    );
+    let (program_id, result) =
+        deploy_upgradeable_program_for_tests(&bank, &mint, &authority, &read_test_elf("sbpfv3_return_ok"));
     assert_matches!(result, Ok(()));
 
     goto_end_of_slot(bank.clone());
     let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 2);
-    assert_matches!(
-        invoke_program_for_tests(&bank, &mint, &program_id, &[]),
-        Ok(())
-    );
+    assert_matches!(invoke_program_for_tests(&bank, &mint, &program_id, &[]), Ok(()));
 
     // Upgrade to a program that returns an error.
     assert_matches!(
-        upgrade_program_for_tests(
-            &bank,
-            &mint,
-            &program_id,
-            &authority,
-            &read_test_elf("sbpfv3_return_err")
-        ),
+        upgrade_program_for_tests(&bank, &mint, &program_id, &authority, &read_test_elf("sbpfv3_return_err")),
         Ok(())
     );
 
@@ -13097,40 +13023,28 @@ fn test_kita_cache_upgrade_replaces_program() {
 // upgrade slot and the upgraded program only takes effect in the next slot.
 // Both versions return success, so the upgrade-slot failure can only be delayed
 // visibility, not program behavior.
-#[test]
-fn test_kita_cache_upgrade_respects_delayed_visibility() {
+#[test_case(false; "legacy")]
+#[test_case(true; "kita")]
+fn test_program_cache_upgrade_respects_delayed_visibility(use_kita_cache: bool) {
     let (genesis_config, mint) = create_genesis_config_no_tx_fee(100 * LAMPORTS_PER_SOL);
-    let bank = new_kita_bank_all_features_for_tests(&genesis_config);
+    let bank = new_program_cache_test_bank(&genesis_config, use_kita_cache, true);
     let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
     goto_end_of_slot(bank.clone());
     let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
 
     let authority = Keypair::new();
-    let (program_id, result) = deploy_upgradeable_program_for_tests(
-        &bank,
-        &mint,
-        &authority,
-        &read_test_elf("sbpfv3_return_ok"),
-    );
+    let (program_id, result) =
+        deploy_upgradeable_program_for_tests(&bank, &mint, &authority, &read_test_elf("sbpfv3_return_ok"));
     assert_matches!(result, Ok(()));
 
     goto_end_of_slot(bank.clone());
     let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 2);
     // The program is live before the upgrade.
-    assert_matches!(
-        invoke_program_for_tests(&bank, &mint, &program_id, &[0]),
-        Ok(())
-    );
+    assert_matches!(invoke_program_for_tests(&bank, &mint, &program_id, &[0]), Ok(()));
 
     // Upgrade in this slot; the upgraded program is withheld until the next slot.
     assert_matches!(
-        upgrade_program_for_tests(
-            &bank,
-            &mint,
-            &program_id,
-            &authority,
-            &read_test_elf("sbpfv3_return_ok")
-        ),
+        upgrade_program_for_tests(&bank, &mint, &program_id, &authority, &read_test_elf("sbpfv3_return_ok")),
         Ok(())
     );
     // Same slot as the upgrade: delayed visibility makes the program unavailable.
@@ -13145,18 +13059,46 @@ fn test_kita_cache_upgrade_respects_delayed_visibility() {
     // Next slot: the upgraded program takes effect again.
     goto_end_of_slot(bank.clone());
     let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 3);
-    assert_matches!(
-        invoke_program_for_tests(&bank, &mint, &program_id, &[2]),
-        Ok(())
-    );
+    assert_matches!(invoke_program_for_tests(&bank, &mint, &program_id, &[2]), Ok(()));
+}
+
+// Multiple distinct programs deployed in the same slot are each held until the
+// next slot, then all become invocable.
+#[test_case(false; "legacy")]
+#[test_case(true; "kita")]
+fn test_program_cache_multiple_deploys_in_one_slot(use_kita_cache: bool) {
+    let (genesis_config, mint) = create_genesis_config_no_tx_fee(100 * LAMPORTS_PER_SOL);
+    let bank = new_program_cache_test_bank(&genesis_config, use_kita_cache, true);
+    let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
+
+    let authority = Keypair::new();
+    let (program_a, result_a) =
+        deploy_upgradeable_program_for_tests(&bank, &mint, &authority, &read_test_elf("sbpfv3_return_ok"));
+    assert_matches!(result_a, Ok(()));
+    let (program_b, result_b) =
+        deploy_upgradeable_program_for_tests(&bank, &mint, &authority, &read_test_elf("sbpfv3_return_ok"));
+    assert_matches!(result_b, Ok(()));
+
+    // Deploy slot: neither program is visible yet.
+    assert!(invoke_program_for_tests(&bank, &mint, &program_a, &[]).is_err());
+    assert!(invoke_program_for_tests(&bank, &mint, &program_b, &[]).is_err());
+
+    // Next slot: both programs are invocable.
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 2);
+    assert_matches!(invoke_program_for_tests(&bank, &mint, &program_a, &[]), Ok(()));
+    assert_matches!(invoke_program_for_tests(&bank, &mint, &program_b, &[]), Ok(()));
 }
 
 // A program deployed earlier in the same batch is not invocable later in that
 // batch.
-#[test]
-fn test_kita_cache_same_batch_deploy_then_invoke_fails() {
+#[test_case(false; "legacy")]
+#[test_case(true; "kita")]
+fn test_program_cache_same_batch_deploy_then_invoke_fails(use_kita_cache: bool) {
     let (genesis_config, mint) = create_genesis_config_no_tx_fee(100 * LAMPORTS_PER_SOL);
-    let bank = new_kita_bank_all_features_for_tests(&genesis_config);
+    let bank = new_program_cache_test_bank(&genesis_config, use_kita_cache, true);
     let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
     goto_end_of_slot(bank.clone());
     let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
@@ -13194,11 +13136,7 @@ fn test_kita_cache_same_batch_deploy_then_invoke_fails() {
     let invoke_tx = Transaction::new(
         &[&invoker],
         Message::new(
-            &[Instruction::new_with_bytes(
-                program.pubkey(),
-                &[],
-                Vec::new(),
-            )],
+            &[Instruction::new_with_bytes(program.pubkey(), &[], Vec::new())],
             Some(&invoker.pubkey()),
         ),
         bank.last_blockhash(),
@@ -13209,11 +13147,11 @@ fn test_kita_cache_same_batch_deploy_then_invoke_fails() {
     assert!(results[1].is_err());
 }
 
-// A deployed program is reachable through the kita cache via CPI from another
-// program.
-#[test]
-fn test_kita_cache_cpi_into_deployed_program() {
-    declare_process_instruction!(MockKitaCpiCaller, 1, |invoke_context| {
+// A deployed program is reachable through the cache via CPI from another program.
+#[test_case(false; "legacy")]
+#[test_case(true; "kita")]
+fn test_program_cache_cpi_into_deployed_program(use_kita_cache: bool) {
+    declare_process_instruction!(MockCpiCaller, 1, |invoke_context| {
         let callee = {
             let transaction_context = &invoke_context.transaction_context;
             let instruction_context = transaction_context.get_current_instruction_context()?;
@@ -13228,20 +13166,20 @@ fn test_kita_cache_cpi_into_deployed_program() {
 
     let (genesis_config, mint) = create_genesis_config_no_tx_fee(100 * LAMPORTS_PER_SOL);
     let caller_id = Pubkey::new_unique();
-    let mut bank = new_kita_bank_all_features_for_tests(&genesis_config);
-    bank.add_mockup_builtin(caller_id, MockKitaCpiCaller::register);
-    bank.register_kita_builtin(&caller_id, MockKitaCpiCaller::register);
+    let mut bank = new_program_cache_test_bank(&genesis_config, use_kita_cache, true);
+    bank.add_mockup_builtin(caller_id, MockCpiCaller::register);
+    // `add_mockup_builtin` only registers into the legacy cache, so the kita
+    // cache needs the built-in registered explicitly.
+    if use_kita_cache {
+        bank.register_kita_builtin(&caller_id, MockCpiCaller::register);
+    }
     let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
     goto_end_of_slot(bank.clone());
     let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
 
     let authority = Keypair::new();
-    let (program_id, result) = deploy_upgradeable_program_for_tests(
-        &bank,
-        &mint,
-        &authority,
-        &read_test_elf("sbpfv3_return_ok"),
-    );
+    let (program_id, result) =
+        deploy_upgradeable_program_for_tests(&bank, &mint, &authority, &read_test_elf("sbpfv3_return_ok"));
     assert_matches!(result, Ok(()));
 
     goto_end_of_slot(bank.clone());
@@ -13258,25 +13196,51 @@ fn test_kita_cache_cpi_into_deployed_program() {
 }
 
 // A program that fails verification cannot be deployed and never enters the
-// kita cache.
-#[test]
-fn test_kita_cache_deploy_of_invalid_program_fails() {
+// cache.
+#[test_case(false; "legacy")]
+#[test_case(true; "kita")]
+fn test_program_cache_deploy_of_invalid_program_fails(use_kita_cache: bool) {
     let (genesis_config, mint) = create_genesis_config_no_tx_fee(100 * LAMPORTS_PER_SOL);
-    let bank = new_kita_bank_all_features_for_tests(&genesis_config);
+    let bank = new_program_cache_test_bank(&genesis_config, use_kita_cache, true);
     let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
     goto_end_of_slot(bank.clone());
     let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
 
     let authority = Keypair::new();
-    let (program_id, result) = deploy_upgradeable_program_for_tests(
-        &bank,
-        &mint,
-        &authority,
-        &read_test_elf("sbpfv0_verifier_err"),
-    );
+    let (program_id, result) =
+        deploy_upgradeable_program_for_tests(&bank, &mint, &authority, &read_test_elf("sbpfv0_verifier_err"));
     assert!(result.is_err());
 
     goto_end_of_slot(bank.clone());
     let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 2);
     assert!(invoke_program_for_tests(&bank, &mint, &program_id, &[]).is_err());
+}
+
+// White-box (kita cache only): a program inserted directly into the kita cache
+// is served from the cache-hit path, bypassing the on-miss compile.
+#[test]
+fn test_kita_cache_serves_preloaded_program() {
+    let (genesis_config, mint_keypair) = create_genesis_config_no_tx_fee(1_000_000_000);
+    let bank = new_program_cache_test_bank(&genesis_config, true, false);
+    let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
+
+    let elf = load_noop_program_elf();
+    let program_key = store_sbpf_program_for_tests(&bank, &elf);
+
+    // Compile against the bank's execution environment, which is the same loader
+    // the VM runs with, and insert directly.
+    let environment = bank
+        .transaction_processor
+        .program_runtime_environment
+        .clone();
+    let entry = solana_kita_cache::compile::compile(&environment, &elf);
+    assert!(matches!(entry, solana_kita_cache::entry::Entry::Program(_)));
+    bank.kita_cache.insert(&program_key, entry, bank.slot());
+
+    assert_matches!(
+        invoke_program_for_tests(&bank, &mint_keypair, &program_key, &[]),
+        Ok(())
+    );
 }
