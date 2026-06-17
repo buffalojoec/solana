@@ -1571,6 +1571,10 @@ impl Bank {
                 .reset();
         }
 
+        if new.use_kita_cache {
+            warn!("Kita Cache active for new bank at slot {}", new.slot());
+        }
+
         new
     }
 
