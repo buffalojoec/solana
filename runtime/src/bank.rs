@@ -6629,6 +6629,11 @@ impl Bank {
         register_fn(&mut program, "entrypoint").unwrap();
         self.kita_cache.add_builtin(program_id, program);
     }
+
+    /// Prune the Kita Cache in response to this bank being rooted.
+    pub fn prune_kita_cache(&self) {
+        self.kita_cache.prune();
+    }
 }
 
 impl InvokeContextCallback for Bank {

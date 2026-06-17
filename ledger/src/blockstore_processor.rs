@@ -2600,7 +2600,9 @@ fn load_frozen_forks(
                 root = new_root_bank.slot();
 
                 leader_schedule_cache.set_root(new_root_bank);
-                if !new_root_bank.use_kita_cache() {
+                if new_root_bank.use_kita_cache() {
+                    new_root_bank.prune_kita_cache();
+                } else {
                     new_root_bank.prune_program_cache(&bank_forks.read().unwrap());
                 }
                 let _ = bank_forks

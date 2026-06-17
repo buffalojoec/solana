@@ -544,7 +544,9 @@ impl BankForks {
 
     pub fn prune_program_cache(&self, root: Slot) {
         if let Some(root_bank) = self.banks.get(&root) {
-            if !root_bank.use_kita_cache() {
+            if root_bank.use_kita_cache() {
+                root_bank.prune_kita_cache();
+            } else {
                 root_bank.prune_program_cache(self);
             }
         }
