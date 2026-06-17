@@ -146,6 +146,13 @@ pub fn execute(
     info!("{} {}", crate_name!(), solana_version);
     info!("Starting validator with: {:#?}", std::env::args_os());
 
+    if matches.is_present("use_kita_cache") {
+        warn!(
+            "Kita Cache (JIT cache v2) is ENABLED via --use-kita-cache; the legacy program JIT \
+             cache is disabled"
+        );
+    }
+
     solana_metrics::set_host_id(identity_keypair.pubkey().to_string());
     solana_metrics::set_panic_hook("validator", Some(String::from(solana_version)));
 
