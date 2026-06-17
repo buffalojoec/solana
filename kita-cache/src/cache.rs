@@ -7,10 +7,10 @@
 //!
 //! [`find`](KitaCache::find) resolves a program through four tiers, in order:
 //!
-//! 1. built-ins - registered, never compiled or evicted.
-//! 2. this bank's own compilation events (deploys and on-miss compiles).
-//! 3. the read-only snapshot of events inherited from ancestor banks.
-//! 4. the global root cache, shared by every bank.
+//! 1. Built-ins - registered, never compiled or evicted.
+//! 2. This bank's own compilation events (deploys and on-miss compiles).
+//! 3. The read-only snapshot of events inherited from ancestor banks.
+//! 4. The global root cache, shared by every bank.
 //!
 //! The root cache is written only at pruning: when a bank is rooted its
 //! inherited events graduate in, then it's trimmed to the most-used programs
