@@ -12836,3 +12836,47 @@ fn test_kita_cache_executes_sbpf_program() {
     let transaction = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
     assert_matches!(bank.process_transaction(&transaction), Ok(()));
 }
+
+// A deployed SBPF program absent from the kita cache is compiled on miss (by the
+// batch-prepare step) and executes.
+#[test]
+fn test_kita_cache_compiles_sbpf_program_on_miss() {
+    let (genesis_config, mint_keypair) = create_genesis_config_no_tx_fee(1_000_000_000);
+    let bank = new_bank_with_kita_cache_for_tests(&genesis_config);
+    let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
+
+    let elf = load_noop_program_elf();
+    let program_key = store_sbpf_program_for_tests(&bank, &elf);
+
+    let instruction = Instruction::new_with_bytes(program_key, &[], Vec::new());
+    let message = Message::new(&[instruction], Some(&mint_keypair.pubkey()));
+    let transaction = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
+    assert_matches!(bank.process_transaction(&transaction), Ok(()));
+}
+
+// A program compiled on miss stays cached: a later invocation on a descendant
+// bank resolves through the cache and executes.
+#[test]
+fn test_kita_cache_compiles_sbpf_program_on_miss_then_reuses() {
+    let (genesis_config, mint_keypair) = create_genesis_config_no_tx_fee(1_000_000_000);
+    let bank = new_bank_with_kita_cache_for_tests(&genesis_config);
+    let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
+
+    let elf = load_noop_program_elf();
+    let program_key = store_sbpf_program_for_tests(&bank, &elf);
+
+    let instruction = Instruction::new_with_bytes(program_key, &[], Vec::new());
+    let message = Message::new(&[instruction.clone()], Some(&mint_keypair.pubkey()));
+    let transaction = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
+    assert_matches!(bank.process_transaction(&transaction), Ok(()));
+
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 2);
+    let message = Message::new(&[instruction], Some(&mint_keypair.pubkey()));
+    let transaction = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
+    assert_matches!(bank.process_transaction(&transaction), Ok(()));
+}
