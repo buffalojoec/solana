@@ -9474,6 +9474,7 @@ dependencies = [
  "solana-instruction",
  "solana-instruction-error",
  "solana-instructions-sysvar",
+ "solana-legacy-jit-cache-stats",
  "solana-loader-v3-interface",
  "solana-loader-v4-interface",
  "solana-message",
@@ -9509,8 +9510,10 @@ version = "4.2.0-alpha.0"
 dependencies = [
  "solana-account 4.3.0",
  "solana-clock",
+ "solana-legacy-jit-cache-stats",
  "solana-precompile-error",
  "solana-pubkey 4.2.0",
+ "solana-sbpf",
 ]
 
 [[package]]

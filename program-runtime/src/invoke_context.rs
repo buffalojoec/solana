@@ -16,7 +16,6 @@ use {
             ProgramCacheForTxBatch, ProgramRuntimeEnvironment, ProgramRuntimeEnvironments,
         },
         memory_context::{MemoryContext, MemoryContexts},
-        program_cache_entry::ProgramCacheEntryType,
         stable_log,
         sysvar_cache::SysvarCache,
     },
@@ -34,7 +33,7 @@ use {
     solana_sdk_ids::{
         bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, loader_v4, native_loader,
     },
-    solana_svm_callback::InvokeContextCallback,
+    solana_svm_callback::{InvokeContextCallback, InvokeContextProgramLoader, LoadedProgram},
     solana_svm_feature_set::SVMFeatureSet,
     solana_svm_log_collector::{LogCollector, ic_msg},
     solana_svm_measure::measure::Measure,
@@ -222,6 +221,9 @@ pub struct InvokeContext<'a, 'ix_data> {
     pub transaction_context: &'a mut TransactionContext<'ix_data>,
     /// The local program cache for the transaction batch.
     pub program_cache_for_tx_batch: &'a mut ProgramCacheForTxBatch,
+    /// The fork-local program loader (the kita cache, JIT cache v2). When set,
+    /// execution resolves programs through it instead of the legacy cache.
+    pub program_loader: Option<&'a dyn InvokeContextProgramLoader<InvokeContext<'static, 'static>>>,
     /// Runtime configurations used to provision the invocation environment.
     pub environment_config: EnvironmentConfig<'a>,
     /// The compute budget for the current invocation.
@@ -255,6 +257,7 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
         Self {
             transaction_context,
             program_cache_for_tx_batch,
+            program_loader: None,
             environment_config,
             log_collector,
             compute_budget,
@@ -266,6 +269,21 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
             register_traces: Vec::new(),
             #[cfg(feature = "sbpf-debugger")]
             debug_port: None,
+        }
+    }
+
+    /// Resolve a program for execution: through the fork-local program loader
+    /// (the kita cache) when set, otherwise the legacy batch cache.
+    pub fn find_program(
+        &self,
+        program_id: &Pubkey,
+    ) -> Option<Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>> {
+        match self.program_loader {
+            Some(loader) => loader.find(program_id),
+            None => self
+                .program_cache_for_tx_batch
+                .find(program_id)
+                .map(|entry| entry as Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>),
         }
     }
 
@@ -589,11 +607,10 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
         // The Murmur3 hash value (used by RBPF) of the string "entrypoint"
         const ENTRYPOINT_KEY: u32 = 0x71E3CF81;
         let entry = self
-            .program_cache_for_tx_batch
-            .find(&builtin_id)
+            .find_program(&builtin_id)
             .ok_or(InstructionError::UnsupportedProgramId)?;
-        let function = match &entry.program {
-            ProgramCacheEntryType::Builtin(program) => program
+        let function = match entry.builtin() {
+            Some(program) => program
                 .get_function_registry()
                 .lookup_by_key(ENTRYPOINT_KEY)
                 .map(|(_name, (function, _codegen))| function),
@@ -769,10 +786,10 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
             let Ok(program_id) = instruction_context.get_program_key() else {
                 continue;
             };
-            let Some(entry) = self.program_cache_for_tx_batch.find(program_id) else {
+            let Some(entry) = self.find_program(program_id) else {
                 continue;
             };
-            let ProgramCacheEntryType::Loaded(ref executable) = entry.program else {
+            let Some(executable) = entry.executable() else {
                 continue;
             };
             callback(instruction_context, executable, register_trace.as_slice());

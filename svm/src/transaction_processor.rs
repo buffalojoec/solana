@@ -26,6 +26,7 @@ use {
     solana_clock::{Epoch, Slot},
     solana_hash::Hash,
     solana_instruction::TRANSACTION_LEVEL_STACK_HEIGHT,
+    solana_legacy_jit_cache_stats::ProgramStatistics,
     solana_message::{
         compiled_instruction::CompiledInstruction,
         inner_instruction::{InnerInstruction, InnerInstructionsList},
@@ -47,13 +48,14 @@ use {
             ProgramToLoad,
         },
         program_cache_entry::{ProgramCacheEntry, ProgramCacheEntryOwner},
-        program_metrics::ProgramStatistics,
         solana_sbpf::{program::BuiltinProgram, vm::Config as VmConfig},
         sysvar_cache::SysvarCache,
     },
     solana_pubkey::Pubkey,
     solana_rent::Rent,
-    solana_svm_callback::{InvokeContextCallback, TransactionProcessingCallback},
+    solana_svm_callback::{
+        InvokeContextCallback, InvokeContextProgramLoader, TransactionProcessingCallback,
+    },
     solana_svm_feature_set::SVMFeatureSet,
     solana_svm_log_collector::LogCollector,
     solana_svm_measure::{measure::Measure, measure_us},
@@ -404,7 +406,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
     /// Main entrypoint to the SVM.
     pub fn load_and_execute_sanitized_transactions<
-        CB: TransactionProcessingCallback + InvokeContextCallback,
+        CB: TransactionProcessingCallback
+            + InvokeContextCallback
+            + InvokeContextProgramLoader<InvokeContext<'static, 'static>>,
     >(
         &self,
         callbacks: &CB,
@@ -992,7 +996,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
     /// Execute a transaction using the provided loaded accounts and update
     /// the executors cache if the transaction was successful.
-    fn execute_loaded_transaction<CB: InvokeContextCallback>(
+    fn execute_loaded_transaction<
+        CB: InvokeContextCallback + InvokeContextProgramLoader<InvokeContext<'static, 'static>>,
+    >(
         &self,
         callback: &CB,
         tx: &impl SVMTransaction,
@@ -1070,6 +1076,11 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             compute_budget,
             self.execution_cost,
         );
+        // Under the kita cache, the runtime callback itself is the program
+        // loader; execution resolves through it instead of the legacy cache.
+        if self.use_kita_cache {
+            invoke_context.program_loader = Some(callback);
+        }
 
         let mut process_message_time = Measure::start("process_message_time");
         let process_result = process_message(
@@ -1382,7 +1393,7 @@ mod tests {
             },
             invoke_context::BuiltinFunctionRegisterer,
             loaded_programs::BlockRelation,
-            program_cache_entry::ProgramCacheEntryType,
+            program_cache_entry::{LoadedProgram, ProgramCacheEntryType},
         },
         solana_rent::Rent,
         solana_sbpf::vm,
@@ -1429,6 +1440,15 @@ mod tests {
     }
 
     impl InvokeContextCallback for MockBankCallback {}
+
+    impl InvokeContextProgramLoader<InvokeContext<'static, 'static>> for MockBankCallback {
+        fn find(
+            &self,
+            _program_id: &Pubkey,
+        ) -> Option<Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>> {
+            None
+        }
+    }
 
     impl TransactionProcessingCallback for MockBankCallback {
         fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<(AccountSharedData, Slot)> {

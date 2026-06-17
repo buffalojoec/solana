@@ -1,5 +1,6 @@
 #[cfg(feature = "metrics")]
 use crate::program_metrics::LoadProgramMetrics;
+pub use solana_svm_callback::LoadedProgram;
 use {
     crate::{
         invoke_context::{BuiltinFunctionRegisterer, InvokeContext},
@@ -389,6 +390,26 @@ impl ProgramCacheEntry {
 
     pub fn account_owner(&self) -> Pubkey {
         self.account_owner.into()
+    }
+}
+
+impl LoadedProgram<InvokeContext<'static, 'static>> for ProgramCacheEntry {
+    fn executable(&self) -> Option<&Executable<InvokeContext<'static, 'static>>> {
+        match &self.program {
+            ProgramCacheEntryType::Loaded(executable) => Some(executable),
+            _ => None,
+        }
+    }
+
+    fn builtin(&self) -> Option<&BuiltinProgram<InvokeContext<'static, 'static>>> {
+        match &self.program {
+            ProgramCacheEntryType::Builtin(builtin) => Some(builtin),
+            _ => None,
+        }
+    }
+
+    fn legacy_stats(&self) -> Option<&ProgramStatistics> {
+        Some(self.stats.as_ref())
     }
 }
 

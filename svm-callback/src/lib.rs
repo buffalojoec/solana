@@ -1,7 +1,12 @@
 #![cfg(feature = "agave-unstable-api")]
 use {
-    solana_account::AccountSharedData, solana_clock::Slot,
-    solana_precompile_error::PrecompileError, solana_pubkey::Pubkey,
+    solana_account::AccountSharedData,
+    solana_clock::Slot,
+    solana_legacy_jit_cache_stats::ProgramStatistics,
+    solana_precompile_error::PrecompileError,
+    solana_pubkey::Pubkey,
+    solana_sbpf::{elf::Executable, program::BuiltinProgram, vm::ContextObject},
+    std::sync::Arc,
 };
 
 /// Callback used by InvokeContext in SVM
@@ -47,4 +52,26 @@ pub enum AccountState<'a> {
     Dead,
     /// This account is alive, and already existed prior to this transaction
     Alive(&'a AccountSharedData),
+}
+
+/// This trait lets us abstract over the program JIT cache implementation in SVM
+/// and program-runtime, to make room for the Kita Cache.
+pub trait InvokeContextProgramLoader<C: ContextObject> {
+    /// Find the loaded program for `program_id`, if present.
+    fn find(&self, program_id: &Pubkey) -> Option<Arc<dyn LoadedProgram<C>>>;
+}
+
+/// This trait lets us abstract over the program JIT cache implementation in SVM
+/// and program-runtime, to make room for the Kita Cache.
+pub trait LoadedProgram<C: ContextObject> {
+    /// The verified, executable program, if this entry holds one.
+    fn executable(&self) -> Option<&Executable<C>>;
+
+    /// The built-in program, if this entry is a built-in.
+    fn builtin(&self) -> Option<&BuiltinProgram<C>>;
+
+    /// Used to record usage stats on the legacy cache.
+    fn legacy_stats(&self) -> Option<&ProgramStatistics> {
+        None
+    }
 }

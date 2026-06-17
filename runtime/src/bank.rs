@@ -132,7 +132,7 @@ use {
     solana_packet::PACKET_DATA_SIZE,
     solana_precompile_error::PrecompileError,
     solana_program_runtime::{
-        invoke_context::BuiltinFunctionRegisterer,
+        invoke_context::{BuiltinFunctionRegisterer, InvokeContext},
         loaded_programs::{ProgramRuntimeEnvironment, ProgramRuntimeEnvironments},
         program_cache_entry::ProgramCacheEntry,
     },
@@ -172,7 +172,10 @@ use {
             TransactionProcessingConfig, TransactionProcessingEnvironment,
         },
     },
-    solana_svm_callback::{AccountState, InvokeContextCallback, TransactionProcessingCallback},
+    solana_svm_callback::{
+        AccountState, InvokeContextCallback, InvokeContextProgramLoader, LoadedProgram,
+        TransactionProcessingCallback,
+    },
     solana_svm_timings::{ExecuteTimingType, ExecuteTimings},
     solana_svm_transaction::svm_message::SVMMessage,
     solana_syscalls::create_program_runtime_environment,
@@ -6647,6 +6650,18 @@ impl TransactionProcessingCallback for Bank {
 
     fn inspect_account(&self, _address: &Pubkey, _account_state: AccountState, _is_writable: bool) {
         // nothing to do here
+    }
+}
+
+impl InvokeContextProgramLoader<InvokeContext<'static, 'static>> for Bank {
+    fn find(
+        &self,
+        _program_id: &Pubkey,
+    ) -> Option<Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>> {
+        // TODO: this trait is only used by the kita cache (JIT cache v2), and the
+        // legacy path resolves programs through `ProgramCacheForTxBatch` instead.
+        // Wire it up once `use_kita_cache` can be `true`.
+        None
     }
 }
 

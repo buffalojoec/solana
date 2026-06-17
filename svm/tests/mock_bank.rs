@@ -12,7 +12,7 @@ use {
         execution_budget::{SVMTransactionExecutionBudget, SVMTransactionExecutionCost},
         invoke_context::InvokeContext,
         loaded_programs::{BlockRelation, ForkGraph, ProgramRuntimeEnvironment},
-        program_cache_entry::ProgramCacheEntry,
+        program_cache_entry::{LoadedProgram, ProgramCacheEntry},
         solana_sbpf::{
             program::{BuiltinFunctionDefinition, BuiltinProgram, SBPFVersion},
             vm::Config,
@@ -22,7 +22,10 @@ use {
     solana_rent::Rent,
     solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, compute_budget},
     solana_svm::transaction_processor::TransactionBatchProcessor,
-    solana_svm_callback::{AccountState, InvokeContextCallback, TransactionProcessingCallback},
+    solana_svm_callback::{
+        AccountState, InvokeContextCallback, InvokeContextProgramLoader,
+        TransactionProcessingCallback,
+    },
     solana_svm_feature_set::SVMFeatureSet,
     solana_svm_transaction::svm_message::SVMMessage,
     solana_svm_type_overrides::sync::{Arc, RwLock},
@@ -67,6 +70,15 @@ pub struct MockBankCallback {
 }
 
 impl InvokeContextCallback for MockBankCallback {}
+
+impl InvokeContextProgramLoader<InvokeContext<'static, 'static>> for MockBankCallback {
+    fn find(
+        &self,
+        _program_id: &Pubkey,
+    ) -> Option<Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>> {
+        None
+    }
+}
 
 impl TransactionProcessingCallback for MockBankCallback {
     fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<(AccountSharedData, Slot)> {

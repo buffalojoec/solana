@@ -8,7 +8,7 @@ use {
         invoke_context::{BpfAllocator, InvokeContext},
         mem_pool::VmMemoryPool,
         memory_context::{MemoryContext, SerializedAccountMetadata},
-        program_cache_entry::ProgramCacheEntry,
+        program_metrics::ProgramStatistics,
         serialization, stable_log,
     },
     solana_instruction::error::InstructionError,
@@ -182,7 +182,7 @@ unsafe fn set_memory_context<'b>(
 pub fn execute<'a, 'b: 'a>(
     executable: &'a Executable<InvokeContext<'static, 'static>>,
     invoke_context: &'a mut InvokeContext<'b, 'b>,
-    cache_entry: &ProgramCacheEntry,
+    program_stats: Option<&ProgramStatistics>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // We dropped the lifetime tracking in the Executor by setting it to 'static,
     // thus we need to reintroduce the correct lifetime of InvokeContext here again.
@@ -335,8 +335,16 @@ pub fn execute<'a, 'b: 'a>(
         let this_call_us = this_call_ns / 1000;
         invoke_context.timings.execute_us += this_call_us;
         match execution_mode {
-            ExecutionMode::Interpreted => cache_entry.stats.interpreter_executed(this_call_us),
-            ExecutionMode::Jit => cache_entry.stats.jit_executed(this_call_us),
+            ExecutionMode::Interpreted => {
+                if let Some(stats) = program_stats {
+                    stats.interpreter_executed(this_call_us);
+                }
+            }
+            ExecutionMode::Jit => {
+                if let Some(stats) = program_stats {
+                    stats.jit_executed(this_call_us);
+                }
+            }
             ExecutionMode::PreferJit => { /* not actually executed? */ }
         }
 

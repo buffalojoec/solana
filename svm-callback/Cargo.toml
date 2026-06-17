@@ -15,8 +15,10 @@ agave-unstable-api = []
 [dependencies]
 solana-account = { workspace = true }
 solana-clock = { workspace = true }
+solana-legacy-jit-cache-stats = { workspace = true }
 solana-precompile-error = { workspace = true }
 solana-pubkey = { workspace = true }
+solana-sbpf = { workspace = true }
 
 [lints]
 workspace = true
