@@ -20,7 +20,7 @@
 //! banks are dropped.
 
 use {
-    crate::entry::Entry,
+    crate::{entry::Entry, usage::UsageTracker},
     solana_clock::Slot,
     solana_pubkey::Pubkey,
     solana_sbpf::{program::BuiltinProgram, vm::ContextObject},
@@ -53,12 +53,6 @@ type ParentEventCache<C> = Arc<HashMap<Pubkey, EventCacheEntry<C>>>;
 type CurrentEventCache<C> = RwLock<HashMap<Pubkey, EventCacheEntry<C>>>;
 type Builtins<C> = RwLock<Arc<HashMap<Pubkey, Arc<BuiltinProgram<C>>>>>;
 
-/// Number of programs to retain in the root cache after a rooting event.
-///
-// TODO: This is a placeholder. The usage tracker will replace it with a tuned
-// depth driven by per-program popularity rather than a fixed constant.
-const RETENTION_DEPTH: usize = 256;
-
 pub struct KitaCache<C: ContextObject> {
     /// A pointer to the global cache of JIT-compiled programs. Shared by every
     /// bank; only written during pruning.
@@ -79,6 +73,9 @@ pub struct KitaCache<C: ContextObject> {
     /// copy-on-write with the parent, since built-ins only change on feature
     /// transitions.
     builtins: Builtins<C>,
+    /// Per-program usage statistics, shared by every bank like the root cache.
+    /// Records demand on `find` and drives root-cache retention at pruning.
+    usage_tracker: Arc<UsageTracker>,
 }
 
 impl<C: ContextObject> Default for KitaCache<C> {
@@ -88,6 +85,7 @@ impl<C: ContextObject> Default for KitaCache<C> {
             parent_event_cache: Arc::default(),
             current_event_cache: RwLock::default(),
             builtins: RwLock::default(),
+            usage_tracker: Arc::default(),
         }
     }
 }
@@ -121,6 +119,7 @@ impl<C: ContextObject> KitaCache<C> {
             parent_event_cache,
             current_event_cache: RwLock::default(),
             builtins: RwLock::new(Arc::clone(&parent.builtins.read().unwrap())),
+            usage_tracker: Arc::clone(&parent.usage_tracker),
         }
     }
 
@@ -138,16 +137,26 @@ impl<C: ContextObject> KitaCache<C> {
     /// Returns an owned [`Entry`] - cheap, since the program is shared behind an
     /// [`Arc`] - because the tiers are guarded by locks.
     pub fn find(&self, program_id: &Pubkey) -> Option<Entry<C>> {
+        // Built-ins are never compiled or evicted, so they are exempt from usage
+        // tracking and resolve before it.
         if let Some(builtin) = self.builtins.read().unwrap().get(program_id) {
             return Some(Entry::Builtin(Arc::clone(builtin)));
         }
+
+        let mut entry = None;
         if let Some(event) = self.current_event_cache.read().unwrap().get(program_id) {
-            return Some(event.entry.clone());
+            entry = Some(event.entry.clone());
+        } else if let Some(event) = self.parent_event_cache.get(program_id) {
+            entry = Some(event.entry.clone());
+        } else if let Some(program) = self.root_cache.read().unwrap().get(program_id) {
+            entry = Some(program.clone());
         }
-        if let Some(event) = self.parent_event_cache.get(program_id) {
-            return Some(event.entry.clone());
+
+        if entry.is_some() {
+            // Count demand for this program to inform root-cache retention.
+            self.usage_tracker.record(program_id);
         }
-        self.root_cache.read().unwrap().get(program_id).cloned()
+        entry
     }
 
     /// Insert a new entry into this bank's writable event cache.
@@ -178,29 +187,24 @@ impl<C: ContextObject> KitaCache<C> {
     /// snapshots by [`Self::new_from_parent`], and will graduate when the root
     /// advances past them.
     ///
-    /// After folding, the root cache is trimmed back to [`RETENTION_DEPTH`]
-    /// entries so it stays bounded as the chain advances.
+    /// After folding, the root cache is trimmed to retain only the most-used
+    /// programs (see [`UsageTracker::decay_and_retain`]) so it stays bounded as
+    /// the chain advances.
     pub fn prune(&self) {
         let mut root_cache = self.root_cache.write().unwrap();
         for (program_id, event) in self.parent_event_cache.iter() {
             root_cache.insert(*program_id, event.entry.clone());
         }
-        if root_cache.len() > RETENTION_DEPTH {
-            // TODO: Mockup retention. Keep the `RETENTION_DEPTH` programs with
-            // the smallest addresses. The usage tracker will replace this with
-            // popularity-based scoring.
-            let mut keys: Vec<Pubkey> = root_cache.keys().copied().collect();
-            keys.sort_unstable();
-            for key in keys.into_iter().skip(RETENTION_DEPTH) {
-                root_cache.remove(&key);
-            }
-        }
+        self.usage_tracker.decay_and_retain(&mut root_cache);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use {super::*, crate::entry::Reason};
+    use {
+        super::*,
+        crate::{entry::Reason, usage::RETENTION_DEPTH},
+    };
 
     // A do-nothing context object; the cache never executes the programs it
     // holds, so the methods are unreachable in these tests.
@@ -319,21 +323,30 @@ mod tests {
     }
 
     #[test]
-    fn prune_trims_root_cache_to_retention_depth() {
-        let total = RETENTION_DEPTH.saturating_add(5);
+    fn prune_retains_most_used_programs_over_depth() {
+        let total = RETENTION_DEPTH.saturating_add(4);
         let parent = Cache::default();
         for n in 0..total {
             parent.insert(&key(n as u16), tomb(Reason::Other), 1);
         }
         let child = Cache::new_from_parent(&parent);
+        // Heavily use the 4 highest-address programs - the ones a naive
+        // address-order eviction would drop first.
+        for n in total.saturating_sub(4)..total {
+            for _ in 0..5 {
+                let _ = child.find(&key(n as u16));
+            }
+        }
 
         child.prune();
 
         let root = child.root_cache.read().unwrap();
         assert_eq!(root.len(), RETENTION_DEPTH);
-        // The mock retains the smallest addresses and evicts the rest.
-        assert!(root.contains_key(&key(0)));
-        assert!(root.contains_key(&key((RETENTION_DEPTH as u16).saturating_sub(1))));
-        assert!(!root.contains_key(&key(RETENTION_DEPTH as u16)));
+        // The heavily-used programs survive despite their large addresses...
+        for n in total.saturating_sub(4)..total {
+            assert!(root.contains_key(&key(n as u16)));
+        }
+        // ...while unused programs just inside the address range are evicted.
+        assert!(!root.contains_key(&key(total.saturating_sub(5) as u16)));
     }
 }
