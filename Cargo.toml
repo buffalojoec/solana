@@ -61,6 +61,7 @@ members = [
     "poh",
     "poh-bench",
     "precompiles",
+    "program-account",
     "program-binaries",
     "program-runtime",
     "program-test",
@@ -452,6 +453,7 @@ solana-poseidon = "4.0.0"
 solana-precompile-error = "3.0.0"
 solana-presigner = "3.0.0"
 solana-program = { version = "4.0.0", default-features = false }
+solana-program-account = { path = "program-account", version = "=4.2.0-alpha.0" }
 solana-program-binaries = { path = "program-binaries", version = "=4.2.0-alpha.0", features = ["agave-unstable-api"] }
 solana-program-entrypoint = "3.1.1"
 solana-program-error = "3.0.1"
