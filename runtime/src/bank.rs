@@ -124,6 +124,7 @@ use {
     solana_hash::Hash,
     solana_inflation::Inflation,
     solana_keypair::Keypair,
+    solana_kita_cache::cache::KitaCache,
     solana_lattice_hash::lt_hash::LtHash,
     solana_measure::{measure::Measure, measure_time, measure_us},
     solana_message::{
@@ -135,6 +136,7 @@ use {
         invoke_context::{BuiltinFunctionRegisterer, InvokeContext},
         loaded_programs::{ProgramRuntimeEnvironment, ProgramRuntimeEnvironments},
         program_cache_entry::ProgramCacheEntry,
+        solana_sbpf::program::BuiltinProgram,
     },
     solana_pubkey::Pubkey,
     solana_rent::Rent,
@@ -649,6 +651,7 @@ impl PartialEq for Bank {
             epoch_reward_status: _,
             transaction_processor: _,
             use_kita_cache: _,
+            kita_cache: _,
             check_program_deployment_slot: _,
             collector_fee_details: _,
             compute_budget: _,
@@ -968,6 +971,11 @@ pub struct Bank {
     /// Disable the legacy global program JIT cache in favor of the KitaCache.
     use_kita_cache: bool,
 
+    /// The Kita Cache (JIT cache v2), a fork-local program cache inherited from
+    /// the parent bank. Used in place of the legacy global program cache when
+    /// `use_kita_cache` is true, otherwise it's empty and does nothing.
+    kita_cache: KitaCache<InvokeContext<'static, 'static>>,
+
     check_program_deployment_slot: bool,
 
     /// Collected fee details
@@ -1218,6 +1226,7 @@ impl Bank {
             epoch_reward_status: EpochRewardStatus::default(),
             transaction_processor: TransactionBatchProcessor::default(),
             use_kita_cache: false,
+            kita_cache: KitaCache::default(),
             check_program_deployment_slot: false,
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
             compute_budget: None,
@@ -1480,6 +1489,7 @@ impl Bank {
             epoch_reward_status: parent.epoch_reward_status.clone(),
             transaction_processor,
             use_kita_cache: parent.use_kita_cache,
+            kita_cache: KitaCache::new_from_parent(&parent.kita_cache),
             check_program_deployment_slot: false,
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
             compute_budget: parent.compute_budget,
@@ -2149,6 +2159,7 @@ impl Bank {
             epoch_reward_status: EpochRewardStatus::default(),
             transaction_processor: TransactionBatchProcessor::default(),
             use_kita_cache: runtime_config.use_kita_cache,
+            kita_cache: KitaCache::default(),
             check_program_deployment_slot: false,
             // collector_fee_details is not serialized to snapshot
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
@@ -6336,6 +6347,9 @@ impl Bank {
                         builtin.register_fn,
                     ),
                 );
+                if self.use_kita_cache {
+                    self.register_kita_builtin(&builtin.program_id, builtin.register_fn);
+                }
             }
         }
     }
@@ -6605,6 +6619,13 @@ impl Bank {
     pub fn use_kita_cache(&self) -> bool {
         self.use_kita_cache
     }
+
+    /// Register a built-in into the kita cache.
+    fn register_kita_builtin(&self, program_id: &Pubkey, register_fn: BuiltinFunctionRegisterer) {
+        let mut program = BuiltinProgram::new_builtin();
+        register_fn(&mut program, "entrypoint").unwrap();
+        self.kita_cache.add_builtin(program_id, program);
+    }
 }
 
 impl InvokeContextCallback for Bank {
@@ -6656,12 +6677,14 @@ impl TransactionProcessingCallback for Bank {
 impl InvokeContextProgramLoader<InvokeContext<'static, 'static>> for Bank {
     fn find(
         &self,
-        _program_id: &Pubkey,
+        program_id: &Pubkey,
     ) -> Option<Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>> {
-        // TODO: this trait is only used by the kita cache (JIT cache v2), and the
-        // legacy path resolves programs through `ProgramCacheForTxBatch` instead.
-        // Wire it up once `use_kita_cache` can be `true`.
-        None
+        // TODO: cache-on-miss. On a kita cache miss, compile the program
+        // on-the-fly and insert it into the kita cache before returning, so
+        // subsequent lookups hit. Deferred to follow-up work.
+        self.kita_cache
+            .find(program_id)
+            .map(|entry| Arc::new(entry) as Arc<dyn LoadedProgram<InvokeContext<'static, 'static>>>)
     }
 }
 

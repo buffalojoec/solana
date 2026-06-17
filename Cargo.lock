@@ -8745,6 +8745,7 @@ dependencies = [
  "solana-clock",
  "solana-pubkey 4.2.0",
  "solana-sbpf",
+ "solana-svm-callback",
 ]
 
 [[package]]
@@ -10066,6 +10067,7 @@ dependencies = [
  "solana-instruction",
  "solana-instruction-error",
  "solana-keypair",
+ "solana-kita-cache",
  "solana-lattice-hash",
  "solana-leader-schedule",
  "solana-loader-v3-interface",

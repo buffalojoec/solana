@@ -19,6 +19,7 @@ agave-unstable-api = []
 solana-clock = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-sbpf = { workspace = true, features = ["jit"] }
+solana-svm-callback = { workspace = true }
 
 [lints]
 workspace = true

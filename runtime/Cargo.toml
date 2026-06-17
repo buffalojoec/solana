@@ -126,6 +126,7 @@ solana-hash = { workspace = true, features = ["atomic"] }
 solana-inflation = { workspace = true, features = ["serde"] }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true, features = ["seed-derivable"] }
+solana-kita-cache = { workspace = true, features = ["agave-unstable-api"] }
 solana-lattice-hash = { workspace = true }
 solana-leader-schedule = { workspace = true }
 solana-loader-v3-interface = { workspace = true, features = ["bincode"] }

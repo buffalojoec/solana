@@ -2,6 +2,7 @@
 
 use {
     solana_sbpf::{elf::Executable, program::BuiltinProgram, vm::ContextObject},
+    solana_svm_callback::LoadedProgram,
     std::sync::Arc,
 };
 
@@ -37,6 +38,25 @@ impl<C: ContextObject> Entry<C> {
             Entry::Tombstone(reason) => reason.should_recompile_for_feature_activation(),
         }
     }
+}
+
+impl<C: ContextObject> LoadedProgram<C> for Entry<C> {
+    fn executable(&self) -> Option<&Executable<C>> {
+        match self {
+            Entry::Program(executable) => Some(executable.as_ref()),
+            _ => None,
+        }
+    }
+
+    fn builtin(&self) -> Option<&BuiltinProgram<C>> {
+        match self {
+            Entry::Builtin(builtin) => Some(builtin.as_ref()),
+            _ => None,
+        }
+    }
+
+    // `legacy_stats` defaults to `None`: the kita cache tracks usage separately
+    // from the legacy `ProgramStatistics`.
 }
 
 /// Why a program was tombstoned rather than compiled.
