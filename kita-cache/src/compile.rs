@@ -5,9 +5,8 @@
 //! or a [`Tombstone`](Entry::Tombstone) classified by the failure, so a program
 //! that cannot be compiled is recorded rather than silently retried.
 //!
-//! Shared by the anticipation cache and by on-the-fly recompilation triggered
-//! during transaction processing, so both classify failures identically.
-//! Program deployments recompile through their own path.
+//! Used to compile a program on the fly when it's missing from the cache.
+//! Deployments compile through their own path.
 
 use {
     crate::entry::{Entry, Reason},

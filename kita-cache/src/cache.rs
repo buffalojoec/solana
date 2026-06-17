@@ -1,23 +1,20 @@
 //! Kita-Cache: Program JIT Cache v2
 //!
-//! The Kita Cache is a two-tiered caching system for JIT-compiled executable
-//! programs. It's designed to be fork-local and to gather most of its
-//! information from its parent bank.
+//! A fork-local cache of JIT-compiled programs. One [`KitaCache`] lives on each
+//! bank; a child inherits its parent's state via [`KitaCache::new_from_parent`],
+//! so the bank lineage *is* the fork graph - dead forks free their caches when
+//! their banks drop.
 //!
-//! The first tier is a pointer to the global, intra-fork "root cache", which
-//! houses all JIT-compiled executables for the most popular programs according
-//! to its tracked usage statistics. Each time the runtime's fork graph is
-//! pruned, this global cache is updated. It cannot be written to except for
-//! during pruning.
+//! [`find`](KitaCache::find) resolves a program through four tiers, in order:
 //!
-//! The second tier is a fork-local "event cache", which houses JIT-compiled
-//! executables that materialize as a result of compilation events on the
-//! designated bank's fork. These are most commonly deployments or loads.
+//! 1. built-ins - registered, never compiled or evicted.
+//! 2. this bank's own compilation events (deploys and on-miss compiles).
+//! 3. the read-only snapshot of events inherited from ancestor banks.
+//! 4. the global root cache, shared by every bank.
 //!
-//! A [`KitaCache`] is stored on each bank. A child bank inherits its parent's
-//! fork-local state via [`KitaCache::new_from_parent`], so the bank lineage
-//! itself models the fork graph - dead forks reclaim their caches when their
-//! banks are dropped.
+//! The root cache is written only at pruning: when a bank is rooted its
+//! inherited events graduate in, then it's trimmed to the most-used programs
+//! (see [`crate::usage`]).
 
 use {
     crate::{entry::Entry, usage::UsageTracker},
