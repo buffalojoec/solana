@@ -1,0 +1,12 @@
+[package]
+name = "solana-legacy-jit-cache-stats"
+description = "Per-program usage statistics for the legacy program JIT cache"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[lints]
+workspace = true

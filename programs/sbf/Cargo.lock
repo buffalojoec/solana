@@ -7373,6 +7373,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-legacy-jit-cache-stats"
+version = "4.2.0-alpha.0"
+
+[[package]]
 name = "solana-loader-v2-interface"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7812,6 +7816,7 @@ dependencies = [
  "solana-hash 4.4.0",
  "solana-instruction",
  "solana-last-restart-slot",
+ "solana-legacy-jit-cache-stats",
  "solana-loader-v3-interface",
  "solana-message",
  "solana-program-entrypoint",
