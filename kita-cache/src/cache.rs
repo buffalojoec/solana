@@ -199,6 +199,52 @@ impl<C: ContextObject> KitaCache<C> {
     }
 }
 
+#[cfg(feature = "dev-context-only-utils")]
+impl<C: ContextObject> KitaCache<C> {
+    /// The program ids held in the global root cache.
+    pub fn root_cache_program_ids(&self) -> Vec<Pubkey> {
+        self.root_cache.read().unwrap().keys().copied().collect()
+    }
+
+    /// Whether the global root cache holds `program_id`.
+    pub fn root_cache_contains(&self, program_id: &Pubkey) -> bool {
+        self.root_cache.read().unwrap().contains_key(program_id)
+    }
+
+    /// The program ids in the snapshot inherited from ancestor banks.
+    pub fn parent_event_cache_program_ids(&self) -> Vec<Pubkey> {
+        self.parent_event_cache.keys().copied().collect()
+    }
+
+    /// Whether the inherited snapshot holds `program_id`.
+    pub fn parent_event_cache_contains(&self, program_id: &Pubkey) -> bool {
+        self.parent_event_cache.contains_key(program_id)
+    }
+
+    /// The program ids recorded by this bank's own writable event cache.
+    pub fn current_event_cache_program_ids(&self) -> Vec<Pubkey> {
+        self.current_event_cache
+            .read()
+            .unwrap()
+            .keys()
+            .copied()
+            .collect()
+    }
+
+    /// Whether this bank's writable event cache holds `program_id`.
+    pub fn current_event_cache_contains(&self, program_id: &Pubkey) -> bool {
+        self.current_event_cache
+            .read()
+            .unwrap()
+            .contains_key(program_id)
+    }
+
+    /// The program's current usage score (drives root-cache retention).
+    pub fn usage_score(&self, program_id: &Pubkey) -> u64 {
+        self.usage_tracker.score(program_id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use {

@@ -125,6 +125,19 @@ impl UsageTracker {
     }
 }
 
+#[cfg(feature = "dev-context-only-utils")]
+impl UsageTracker {
+    /// The current usage score for `program_id` (zero if untracked).
+    pub fn score(&self, program_id: &Pubkey) -> u64 {
+        self.scores
+            .read()
+            .unwrap()
+            .get(program_id)
+            .map(|score| score.load(Ordering::Relaxed))
+            .unwrap_or(0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
