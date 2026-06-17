@@ -645,6 +645,7 @@ impl PartialEq for Bank {
             accounts_data_size_delta_off_chain: _,
             epoch_reward_status: _,
             transaction_processor: _,
+            use_kita_cache: _,
             check_program_deployment_slot: _,
             collector_fee_details: _,
             compute_budget: _,
@@ -961,6 +962,9 @@ pub struct Bank {
 
     transaction_processor: TransactionBatchProcessor<BankForks>,
 
+    /// Disable the legacy global program JIT cache in favor of the KitaCache.
+    use_kita_cache: bool,
+
     check_program_deployment_slot: bool,
 
     /// Collected fee details
@@ -1210,6 +1214,7 @@ impl Bank {
             accounts_data_size_delta_off_chain: AtomicI64::new(0),
             epoch_reward_status: EpochRewardStatus::default(),
             transaction_processor: TransactionBatchProcessor::default(),
+            use_kita_cache: false,
             check_program_deployment_slot: false,
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
             compute_budget: None,
@@ -1266,6 +1271,8 @@ impl Bank {
                 .set_execution_cost(compute_budget.to_cost());
         }
         bank.transaction_account_lock_limit = runtime_config.transaction_account_lock_limit;
+        bank.use_kita_cache = runtime_config.use_kita_cache;
+        bank.transaction_processor.use_kita_cache = bank.use_kita_cache;
         bank.transaction_debug_keys = debug_keys;
         bank.cluster_type = Some(genesis_config.cluster_type);
 
@@ -1469,6 +1476,7 @@ impl Bank {
             accounts_data_size_delta_off_chain: AtomicI64::new(0),
             epoch_reward_status: parent.epoch_reward_status.clone(),
             transaction_processor,
+            use_kita_cache: parent.use_kita_cache,
             check_program_deployment_slot: false,
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
             compute_budget: parent.compute_budget,
@@ -1529,21 +1537,23 @@ impl Bank {
             },
         );
 
-        report_loaded_programs_stats(
-            &parent
-                .transaction_processor
-                .global_program_cache
-                .read()
-                .unwrap(),
-            parent.slot(),
-        );
+        if !new.use_kita_cache {
+            report_loaded_programs_stats(
+                &parent
+                    .transaction_processor
+                    .global_program_cache
+                    .read()
+                    .unwrap(),
+                parent.slot(),
+            );
 
-        new.transaction_processor
-            .global_program_cache
-            .write()
-            .unwrap()
-            .stats
-            .reset();
+            new.transaction_processor
+                .global_program_cache
+                .write()
+                .unwrap()
+                .stats
+                .reset();
+        }
 
         new
     }
@@ -1950,8 +1960,12 @@ impl Bank {
         let (_, distribute_rewards_time_us) =
             measure_us!(self.distribute_partitioned_epoch_rewards());
 
-        let (_, cache_preparation_time_us) =
-            measure_us!(self.prepare_program_cache_for_upcoming_feature_set());
+        let (_, cache_preparation_time_us) = measure_us!({
+            // Legacy program cache epoch-boundary prep; skipped under the kita cache.
+            if !self.use_kita_cache {
+                self.prepare_program_cache_for_upcoming_feature_set();
+            }
+        });
 
         // Update sysvars before processing transactions
         let (_, update_sysvars_time_us) = measure_us!({
@@ -2131,6 +2145,7 @@ impl Bank {
             accounts_data_size_delta_off_chain: AtomicI64::new(0),
             epoch_reward_status: EpochRewardStatus::default(),
             transaction_processor: TransactionBatchProcessor::default(),
+            use_kita_cache: runtime_config.use_kita_cache,
             check_program_deployment_slot: false,
             // collector_fee_details is not serialized to snapshot
             collector_fee_details: RwLock::new(CollectorFeeDetails::default()),
@@ -4270,25 +4285,27 @@ impl Bank {
             measure_us!(self.update_stakes_cache(sanitized_txs, &processing_results));
 
         let ((), update_executors_us) = measure_us!({
-            let mut cache = None;
-            for processing_result in &processing_results {
-                if let Some(ProcessedTransaction::Executed(executed_tx)) =
-                    processing_result.processed_transaction()
-                {
-                    let programs_modified_by_tx = &executed_tx.programs_modified_by_tx;
-                    if executed_tx.was_successful() && !programs_modified_by_tx.is_empty() {
-                        cache
-                            .get_or_insert_with(|| {
-                                self.transaction_processor
-                                    .global_program_cache
-                                    .write()
-                                    .unwrap()
-                            })
-                            .merge(
-                                &self.transaction_processor.program_runtime_environment,
-                                self.slot,
-                                programs_modified_by_tx,
-                            );
+            if !self.use_kita_cache {
+                let mut cache = None;
+                for processing_result in &processing_results {
+                    if let Some(ProcessedTransaction::Executed(executed_tx)) =
+                        processing_result.processed_transaction()
+                    {
+                        let programs_modified_by_tx = &executed_tx.programs_modified_by_tx;
+                        if executed_tx.was_successful() && !programs_modified_by_tx.is_empty() {
+                            cache
+                                .get_or_insert_with(|| {
+                                    self.transaction_processor
+                                        .global_program_cache
+                                        .write()
+                                        .unwrap()
+                                })
+                                .merge(
+                                    &self.transaction_processor.program_runtime_environment,
+                                    self.slot,
+                                    programs_modified_by_tx,
+                                );
+                        }
                     }
                 }
             }
@@ -4819,16 +4836,18 @@ impl Bank {
 
         let program_runtime_environment =
             self.create_program_runtime_environment(&self.feature_set);
-        self.transaction_processor
-            .global_program_cache
-            .write()
-            .unwrap()
-            .latest_root_slot = self.slot;
-        self.transaction_processor
-            .epoch_boundary_preparation
-            .write()
-            .unwrap()
-            .upcoming_epoch = self.epoch;
+        if !self.use_kita_cache {
+            self.transaction_processor
+                .global_program_cache
+                .write()
+                .unwrap()
+                .latest_root_slot = self.slot;
+            self.transaction_processor
+                .epoch_boundary_preparation
+                .write()
+                .unwrap()
+                .upcoming_epoch = self.epoch;
+        }
         self.transaction_processor.program_runtime_environment = program_runtime_environment;
 
         // Load all active built-in programs after the program runtime environment has been initialized
@@ -5955,6 +5974,7 @@ impl Bank {
     {
         self.transaction_processor =
             TransactionBatchProcessor::new_uninitialized(self.slot, self.epoch);
+        self.transaction_processor.use_kita_cache = self.use_kita_cache;
         if let Some(compute_budget) = &self.compute_budget {
             self.transaction_processor
                 .set_execution_cost(compute_budget.to_cost());
@@ -6575,6 +6595,12 @@ impl Bank {
             genesis_cert.cert_type
         );
         Some(genesis_cert.cert_type.slot())
+    }
+
+    /// Whether this bank uses the kita cache (JIT cache v2) in place of the
+    /// legacy program JIT cache.
+    pub fn use_kita_cache(&self) -> bool {
+        self.use_kita_cache
     }
 }
 

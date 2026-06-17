@@ -142,7 +142,9 @@ impl BankForks {
             migration_status,
         }));
 
-        root_bank.set_fork_graph_in_program_cache(Arc::downgrade(&bank_forks));
+        if !root_bank.use_kita_cache() {
+            root_bank.set_fork_graph_in_program_cache(Arc::downgrade(&bank_forks));
+        }
         bank_forks
     }
 
@@ -441,7 +443,9 @@ impl BankForks {
 
         for (slot, _) in slots_to_purge {
             root_bank.clear_slot_signatures(slot);
-            root_bank.prune_program_cache_by_deployment_slot(slot);
+            if !root_bank.use_kita_cache() {
+                root_bank.prune_program_cache_by_deployment_slot(slot);
+            }
         }
     }
 
@@ -540,7 +544,9 @@ impl BankForks {
 
     pub fn prune_program_cache(&self, root: Slot) {
         if let Some(root_bank) = self.banks.get(&root) {
-            root_bank.prune_program_cache(self);
+            if !root_bank.use_kita_cache() {
+                root_bank.prune_program_cache(self);
+            }
         }
     }
 

@@ -8,7 +8,7 @@ use {
         account_overrides::AccountOverrides,
         message_processor::process_message,
         nonce_info::NonceInfo,
-        program_loader::{filter_executable_program_accounts, load_program_with_pubkey},
+        program_loader::{filter_executable_program_accounts_legacy, load_program_with_pubkey},
         rollback_accounts::RollbackAccounts,
         transaction_account_state_info::{
             TransactionAccountStateInfo, get_uninitialized_accounts_size, verify_changes,
@@ -218,6 +218,9 @@ pub struct TransactionBatchProcessor<FG: ForkGraph> {
     builtin_program_cache: RwLock<ProgramCacheForTxBatch>,
 
     execution_cost: SVMTransactionExecutionCost,
+
+    /// Disable the legacy global program JIT cache in favor of the KitaCache.
+    pub use_kita_cache: bool,
 }
 
 impl<FG: ForkGraph> Debug for TransactionBatchProcessor<FG> {
@@ -245,6 +248,7 @@ impl<FG: ForkGraph> Default for TransactionBatchProcessor<FG> {
             builtin_program_ids: RwLock::new(HashSet::new()),
             builtin_program_cache: RwLock::new(ProgramCacheForTxBatch::new(Slot::default())),
             execution_cost: SVMTransactionExecutionCost::default(),
+            use_kita_cache: false,
         }
     }
 }
@@ -322,22 +326,24 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         // Pre-populate the builtin program cache from the global cache.
         // This is done once per block rather than once per batch.
         let mut builtin_program_cache = ProgramCacheForTxBatch::new(slot);
-        let mut search_for: Vec<ProgramToLoad> = builtin_program_ids
-            .iter()
-            .map(|program_id| ProgramToLoad {
-                program_id,
-                loader: ProgramCacheEntryOwner::NativeLoader,
-                match_criteria: ProgramCacheMatchCriteria::NoCriteria,
-                last_modification_slot: 0,
-            })
-            .collect();
-        self.global_program_cache.read().unwrap().extract(
-            &mut search_for,
-            &mut builtin_program_cache,
-            &environments,
-            false,
-            false,
-        );
+        if !self.use_kita_cache {
+            let mut search_for: Vec<ProgramToLoad> = builtin_program_ids
+                .iter()
+                .map(|program_id| ProgramToLoad {
+                    program_id,
+                    loader: ProgramCacheEntryOwner::NativeLoader,
+                    match_criteria: ProgramCacheMatchCriteria::NoCriteria,
+                    last_modification_slot: 0,
+                })
+                .collect();
+            self.global_program_cache.read().unwrap().extract(
+                &mut search_for,
+                &mut builtin_program_cache,
+                &environments,
+                false,
+                false,
+            );
+        }
 
         Self {
             slot,
@@ -349,6 +355,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             builtin_program_ids: RwLock::new(builtin_program_ids),
             builtin_program_cache: RwLock::new(builtin_program_cache),
             execution_cost: self.execution_cost,
+            use_kita_cache: self.use_kita_cache,
         }
     }
 
@@ -441,9 +448,16 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             .then(|| BalanceCollector::new_with_transaction_count(sanitized_txs.len()));
 
         // Clone the batch-local program cache (builtins already populated in new_from()).
-        // User-deployed programs are loaded per-transaction via replenish_program_cache
+        // User-deployed programs are loaded per-transaction via replenish_program_cache_legacy
         // in the transaction loop below.
-        let mut program_cache_for_tx_batch = self.builtin_program_cache.read().unwrap().clone();
+        let mut program_cache_for_tx_batch = if self.use_kita_cache {
+            // Stubbed under the kita cache: program resolution - builtins
+            // included - goes through `find` on the bank's KitaCache, not this
+            // batch cache, so it is left empty and almost entirely unused here.
+            ProgramCacheForTxBatch::new(self.slot)
+        } else {
+            self.builtin_program_cache.read().unwrap().clone()
+        };
 
         if program_cache_for_tx_batch.hit_max_limit {
             return LoadAndExecuteSanitizedTransactionsOutput {
@@ -511,35 +525,40 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     }
                 },
                 TransactionLoadResult::Loaded(loaded_transaction) => {
-                    let (missing_programs, filter_executable_us) =
-                        measure_us!(filter_executable_program_accounts(
-                            &account_loader,
-                            &program_cache_for_tx_batch,
-                            tx.account_keys().iter(),
-                            config.check_program_deployment_slot,
-                        ));
-                    execute_timings.saturating_add_in_place(
-                        ExecuteTimingType::FilterExecutableUs,
-                        filter_executable_us,
-                    );
-
-                    let ((), program_cache_us) = measure_us!({
-                        self.replenish_program_cache(
-                            &account_loader,
-                            missing_programs,
-                            environment
-                                .program_runtime_environments
-                                .get_env_for_execution(),
-                            &mut program_cache_for_tx_batch,
-                            &mut execute_timings,
-                            config.limit_to_load_programs,
-                            true, // increment_usage_counter
+                    // The legacy program cache is replenished from the global
+                    // cache here; with the kita cache enabled this lookup is
+                    // skipped entirely.
+                    if !self.use_kita_cache {
+                        let (missing_programs, filter_executable_us) =
+                            measure_us!(filter_executable_program_accounts_legacy(
+                                &account_loader,
+                                &program_cache_for_tx_batch,
+                                tx.account_keys().iter(),
+                                config.check_program_deployment_slot,
+                            ));
+                        execute_timings.saturating_add_in_place(
+                            ExecuteTimingType::FilterExecutableUs,
+                            filter_executable_us,
                         );
-                    });
-                    execute_timings.saturating_add_in_place(
-                        ExecuteTimingType::ProgramCacheUs,
-                        program_cache_us,
-                    );
+
+                        let ((), program_cache_us) = measure_us!({
+                            self.replenish_program_cache_legacy(
+                                &account_loader,
+                                missing_programs,
+                                environment
+                                    .program_runtime_environments
+                                    .get_env_for_execution(),
+                                &mut program_cache_for_tx_batch,
+                                &mut execute_timings,
+                                config.limit_to_load_programs,
+                                true, // increment_usage_counter
+                            );
+                        });
+                        execute_timings.saturating_add_in_place(
+                            ExecuteTimingType::ProgramCacheUs,
+                            program_cache_us,
+                        );
+                    }
 
                     if program_cache_for_tx_batch.hit_max_limit {
                         return LoadAndExecuteSanitizedTransactionsOutput {
@@ -641,7 +660,10 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         // ProgramCache entries. Note that loaded_missing is deliberately defined, so that there's
         // still at least one other batch, which will evict the program cache, even after the
         // occurrences of cooperative loading.
-        if program_cache_for_tx_batch.loaded_missing || program_cache_for_tx_batch.merged_modified {
+        if !self.use_kita_cache
+            && (program_cache_for_tx_batch.loaded_missing
+                || program_cache_for_tx_batch.merged_modified)
+        {
             const SHRINK_LOADED_PROGRAMS_TO_PERCENTAGE: u8 = 90;
             self.global_program_cache
                 .write()
@@ -838,7 +860,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     }
 
     #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
-    fn replenish_program_cache<CB: TransactionProcessingCallback>(
+    fn replenish_program_cache_legacy<CB: TransactionProcessingCallback>(
         &self,
         account_loader: &AccountLoader<CB>,
         mut missing_programs: Vec<ProgramToLoad>,
@@ -912,7 +934,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         }
     }
 
-    /// Similar to replenish_program_cache() but only used in Bank::prepare_program_cache_for_upcoming_feature_set().
+    /// Similar to replenish_program_cache_legacy() but only used in Bank::prepare_program_cache_for_upcoming_feature_set().
     pub fn prepare_one_program_for_upcoming_feature_set<CB: TransactionProcessingCallback>(
         &self,
         account_loader: &CB,
@@ -922,7 +944,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         stats_of_enqueued_program: &ProgramStatistics,
     ) {
         let mut program_cache_for_tx_batch = ProgramCacheForTxBatch::new(self.slot);
-        let mut missing_programs = filter_executable_program_accounts(
+        let mut missing_programs = filter_executable_program_accounts_legacy(
             account_loader,
             &program_cache_for_tx_batch,
             std::iter::once(key),
@@ -1306,17 +1328,21 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     /// Add a built-in program
     pub fn add_builtin(&self, program_id: Pubkey, builtin: ProgramCacheEntry) {
         self.builtin_program_ids.write().unwrap().insert(program_id);
-        let entry = Arc::new(builtin);
-        self.global_program_cache.write().unwrap().assign_program(
-            &self.program_runtime_environment,
-            program_id,
-            0,
-            Arc::clone(&entry),
-        );
-        self.builtin_program_cache
-            .write()
-            .unwrap()
-            .replenish(program_id, entry);
+        // TODO: under the KitaCache, the builtin program cache is populated on
+        // the Bank directly, so the legacy program caches are not updated here.
+        if !self.use_kita_cache {
+            let entry = Arc::new(builtin);
+            self.global_program_cache.write().unwrap().assign_program(
+                &self.program_runtime_environment,
+                program_id,
+                0,
+                Arc::clone(&entry),
+            );
+            self.builtin_program_cache
+                .write()
+                .unwrap()
+                .replenish(program_id, entry);
+        }
     }
 
     #[cfg(feature = "dev-context-only-utils")]
@@ -1792,7 +1818,7 @@ mod tests {
 
     #[test]
     #[should_panic = "called load_program_with_pubkey() with nonexistent account"]
-    fn test_replenish_program_cache_with_nonexistent_accounts() {
+    fn test_replenish_program_cache_legacy_with_nonexistent_accounts() {
         let mock_bank = MockBankCallback::default();
         let account_loader = (&mock_bank).into();
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
@@ -1804,7 +1830,7 @@ mod tests {
 
         let mut program_cache_for_tx_batch = ProgramCacheForTxBatch::new(batch_processor.slot);
 
-        batch_processor.replenish_program_cache(
+        batch_processor.replenish_program_cache_legacy(
             &account_loader,
             vec![ProgramToLoad {
                 program_id: &key,
@@ -1821,7 +1847,7 @@ mod tests {
     }
 
     #[test]
-    fn test_replenish_program_cache() {
+    fn test_replenish_program_cache_legacy() {
         let mock_bank = MockBankCallback::default();
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
         let batch_processor =
@@ -1843,7 +1869,7 @@ mod tests {
         for limit_to_load_programs in [false, true] {
             let mut program_cache_for_tx_batch = ProgramCacheForTxBatch::new(batch_processor.slot);
 
-            batch_processor.replenish_program_cache(
+            batch_processor.replenish_program_cache_legacy(
                 &account_loader,
                 vec![ProgramToLoad {
                     program_id: &key,

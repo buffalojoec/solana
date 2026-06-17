@@ -709,7 +709,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
         cooperative_loading_task
     }
 
-    /// Called by Bank::replenish_program_cache() for each program that is done loading.
+    /// Called by Bank::replenish_program_cache_legacy() for each program that is done loading.
     pub fn finish_cooperative_loading_task(
         &mut self,
         program_runtime_environment: &ProgramRuntimeEnvironment,

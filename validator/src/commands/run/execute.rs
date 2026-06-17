@@ -844,6 +844,10 @@ pub fn execute(
         wait_to_vote_slot: None,
         runtime_config: RuntimeConfig {
             log_messages_bytes_limit: value_of(matches, "log_messages_bytes_limit"),
+            // TODO: source from a `--use-kita-cache` startup arg, e.g.
+            // `matches.is_present("use_kita_cache")`. Hardcoded false until the
+            // arg is added.
+            use_kita_cache: false,
             ..RuntimeConfig::default()
         },
         staked_nodes_overrides: staked_nodes_overrides.clone(),

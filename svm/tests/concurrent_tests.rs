@@ -78,7 +78,7 @@ fn program_cache_execution(threads: usize) {
                 let mut result = ProgramCacheForTxBatch::new(processor.slot);
                 let program_runtime_environment_for_execution =
                     processor.program_runtime_environment_for_epoch(processor.epoch);
-                processor.replenish_program_cache(
+                processor.replenish_program_cache_legacy(
                     &account_loader,
                     missing_programs,
                     &program_runtime_environment_for_execution,

@@ -246,7 +246,7 @@ pub(crate) fn get_program_deployment_slot<CB: TransactionProcessingCallback>(
 
 /// Appends to a set of executable program accounts (all accounts owned by any loader)
 /// for transactions with a valid blockhash or nonce.
-pub fn filter_executable_program_accounts<'a, CB: TransactionProcessingCallback>(
+pub fn filter_executable_program_accounts_legacy<'a, CB: TransactionProcessingCallback>(
     callbacks: &CB,
     program_cache_for_tx_batch: &ProgramCacheForTxBatch,
     keys: impl Iterator<Item = &'a Pubkey>,
@@ -814,7 +814,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_executable_program_accounts() {
+    fn test_filter_executable_program_accounts_legacy() {
         let feepayer = Keypair::new();
         let loader_ids = [
             bpf_loader_deprecated::id(),
@@ -882,7 +882,7 @@ mod tests {
         );
         let sanitized_tx = SanitizedTransaction::from_transaction_for_tests(tx);
 
-        let missing_programs = filter_executable_program_accounts(
+        let missing_programs = filter_executable_program_accounts_legacy(
             &mock_bank,
             &loaded_programs_for_tx_batch,
             sanitized_tx.account_keys().iter(),
@@ -906,7 +906,7 @@ mod tests {
             ]
         );
 
-        let missing_programs = filter_executable_program_accounts(
+        let missing_programs = filter_executable_program_accounts_legacy(
             &mock_bank,
             &loaded_programs_for_tx_batch,
             sanitized_tx.account_keys().iter(),

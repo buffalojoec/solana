@@ -2224,7 +2224,9 @@ fn cleanup_outdated_tower_bft_startup_banks(
 
     for &(slot, _) in slots_to_cleanup {
         root_bank.clear_slot_signatures(slot);
-        root_bank.prune_program_cache_by_deployment_slot(slot);
+        if !root_bank.use_kita_cache() {
+            root_bank.prune_program_cache_by_deployment_slot(slot);
+        }
         reset_dead_if_primary_access(blockstore, slot);
     }
 }
@@ -2598,7 +2600,9 @@ fn load_frozen_forks(
                 root = new_root_bank.slot();
 
                 leader_schedule_cache.set_root(new_root_bank);
-                new_root_bank.prune_program_cache(&bank_forks.read().unwrap());
+                if !new_root_bank.use_kita_cache() {
+                    new_root_bank.prune_program_cache(&bank_forks.read().unwrap());
+                }
                 let _ = bank_forks
                     .write()
                     .unwrap()
