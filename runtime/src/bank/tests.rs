@@ -13244,3 +13244,151 @@ fn test_kita_cache_serves_preloaded_program() {
         Ok(())
     );
 }
+
+// Pruning at a rooting event graduates the rooted fork's inherited deployments
+// into the shared root cache, while a deployment that lived only on a losing
+// fork never graduates.
+#[test]
+fn test_kita_cache_prune_graduates_rooted_fork_and_drops_dead_fork() {
+    let (genesis_config, mint) = create_genesis_config_no_tx_fee(100 * LAMPORTS_PER_SOL);
+    let bank0 = new_program_cache_test_bank(&genesis_config, true, true);
+    let (bank0, bank_forks) = bank0.wrap_with_bank_forks_for_tests();
+    let authority = Keypair::new();
+
+    // Fork A: deploy `program_a` at slot 1, then advance to slot 2 so the
+    // deployment folds into the inherited (parent) cache.
+    goto_end_of_slot(bank0.clone());
+    let bank1 =
+        Bank::new_from_parent_with_bank_forks(&bank_forks, bank0.clone(), SlotLeader::default(), 1);
+    let (program_a, result) = deploy_upgradeable_program_for_tests(
+        &bank1,
+        &mint,
+        &authority,
+        &read_test_elf("sbpfv3_return_ok"),
+    );
+    assert_matches!(result, Ok(()));
+    goto_end_of_slot(bank1.clone());
+    let bank2 =
+        Bank::new_from_parent_with_bank_forks(&bank_forks, bank1, SlotLeader::default(), 2);
+
+    // Fork B (loses the root race): deploy `program_b` at slot 3 off the genesis
+    // bank, on a fork that is not an ancestor of the eventual root.
+    let bank3 =
+        Bank::new_from_parent_with_bank_forks(&bank_forks, bank0, SlotLeader::default(), 3);
+    let (program_b, result) = deploy_upgradeable_program_for_tests(
+        &bank3,
+        &mint,
+        &authority,
+        &read_test_elf("sbpfv3_return_ok"),
+    );
+    assert_matches!(result, Ok(()));
+
+    // `program_a` is in fork A's inherited cache; nothing has graduated yet.
+    assert!(bank2.kita_cache.parent_event_cache_contains(&program_a));
+    assert!(!bank2.kita_cache.root_cache_contains(&program_a));
+
+    // Root fork A at slot 2 and prune.
+    goto_end_of_slot(bank2.clone());
+    let _removed = bank_forks.write().unwrap().set_root(2, None, None);
+    bank_forks.read().unwrap().prune_program_cache(2);
+
+    // The rooted fork's deployment graduated into the shared root cache; the dead
+    // fork's deployment never did.
+    assert!(bank2.kita_cache.root_cache_contains(&program_a));
+    assert!(!bank2.kita_cache.root_cache_contains(&program_b));
+}
+
+// Deployments made at different slots along the rooted fork all accumulate in the
+// inherited (parent) cache and graduate together when the fork is rooted.
+#[test]
+fn test_kita_cache_prune_graduates_deployments_across_slots() {
+    let (genesis_config, mint) = create_genesis_config_no_tx_fee(100 * LAMPORTS_PER_SOL);
+    let bank0 = new_program_cache_test_bank(&genesis_config, true, true);
+    let (bank0, bank_forks) = bank0.wrap_with_bank_forks_for_tests();
+    let authority = Keypair::new();
+
+    // Deploy a program at slot 1 and another at slot 2 on the same fork.
+    goto_end_of_slot(bank0.clone());
+    let bank1 =
+        Bank::new_from_parent_with_bank_forks(&bank_forks, bank0, SlotLeader::default(), 1);
+    let (program_1, result) = deploy_upgradeable_program_for_tests(
+        &bank1,
+        &mint,
+        &authority,
+        &read_test_elf("sbpfv3_return_ok"),
+    );
+    assert_matches!(result, Ok(()));
+    goto_end_of_slot(bank1.clone());
+    let bank2 =
+        Bank::new_from_parent_with_bank_forks(&bank_forks, bank1, SlotLeader::default(), 2);
+    let (program_2, result) = deploy_upgradeable_program_for_tests(
+        &bank2,
+        &mint,
+        &authority,
+        &read_test_elf("sbpfv3_return_ok"),
+    );
+    assert_matches!(result, Ok(()));
+    goto_end_of_slot(bank2.clone());
+    let bank3 =
+        Bank::new_from_parent_with_bank_forks(&bank_forks, bank2, SlotLeader::default(), 3);
+
+    // Both deployments are carried in the working bank's inherited cache.
+    assert!(bank3.kita_cache.parent_event_cache_contains(&program_1));
+    assert!(bank3.kita_cache.parent_event_cache_contains(&program_2));
+
+    // Root slot 3 and prune: both graduate into the root cache.
+    goto_end_of_slot(bank3.clone());
+    let _removed = bank_forks.write().unwrap().set_root(3, None, None);
+    bank_forks.read().unwrap().prune_program_cache(3);
+
+    assert!(bank3.kita_cache.root_cache_contains(&program_1));
+    assert!(bank3.kita_cache.root_cache_contains(&program_2));
+}
+
+// Invoking a program through the bank feeds the usage tracker that drives
+// root-cache retention. A program invoked more often accrues a higher score.
+#[test]
+fn test_kita_cache_records_usage_on_invocation() {
+    let (genesis_config, mint) = create_genesis_config_no_tx_fee(100 * LAMPORTS_PER_SOL);
+    let bank0 = new_program_cache_test_bank(&genesis_config, true, true);
+    let (bank0, bank_forks) = bank0.wrap_with_bank_forks_for_tests();
+    let authority = Keypair::new();
+
+    // Deploy two programs at slot 1, then advance so both are visible.
+    goto_end_of_slot(bank0.clone());
+    let bank1 =
+        Bank::new_from_parent_with_bank_forks(&bank_forks, bank0, SlotLeader::default(), 1);
+    let (busy, result) = deploy_upgradeable_program_for_tests(
+        &bank1,
+        &mint,
+        &authority,
+        &read_test_elf("sbpfv3_return_ok"),
+    );
+    assert_matches!(result, Ok(()));
+    let (idle, result) = deploy_upgradeable_program_for_tests(
+        &bank1,
+        &mint,
+        &authority,
+        &read_test_elf("sbpfv3_return_ok"),
+    );
+    assert_matches!(result, Ok(()));
+    goto_end_of_slot(bank1.clone());
+    let bank2 =
+        Bank::new_from_parent_with_bank_forks(&bank_forks, bank1, SlotLeader::default(), 2);
+
+    // Neither program has been invoked yet.
+    assert_eq!(bank2.kita_cache.usage_score(&busy), 0);
+    assert_eq!(bank2.kita_cache.usage_score(&idle), 0);
+
+    // Invoke `busy` three times and `idle` once (distinct data avoids dedup).
+    for data in [[0u8], [1u8], [2u8]] {
+        assert_matches!(invoke_program_for_tests(&bank2, &mint, &busy, &data), Ok(()));
+    }
+    assert_matches!(invoke_program_for_tests(&bank2, &mint, &idle, &[0]), Ok(()));
+
+    // Both were used, and the busier program ranks higher.
+    let busy_score = bank2.kita_cache.usage_score(&busy);
+    let idle_score = bank2.kita_cache.usage_score(&idle);
+    assert!(idle_score > 0);
+    assert!(busy_score > idle_score);
+}
