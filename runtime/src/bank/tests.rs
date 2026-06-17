@@ -12739,3 +12739,100 @@ fn test_new_for_block_tests_with_vote_account() {
         "8ZixvxzpQPr8zWvMyxoTsnFYFmUUKEytytyztDhgQ7oD"
     );
 }
+
+// Build a test bank that resolves programs through the kita cache (JIT cache v2)
+// instead of the legacy global program cache. The flag must be set at
+// construction so built-ins are registered into the kita cache.
+fn new_bank_with_kita_cache_for_tests(genesis_config: &GenesisConfig) -> Bank {
+    let runtime_config = Arc::new(RuntimeConfig {
+        use_kita_cache: true,
+        ..RuntimeConfig::default()
+    });
+    let mut bank = Bank::new_from_genesis(
+        genesis_config,
+        runtime_config,
+        vec![],
+        None,
+        BankTestConfig::default().accounts_db_config,
+        None,
+        None,
+        Arc::default(),
+        None,
+        None,
+    );
+    bank.set_fee_structure(&FeeStructure {
+        lamports_per_signature: genesis_config.fee_rate_governor.lamports_per_signature,
+        ..FeeStructure::default()
+    });
+    bank
+}
+
+// Read the no-op test program's ELF bytes.
+fn load_noop_program_elf() -> Vec<u8> {
+    let mut file = File::open("../programs/bpf_loader/test_elfs/out/noop_aligned.so").unwrap();
+    let mut elf = Vec::new();
+    file.read_to_end(&mut elf).unwrap();
+    elf
+}
+
+// Store `elf` as a deployed loader-v2 program, whose account data is the ELF
+// directly, and return its address.
+fn store_sbpf_program_for_tests(bank: &Bank, elf: &[u8]) -> Pubkey {
+    let program_key = solana_pubkey::new_rand();
+    let mut account = AccountSharedData::new(
+        bank.get_minimum_balance_for_rent_exemption(elf.len()),
+        elf.len(),
+        &bpf_loader::id(),
+    );
+    account.data_as_mut_slice().copy_from_slice(elf);
+    account.set_executable(true);
+    bank.store_account_and_update_capitalization(&program_key, &account);
+    program_key
+}
+
+// A built-in (the system program) resolves through the kita cache's built-in
+// tier and processes a transfer normally.
+#[test]
+fn test_kita_cache_executes_builtin() {
+    let (genesis_config, mint_keypair) = create_genesis_config_no_tx_fee(1_000_000_000);
+    let bank = new_bank_with_kita_cache_for_tests(&genesis_config);
+    let (bank, _bank_forks) = bank.wrap_with_bank_forks_for_tests();
+    assert!(bank.use_kita_cache());
+
+    let recipient = solana_pubkey::new_rand();
+    let amount = bank.get_minimum_balance_for_rent_exemption(0);
+    let transaction =
+        system_transaction::transfer(&mint_keypair, &recipient, amount, bank.last_blockhash());
+    assert_matches!(bank.process_transaction(&transaction), Ok(()));
+    assert_eq!(bank.get_balance(&recipient), amount);
+}
+
+// An on-chain SBPF program already present in the kita cache resolves through it
+// and executes. The compiled program is inserted directly to exercise the cache-
+// hit path independent of the on-miss load step.
+#[test]
+fn test_kita_cache_executes_sbpf_program() {
+    let (genesis_config, mint_keypair) = create_genesis_config_no_tx_fee(1_000_000_000);
+    let bank = new_bank_with_kita_cache_for_tests(&genesis_config);
+    let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 1);
+
+    let elf = load_noop_program_elf();
+    let program_key = store_sbpf_program_for_tests(&bank, &elf);
+
+    // Pre-load the kita cache: compile against the bank's execution environment,
+    // which is the same loader the VM runs with.
+    let environment = bank
+        .transaction_processor
+        .program_runtime_environment
+        .clone();
+    let entry = solana_kita_cache::compile::compile(&environment, &elf);
+    assert!(matches!(entry, solana_kita_cache::entry::Entry::Program(_)));
+    bank.kita_cache.insert(&program_key, entry, bank.slot());
+
+    let instruction = Instruction::new_with_bytes(program_key, &[], Vec::new());
+    let message = Message::new(&[instruction], Some(&mint_keypair.pubkey()));
+    let transaction = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
+    assert_matches!(bank.process_transaction(&transaction), Ok(()));
+}
