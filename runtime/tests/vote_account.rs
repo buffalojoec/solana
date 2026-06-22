@@ -335,14 +335,17 @@ fn test_clone_and_filter_for_vat_truncates() {
         |_| 10_000_000_000,
     );
     // All vote accounts should be returned if the limit is high enough.
-    let filtered =
-        vote_accounts.clone_and_filter_for_vat(current_limit + 500, MIN_STAKE_FOR_STAKED_ACCOUNT);
+    let filtered = vote_accounts.clone_and_filter_for_vat(
+        current_limit + 500,
+        MIN_STAKE_FOR_STAKED_ACCOUNT,
+        false,
+    );
     assert_eq!(filtered.len(), vote_accounts.len());
 
     // If the limit is smaller than number of accounts, truncate it.
     let lower_limit = current_limit - 1000;
     let filtered =
-        vote_accounts.clone_and_filter_for_vat(lower_limit, MIN_STAKE_FOR_STAKED_ACCOUNT);
+        vote_accounts.clone_and_filter_for_vat(lower_limit, MIN_STAKE_FOR_STAKED_ACCOUNT, false);
     assert!(filtered.len() <= lower_limit);
     // Check that the filtered accounts are the same as the original accounts.
     for (pubkey, (_, vote_account)) in filtered.as_ref().iter() {
@@ -378,7 +381,8 @@ fn test_clone_and_filter_for_vat_filters_non_alpenglow() {
         |_| 10_000_000_000,
     );
     let new_limit = MAX_ALPENGLOW_VOTE_ACCOUNTS + 500;
-    let filtered = vote_accounts.clone_and_filter_for_vat(new_limit, MIN_STAKE_FOR_STAKED_ACCOUNT);
+    let filtered =
+        vote_accounts.clone_and_filter_for_vat(new_limit, MIN_STAKE_FOR_STAKED_ACCOUNT, false);
     assert_eq!(filtered.len(), MAX_ALPENGLOW_VOTE_ACCOUNTS);
     // Check that all filtered accounts have bls pubkey.
     for (_stake, vote_account) in filtered.as_ref().values() {
@@ -391,7 +395,8 @@ fn test_clone_and_filter_for_vat_filters_non_alpenglow() {
     }
     // Now get only 1500 accounts, even some alpenglow accounts are kicked out.
     let new_limit = MAX_ALPENGLOW_VOTE_ACCOUNTS - 500;
-    let filtered = vote_accounts.clone_and_filter_for_vat(new_limit, MIN_STAKE_FOR_STAKED_ACCOUNT);
+    let filtered =
+        vote_accounts.clone_and_filter_for_vat(new_limit, MIN_STAKE_FOR_STAKED_ACCOUNT, false);
     assert!(filtered.len() <= new_limit);
     for (_stake, vote_account) in filtered.as_ref().values() {
         assert!(
@@ -424,10 +429,13 @@ fn test_clone_and_filter_for_vat_same_stake_at_border() {
         vote_accounts.insert(pubkey, vote_account, || stake);
     }
     let filtered =
-        vote_accounts.clone_and_filter_for_vat(num_accounts, MIN_STAKE_FOR_STAKED_ACCOUNT);
+        vote_accounts.clone_and_filter_for_vat(num_accounts, MIN_STAKE_FOR_STAKED_ACCOUNT, false);
     assert_eq!(filtered.len(), num_accounts);
-    let filtered = vote_accounts
-        .clone_and_filter_for_vat(MAX_ALPENGLOW_VOTE_ACCOUNTS, MIN_STAKE_FOR_STAKED_ACCOUNT);
+    let filtered = vote_accounts.clone_and_filter_for_vat(
+        MAX_ALPENGLOW_VOTE_ACCOUNTS,
+        MIN_STAKE_FOR_STAKED_ACCOUNT,
+        false,
+    );
     assert_eq!(filtered.len(), MAX_ALPENGLOW_VOTE_ACCOUNTS - 10);
 }
 
@@ -451,9 +459,89 @@ fn test_clone_and_filter_for_vat_not_enough_lamports() {
             }
         },
     );
-    let filtered = vote_accounts
-        .clone_and_filter_for_vat(MAX_ALPENGLOW_VOTE_ACCOUNTS, DEFAULT_VAT_TO_BURN_PER_EPOCH);
+    let filtered = vote_accounts.clone_and_filter_for_vat(
+        MAX_ALPENGLOW_VOTE_ACCOUNTS,
+        DEFAULT_VAT_TO_BURN_PER_EPOCH,
+        false,
+    );
     assert!(filtered.len() <= MAX_ALPENGLOW_VOTE_ACCOUNTS - entries_to_modify);
+}
+
+/// Builds a single staked V4 vote account (with a BLS pubkey) carrying the given
+/// lamports and `pending_delegator_rewards`.
+fn pending_rewards_vote_accounts(lamports: u64, pending_delegator_rewards: u64) -> VoteAccounts {
+    let bls_pubkey_compressed = {
+        let bls_pubkey: solana_bls_signatures::pubkey::PubkeyCompressed =
+            (*solana_bls_signatures::keypair::Keypair::new().public).into();
+        let buffer = bincode::serialize(&bls_pubkey).unwrap();
+        Some(buffer.try_into().unwrap())
+    };
+    let vote_state = VoteStateV4 {
+        node_pubkey: Pubkey::new_unique(),
+        authorized_voters: AuthorizedVoters::new(0, Pubkey::new_unique()),
+        authorized_withdrawer: Pubkey::new_unique(),
+        bls_pubkey_compressed,
+        pending_delegator_rewards,
+        ..VoteStateV4::default()
+    };
+    let mut account = AccountSharedData::new(
+        lamports,
+        VoteStateV4::size_of(),
+        &solana_sdk_ids::vote::id(),
+    );
+    VoteStateV4::serialize(
+        &VoteStateVersions::V4(Box::new(vote_state)),
+        account.data_as_mut_slice(),
+    )
+    .unwrap();
+
+    let mut vote_accounts = VoteAccounts::default();
+    vote_accounts.insert(
+        Pubkey::new_unique(),
+        VoteAccount::try_from(account).unwrap(),
+        || 1,
+    );
+    vote_accounts
+}
+
+#[test]
+fn test_clone_and_filter_for_vat_reserves_pending_delegator_rewards() {
+    let rent_exempt_plus_burn = 10_000_000_000;
+    let pending_delegator_rewards = 500;
+
+    // An account holding exactly the threshold but owing delegator rewards would
+    // dip below the SIMD-0123 floor after the VAT burn, so reserving excludes it.
+    let vote_accounts =
+        pending_rewards_vote_accounts(rent_exempt_plus_burn, pending_delegator_rewards);
+    let filtered = vote_accounts.clone_and_filter_for_vat(
+        MAX_ALPENGLOW_VOTE_ACCOUNTS,
+        rent_exempt_plus_burn,
+        true,
+    );
+    assert_eq!(filtered.len(), 0);
+
+    // The same account is admitted once it also covers the reserved rewards.
+    let vote_accounts = pending_rewards_vote_accounts(
+        rent_exempt_plus_burn + pending_delegator_rewards,
+        pending_delegator_rewards,
+    );
+    let filtered = vote_accounts.clone_and_filter_for_vat(
+        MAX_ALPENGLOW_VOTE_ACCOUNTS,
+        rent_exempt_plus_burn,
+        true,
+    );
+    assert_eq!(filtered.len(), 1);
+
+    // Regression guard: with the flag unset, pending_delegator_rewards has no
+    // effect on admission (pre-Alpenglow behavior is unchanged).
+    let vote_accounts =
+        pending_rewards_vote_accounts(rent_exempt_plus_burn, pending_delegator_rewards);
+    let filtered = vote_accounts.clone_and_filter_for_vat(
+        MAX_ALPENGLOW_VOTE_ACCOUNTS,
+        rent_exempt_plus_burn,
+        false,
+    );
+    assert_eq!(filtered.len(), 1);
 }
 
 #[test]
@@ -471,8 +559,11 @@ fn test_clone_and_filter_for_vat_empty_accounts() {
     );
     // Since everyone has the same stake and the limit is 500 less than number of accounts,
     // all border stake peers are removed and we end up with no valid accounts.
-    let filtered =
-        vote_accounts.clone_and_filter_for_vat(current_limit - 500, MIN_STAKE_FOR_STAKED_ACCOUNT);
+    let filtered = vote_accounts.clone_and_filter_for_vat(
+        current_limit - 500,
+        MIN_STAKE_FOR_STAKED_ACCOUNT,
+        false,
+    );
     assert_eq!(filtered.len(), 0);
 }
 

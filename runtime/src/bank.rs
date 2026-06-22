@@ -1742,6 +1742,9 @@ impl Bank {
                 unfiltered_distribution_vote_accounts.clone_and_filter_for_vat(
                     MAX_ALPENGLOW_VOTE_ACCOUNTS,
                     self.minimum_vote_account_balance_for_vat(),
+                    // Reserve each account's SIMD-0123 pending_delegator_rewards only when
+                    // Alpenglow is active, i.e. when the VAT burn actually runs (#13228).
+                    self.feature_set.snapshot().alpenglow,
                 )
             } else {
                 unfiltered_distribution_vote_accounts.clone()
@@ -6574,6 +6577,9 @@ impl Bank {
             self.stakes_cache.stakes().clone_and_filter_for_vat(
                 MAX_ALPENGLOW_VOTE_ACCOUNTS,
                 self.minimum_vote_account_balance_for_vat(),
+                // Reserve each account's SIMD-0123 pending_delegator_rewards only when
+                // Alpenglow is active, i.e. when the VAT burn actually runs (#13228).
+                self.feature_set.snapshot().alpenglow,
             )
         } else {
             self.stakes_cache.stakes().clone()

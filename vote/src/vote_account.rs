@@ -184,7 +184,10 @@ impl VoteAccounts {
     // This implements the filtering logic described in SIMD-357.
     // 1. Filter out any vote accounts without BLS pubkey
     // 2. Given minimum_vote_account_balance, filter out any vote account
-    //    without required balance
+    //    without required balance. When `reserve_pending_delegator_rewards`
+    //    is set, the per-account SIMD-0123 `pending_delegator_rewards` is added
+    //    to the threshold so the post-VAT-burn balance stays above the
+    //    delegator-owed floor (#13228).
     // 3. If we have more than max_vote_accounts vote accounts after above
     //    filtering, sort by stake and truncate
     // 4. If any vote account in the resulting list has the same stake as any
@@ -198,6 +201,7 @@ impl VoteAccounts {
         &self,
         max_vote_accounts: usize,
         minimum_vote_account_balance: u64,
+        reserve_pending_delegator_rewards: bool,
     ) -> VoteAccounts {
         assert!(max_vote_accounts > 0, "max_vote_accounts must be > 0");
         let capacity = max_vote_accounts.min(self.vote_accounts.len());
@@ -208,7 +212,18 @@ impl VoteAccounts {
                 .bls_pubkey_compressed()
                 .is_some();
             let has_stake = *stake != 0u64;
-            let has_balance = vote_account.lamports() >= minimum_vote_account_balance;
+            // When Alpenglow is active the VAT burn (see `maybe_burn_vat_from_staked_accounts`)
+            // drops each admitted account by `vat_to_burn_per_epoch`. Reserve this account's
+            // SIMD-0123 `pending_delegator_rewards` on top of the threshold so the post-burn
+            // balance never dips below `rent_exempt + pending_delegator_rewards`, which would
+            // otherwise burn delegator-owed lamports the withdrawal guard then locks (#13228).
+            let required_balance = if reserve_pending_delegator_rewards {
+                minimum_vote_account_balance
+                    .saturating_add(vote_account.vote_state_view().pending_delegator_rewards())
+            } else {
+                minimum_vote_account_balance
+            };
+            let has_balance = vote_account.lamports() >= required_balance;
 
             if !has_bls || !has_stake || !has_balance {
                 continue;

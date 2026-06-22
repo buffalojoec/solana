@@ -238,10 +238,14 @@ impl<T: Clone> Stakes<T> {
         &self,
         max_vote_accounts: usize,
         minimum_vote_account_balance: u64,
+        reserve_pending_delegator_rewards: bool,
     ) -> Stakes<T> {
         Self::new(
-            self.vote_accounts
-                .clone_and_filter_for_vat(max_vote_accounts, minimum_vote_account_balance),
+            self.vote_accounts.clone_and_filter_for_vat(
+                max_vote_accounts,
+                minimum_vote_account_balance,
+                reserve_pending_delegator_rewards,
+            ),
             self.epoch,
         )
     }
