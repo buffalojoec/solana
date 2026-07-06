@@ -7,7 +7,7 @@ const MAX_BPS_U128: u128 = MAX_BPS as u128;
 
 /// The outcome of splitting a reward between a voter's commission and its
 /// stakers.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CommissionSplit {
     /// The voter's commission portion.
     pub voter: u64,

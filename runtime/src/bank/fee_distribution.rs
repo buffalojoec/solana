@@ -1,7 +1,10 @@
 use {
     super::Bank,
     crate::{
-        bank::{CollectorFeeDetails, commission::MAX_BPS},
+        bank::{
+            CollectorFeeDetails,
+            commission::{CommissionSplit, MAX_BPS, commission_split_preserve_lamports},
+        },
         reward_info::RewardInfo,
     },
     agave_reserved_account_keys::ReservedAccountKeys,
@@ -133,7 +136,7 @@ impl Bank {
         // DEVELOPER NOTE: SIMD-0232 MUST be activated BEFORE SIMD-0123.
         // Otherwise, validators' effective commission BPS would remain frozen
         // at 100% until SIMD-0232 is activated.
-        let (collector_id, _commission_bps) = if custom_commission_collector {
+        let (collector_id, commission_bps) = if custom_commission_collector {
             // Per SIMD-0232: the commission collector address should be fetched
             // from the state of the vote account at the beginning of the previous
             // epoch. This is the vote account state used to build the leader
@@ -169,7 +172,19 @@ impl Bank {
             (&self.leader.id, MAX_BPS)
         };
 
-        match self.deposit_fees(collector_id, deposit) {
+        let split = if block_revenue_sharing {
+            // TODO: SIMD maybe underspecified: preserve lamports version
+            commission_split_preserve_lamports(commission_bps, deposit)
+        } else {
+            // Pre-SIMD-0123: everything goes to the collector.
+            CommissionSplit {
+                voter: deposit,
+                staker: 0,
+                was_split: false,
+            }
+        };
+
+        match self.deposit_fees(collector_id, split) {
             Ok(post_balance) => {
                 self.rewards.write().unwrap().push((
                     *collector_id,
@@ -199,7 +214,16 @@ impl Bank {
     }
 
     // Deposits fees into a specified account and if successful, returns the new balance of that account
-    fn deposit_fees(&self, collector_id: &Pubkey, fees: u64) -> Result<u64, DepositFeeError> {
+    fn deposit_fees(
+        &self,
+        collector_id: &Pubkey,
+        split: CommissionSplit,
+    ) -> Result<u64, DepositFeeError> {
+        let CommissionSplit {
+            voter: commission_amount,
+            staker: _,
+            ..
+        } = split;
         let mut account = self
             .get_account_with_fixed_root_no_cache(collector_id)
             .unwrap_or_default();
@@ -208,7 +232,7 @@ impl Bank {
         if feature_snapshot.custom_commission_collector {
             let pre_lamports = account.lamports();
             account
-                .checked_add_lamports(fees)
+                .checked_add_lamports(commission_amount)
                 .map_err(|_| DepositFeeError::LamportOverflow)?;
             if collector_id != &self.leader.vote_address {
                 Bank::collector_type_checked(
@@ -226,7 +250,7 @@ impl Bank {
             }
 
             let pre_balance = account.lamports();
-            let distribution = account.checked_add_lamports(fees);
+            let distribution = account.checked_add_lamports(commission_amount);
             if distribution.is_err() {
                 return Err(DepositFeeError::LamportOverflow);
             }
@@ -473,11 +497,15 @@ pub mod tests {
         let genesis = create_genesis_config(initial_balance);
         let bank = Bank::new_for_tests(&genesis.genesis_config);
         let pubkey = genesis.mint_keypair.pubkey();
-        let deposit_amount = 500;
+        let split = CommissionSplit {
+            voter: 500,
+            staker: 0,
+            was_split: false,
+        };
 
         assert_eq!(
-            bank.deposit_fees(&pubkey, deposit_amount),
-            Ok(initial_balance + deposit_amount),
+            bank.deposit_fees(&pubkey, split),
+            Ok(initial_balance + split.voter),
             "New balance should be the sum of the initial balance and deposit amount"
         );
     }
@@ -488,10 +516,14 @@ pub mod tests {
         let genesis = create_genesis_config(initial_balance);
         let bank = Bank::new_for_tests(&genesis.genesis_config);
         let pubkey = genesis.mint_keypair.pubkey();
-        let deposit_amount = 500;
+        let split = CommissionSplit {
+            voter: 500,
+            staker: 0,
+            was_split: false,
+        };
 
         assert_eq!(
-            bank.deposit_fees(&pubkey, deposit_amount),
+            bank.deposit_fees(&pubkey, split),
             Err(DepositFeeError::LamportOverflow),
             "Expected an error due to lamport overflow"
         );
@@ -513,11 +545,15 @@ pub mod tests {
         bank.feature_set = Arc::new(feature_set);
 
         let pubkey = genesis.voting_keypair.pubkey();
-        let deposit_amount = 500;
+        let split = CommissionSplit {
+            voter: 500,
+            staker: 0,
+            was_split: false,
+        };
         let pre_lamports = bank.get_balance(&pubkey);
         assert_eq!(
-            expected.map(|_| pre_lamports.saturating_add(deposit_amount)),
-            bank.deposit_fees(&pubkey, deposit_amount)
+            expected.map(|_| pre_lamports.saturating_add(split.voter)),
+            bank.deposit_fees(&pubkey, split)
         );
     }
 
@@ -526,11 +562,15 @@ pub mod tests {
         let initial_balance = 1000;
         let genesis = create_genesis_config_with_leader(0, &pubkey::new_rand(), initial_balance);
         let bank = Bank::new_for_tests(&genesis.genesis_config);
-        let deposit_amount = 500;
+        let split = CommissionSplit {
+            voter: 500,
+            staker: 0,
+            was_split: false,
+        };
 
         for id in bank.get_reserved_account_keys() {
             assert!(matches!(
-                bank.deposit_fees(id, deposit_amount),
+                bank.deposit_fees(id, split),
                 Err(DepositFeeError::ReservedCollector) | Err(DepositFeeError::InvalidAccountOwner),
             ));
         }
@@ -545,7 +585,12 @@ pub mod tests {
         let nonexistent_pubkey = Pubkey::new_unique();
 
         // Fee is sufficient to make the new account rent-exempt
-        let deposit_amount = rent.minimum_balance(0);
+        let voter = rent.minimum_balance(0);
+        let split = CommissionSplit {
+            voter,
+            staker: 0,
+            was_split: false,
+        };
 
         assert!(
             bank.get_account(&nonexistent_pubkey).is_none(),
@@ -553,13 +598,13 @@ pub mod tests {
         );
 
         assert_eq!(
-            bank.deposit_fees(&nonexistent_pubkey, deposit_amount),
-            Ok(deposit_amount),
+            bank.deposit_fees(&nonexistent_pubkey, split),
+            Ok(split.voter),
             "Deposit should succeed when fee is sufficient for rent-exemption"
         );
 
         let account = bank.get_account(&nonexistent_pubkey).unwrap();
-        assert_eq!(account.lamports(), deposit_amount);
+        assert_eq!(account.lamports(), split.voter);
         assert_eq!(account.owner(), &system_program::id());
     }
 
@@ -572,7 +617,12 @@ pub mod tests {
         let nonexistent_pubkey = Pubkey::new_unique();
 
         // Fee is insufficient to make the new account rent-exempt
-        let deposit_amount = rent.minimum_balance(0) - 1;
+        let voter = rent.minimum_balance(0) - 1;
+        let split = CommissionSplit {
+            voter,
+            staker: 0,
+            was_split: false,
+        };
 
         assert!(
             bank.get_account(&nonexistent_pubkey).is_none(),
@@ -580,7 +630,7 @@ pub mod tests {
         );
 
         assert_eq!(
-            bank.deposit_fees(&nonexistent_pubkey, deposit_amount),
+            bank.deposit_fees(&nonexistent_pubkey, split),
             Err(DepositFeeError::InvalidRentPayingAccount),
             "Deposit should fail when fee is insufficient for rent-exemption"
         );
