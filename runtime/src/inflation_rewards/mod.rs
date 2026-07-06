@@ -6,7 +6,7 @@ use {
     },
     crate::{
         alpenglow_epoch_type::AlpenglowEpochType,
-        bank::commission::{commission_split, commission_split_preserve_lamports},
+        bank::commission::{CommissionSplit, commission_split, commission_split_preserve_lamports},
         stake_delegation::effective_stake,
     },
     solana_instruction::error::InstructionError,
@@ -317,7 +317,11 @@ fn calculate_stake_rewards<'a>(
     if rewards == 0 {
         return skip_reward(SkippedReason::ZeroReward);
     }
-    let (voter_rewards, staker_rewards, is_split) = if is_tower_epoch {
+    let CommissionSplit {
+        voter: voter_rewards,
+        staker: staker_rewards,
+        was_split: is_split,
+    } = if is_tower_epoch {
         commission_split(voter_commission_bps, rewards)
     } else {
         commission_split_preserve_lamports(voter_commission_bps, rewards)

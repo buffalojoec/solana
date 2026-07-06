@@ -602,7 +602,7 @@ mod tests {
     use {
         super::*,
         crate::{
-            bank::commission::commission_split_preserve_lamports,
+            bank::commission::{CommissionSplit, commission_split_preserve_lamports},
             bank_forks::BankForks,
             genesis_utils::{
                 ValidatorVoteKeypairs, activate_all_features_alpenglow,
@@ -1271,9 +1271,12 @@ mod tests {
                 }
                 let stake = initial_lamports - rent_exempt_reserve;
                 let stake_weighted_reward = validator_reward * stake / validator_stake;
-                let (voter_reward, staker_reward, is_split) =
-                    commission_split_preserve_lamports(self.commission_bps, stake_weighted_reward);
-                assert!(is_split);
+                let CommissionSplit {
+                    voter: voter_reward,
+                    staker: staker_reward,
+                    was_split,
+                } = commission_split_preserve_lamports(self.commission_bps, stake_weighted_reward);
+                assert!(was_split);
                 assert_eq!(
                     staker_reward,
                     final_lamports - initial_lamports,
