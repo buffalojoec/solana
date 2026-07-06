@@ -1,6 +1,9 @@
 use {
     super::Bank,
-    crate::{bank::CollectorFeeDetails, reward_info::RewardInfo},
+    crate::{
+        bank::{CollectorFeeDetails, commission::MAX_BPS},
+        reward_info::RewardInfo,
+    },
     agave_reserved_account_keys::ReservedAccountKeys,
     log::debug,
     solana_account::{AccountSharedData, ReadableAccount, WritableAccount},
@@ -123,13 +126,20 @@ impl Bank {
             return 0;
         }
 
-        // Per SIMD-0232: the commission collector address should be fetched
-        // from the state of the vote account at the beginning of the previous
-        // epoch. This is the vote account state used to build the leader
-        // schedule for the current epoch, which *DOES NOT* correspond to
-        // `Bank::current_epoch_stakes()`.
         let feature_snapshot = self.feature_set.snapshot();
-        let collector_id = if feature_snapshot.custom_commission_collector {
+        let custom_commission_collector = feature_snapshot.custom_commission_collector;
+        let block_revenue_sharing = feature_snapshot.block_revenue_sharing;
+
+        // DEVELOPER NOTE: SIMD-0232 MUST be activated BEFORE SIMD-0123.
+        // Otherwise, validators' effective commission BPS would remain frozen
+        // at 100% until SIMD-0232 is activated.
+        let (collector_id, _commission_bps) = if custom_commission_collector {
+            // Per SIMD-0232: the commission collector address should be fetched
+            // from the state of the vote account at the beginning of the previous
+            // epoch. This is the vote account state used to build the leader
+            // schedule for the current epoch, which *DOES NOT* correspond to
+            // `Bank::current_epoch_stakes()`.
+            // The same rule applies to the commission BPS value (SIMD-0123).
             let vote_account = self
                 .epoch_stakes
                 .get(&self.epoch)
@@ -140,15 +150,23 @@ impl Bank {
                         .get(&self.leader.vote_address)
                 })
                 .expect("The vote account for the leader must exist");
+            let vote_state_view = vote_account.vote_state_view();
             // Protection in case the leader is on a vote state without a
             // collector id, which can happen if a dormant pre-v4 vote state
             // accrues stake.
-            vote_account
-                .vote_state_view()
+            let collector = vote_state_view
                 .block_revenue_collector()
-                .unwrap_or(&self.leader.id)
+                .unwrap_or(&self.leader.id);
+            let commission = if block_revenue_sharing {
+                // SIMD-0123: commission for block revenue applies.
+                vote_state_view.block_revenue_commission()
+            } else {
+                // Pre-SIMD-0123: commission is always 100%.
+                MAX_BPS
+            };
+            (collector, commission)
         } else {
-            &self.leader.id
+            (&self.leader.id, MAX_BPS)
         };
 
         match self.deposit_fees(collector_id, deposit) {

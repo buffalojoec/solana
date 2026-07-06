@@ -1,5 +1,10 @@
 //! Splitting a reward amount between a voter's commission and its stakers.
 
+/// Maximum commission a node can apply to any reward. Commission rates declared
+/// in vote account state that are above this value are clamped to this value.
+pub(crate) const MAX_BPS: u16 = 10_000; // 100%
+const MAX_BPS_U128: u128 = MAX_BPS as u128;
+
 /// The outcome of splitting a reward between a voter's commission and its
 /// stakers.
 #[derive(Debug, PartialEq, Eq)]
@@ -18,8 +23,6 @@ pub(crate) struct CommissionSplit {
 ///  if commission calculation is 100% one way or other,
 ///   indicate with false for was_split
 pub(crate) fn commission_split(commission_bps: u16, on: u64) -> CommissionSplit {
-    const MAX_BPS: u16 = 10_000;
-    const MAX_BPS_U128: u128 = MAX_BPS as u128;
     match commission_bps.min(MAX_BPS) {
         0 => CommissionSplit {
             voter: 0,
@@ -65,8 +68,6 @@ pub(crate) fn commission_split(commission_bps: u16, on: u64) -> CommissionSplit 
 ///
 /// This is used only for non-Tower epochs, where small unfair splits no longer defer redemption.
 pub(crate) fn commission_split_preserve_lamports(commission_bps: u16, on: u64) -> CommissionSplit {
-    const MAX_BPS: u16 = 10_000;
-    const MAX_BPS_U128: u128 = MAX_BPS as u128;
     match commission_bps.min(MAX_BPS) {
         0 => CommissionSplit {
             voter: 0,
