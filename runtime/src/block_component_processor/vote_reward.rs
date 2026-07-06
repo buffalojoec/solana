@@ -602,13 +602,13 @@ mod tests {
     use {
         super::*,
         crate::{
+            bank::commission::commission_split_preserve_lamports,
             bank_forks::BankForks,
             genesis_utils::{
                 ValidatorVoteKeypairs, activate_all_features_alpenglow,
                 create_genesis_config_with_alpenglow_vote_accounts,
                 create_genesis_config_with_leader_ex, create_validator,
             },
-            inflation_rewards::commission_split_preserve_lamports,
             stake_utils,
             validated_block_finalization::ValidatedBlockFinalizationCert,
         },

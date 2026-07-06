@@ -236,6 +236,7 @@ mod address_lookup_table;
 pub mod bank_hash_details;
 pub mod builtins;
 mod check_transactions;
+pub(crate) mod commission;
 pub mod entry_bytes_budget;
 mod fee_distribution;
 mod metrics;

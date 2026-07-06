@@ -3,7 +3,7 @@ mod tests {
 
     use {
         crate::{
-            bank::Bank,
+            bank::{Bank, commission::commission_split_preserve_lamports},
             block_component_processor::vote_reward::{
                 VoteState, increment_credits,
                 tests::{new_bank_from_parent, set_commission},
@@ -12,7 +12,6 @@ mod tests {
                 ValidatorVoteKeypairs, activate_all_features, create_genesis_config_with_leader_ex,
                 create_validator,
             },
-            inflation_rewards::commission_split_preserve_lamports,
             stake_utils,
         },
         agave_feature_set::FeatureSet,
