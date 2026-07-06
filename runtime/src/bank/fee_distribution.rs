@@ -213,7 +213,9 @@ impl Bank {
         }
     }
 
-    // Deposits fees into a specified account and if successful, returns the new balance of that account
+    // Deposits a validator's block revenue (fees) commission into its specified
+    // commission collector account. Returns the new balance of the commission
+    // collector account.
     fn deposit_fees(
         &self,
         collector_id: &Pubkey,
@@ -224,33 +226,37 @@ impl Bank {
             staker: _,
             ..
         } = split;
-        let mut account = self
+
+        let feature_snapshot = self.feature_set.snapshot();
+        let custom_commission_collector = feature_snapshot.custom_commission_collector;
+        let relax_post_exec_min_balance_check = feature_snapshot.relax_post_exec_min_balance_check;
+
+        let mut commission_account = self
             .get_account_with_fixed_root_no_cache(collector_id)
             .unwrap_or_default();
 
-        let feature_snapshot = self.feature_set.snapshot();
-        if feature_snapshot.custom_commission_collector {
-            let pre_lamports = account.lamports();
-            account
+        if custom_commission_collector {
+            let pre_lamports = commission_account.lamports();
+            commission_account
                 .checked_add_lamports(commission_amount)
                 .map_err(|_| DepositFeeError::LamportOverflow)?;
             if collector_id != &self.leader.vote_address {
-                Bank::collector_type_checked(
+                Self::collector_type_checked(
                     collector_id,
                     pre_lamports,
-                    &account,
+                    &commission_account,
                     &self.reserved_account_keys,
                     &self.rent_collector().rent,
-                    feature_snapshot.relax_post_exec_min_balance_check,
+                    relax_post_exec_min_balance_check,
                 )?;
             }
         } else {
-            if !system_program::check_id(account.owner()) {
+            if !system_program::check_id(commission_account.owner()) {
                 return Err(DepositFeeError::InvalidAccountOwner);
             }
 
-            let pre_balance = account.lamports();
-            let distribution = account.checked_add_lamports(commission_amount);
+            let pre_balance = commission_account.lamports();
+            let distribution = commission_account.checked_add_lamports(commission_amount);
             if distribution.is_err() {
                 return Err(DepositFeeError::LamportOverflow);
             }
@@ -259,11 +265,11 @@ impl Bank {
             // doesn't exist yet.
             if check_static_account_rent_state_transition(
                 pre_balance,
-                account.lamports(),
-                account.data().len(),
+                commission_account.lamports(),
+                commission_account.data().len(),
                 &self.rent_collector().rent,
                 0, // account index isn't relevant and only used for error message
-                feature_snapshot.relax_post_exec_min_balance_check,
+                relax_post_exec_min_balance_check,
             )
             .is_err()
             {
@@ -271,8 +277,8 @@ impl Bank {
             }
         }
 
-        self.store_account(collector_id, &account);
-        Ok(account.lamports())
+        self.store_account(collector_id, &commission_account);
+        Ok(commission_account.lamports())
     }
 
     /// Checks if a collector account adheres to the rules outlined in SIMD-0232:
