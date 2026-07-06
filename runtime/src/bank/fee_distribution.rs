@@ -235,18 +235,47 @@ impl Bank {
             .get_account_with_fixed_root_no_cache(collector_id)
             .unwrap_or_default();
 
+        // First deposit commission into the leader's collector account.
+        Self::deposit_block_revenue_commission(
+            collector_id,
+            &mut commission_account,
+            commission_amount,
+            &self.leader.vote_address,
+            &self.rent_collector().rent,
+            &self.reserved_account_keys,
+            custom_commission_collector,
+            relax_post_exec_min_balance_check,
+        )?;
+
+        self.store_account(collector_id, &commission_account);
+        Ok(commission_account.lamports())
+    }
+
+    // Deposits a validator's block revenue (fees) commission into its specified
+    // commission collector account. Returns the new balance of the commission
+    // collector account.
+    fn deposit_block_revenue_commission(
+        collector_id: &Pubkey,
+        commission_account: &mut AccountSharedData,
+        commission_amount: u64,
+        leader_vote_address: &Pubkey,
+        rent: &Rent,
+        reserved_account_keys: &ReservedAccountKeys,
+        custom_commission_collector: bool,
+        relax_post_exec_min_balance_check: bool,
+    ) -> Result<(), DepositFeeError> {
         if custom_commission_collector {
             let pre_lamports = commission_account.lamports();
             commission_account
                 .checked_add_lamports(commission_amount)
                 .map_err(|_| DepositFeeError::LamportOverflow)?;
-            if collector_id != &self.leader.vote_address {
+            if collector_id != leader_vote_address {
                 Self::collector_type_checked(
                     collector_id,
                     pre_lamports,
                     &commission_account,
-                    &self.reserved_account_keys,
-                    &self.rent_collector().rent,
+                    reserved_account_keys,
+                    rent,
                     relax_post_exec_min_balance_check,
                 )?;
             }
@@ -267,7 +296,7 @@ impl Bank {
                 pre_balance,
                 commission_account.lamports(),
                 commission_account.data().len(),
-                &self.rent_collector().rent,
+                rent,
                 0, // account index isn't relevant and only used for error message
                 relax_post_exec_min_balance_check,
             )
@@ -277,8 +306,7 @@ impl Bank {
             }
         }
 
-        self.store_account(collector_id, &commission_account);
-        Ok(commission_account.lamports())
+        Ok(())
     }
 
     /// Checks if a collector account adheres to the rules outlined in SIMD-0232:
