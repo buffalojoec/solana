@@ -15,12 +15,11 @@ use {
     solana_instruction::error::InstructionError,
     solana_loader_v3_interface::state::UpgradeableLoaderState,
     solana_program_runtime::{
-        deploy::deploy_program,
+        deploy::{ProgramData, deploy_program},
         invoke_context::{EnvironmentConfig, InvokeContext},
         loaded_programs::{
             ProgramCacheForTxBatch, ProgramRuntimeEnvironment, ProgramRuntimeEnvironments,
         },
-        program_metrics::LoadProgramMetrics,
         sysvar_cache::SysvarCache,
     },
     solana_pubkey::Pubkey,
@@ -192,22 +191,17 @@ impl Bank {
                 compute_budget.to_cost(),
             );
 
-            let mut load_program_metrics = LoadProgramMetrics::default();
             deploy_program(
-                dummy_invoke_context.get_log_collector(),
-                &mut load_program_metrics,
-                dummy_invoke_context.program_cache_for_tx_batch,
-                ProgramRuntimeEnvironment::clone(&program_runtime_environment),
-                false, // disable_sbpf_v0_v1_v2_deployment // explicitly continue to allow them for core program migrations
+                &mut dummy_invoke_context,
                 program_id,
                 &bpf_loader_upgradeable::id(),
                 // The size of the program cache entry is the size of the program account
                 // + size of the program data account.
                 UpgradeableLoaderState::size_of_program().saturating_add(data_len),
-                elf,
+                ProgramData::Bytes(elf),
                 self.slot,
+                false, // disable_sbpf_v0_v1_v2_deployment // explicitly continue to allow them for core program migrations
             )?;
-            load_program_metrics.submit_datapoint(&mut dummy_invoke_context.timings);
         }
 
         // Update the program cache by merging with `programs_modified`, which

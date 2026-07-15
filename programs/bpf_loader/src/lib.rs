@@ -12,7 +12,7 @@ use {
         state::UpgradeableLoaderState,
     },
     solana_program_runtime::{
-        deploy_program,
+        deploy::{ProgramData, deploy_program},
         invoke_context::InvokeContext,
         program_cache_entry::{ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType},
         sysvar_cache::get_sysvar_with_account_check,
@@ -310,24 +310,21 @@ fn process_loader_upgradeable_instruction(
                 .native_invoke_signed(instruction, &[&[new_program_id.as_ref(), &[bump_seed]]])?;
 
             // Load and verify the program bits
-            let transaction_context = &invoke_context.transaction_context;
-            let instruction_context = transaction_context.get_current_instruction_context()?;
-            let buffer = instruction_context.try_borrow_instruction_account(3)?;
-            deploy_program!(
+            let disable_sbpf_v0_v1_v2_deployment = invoke_context
+                .get_feature_set()
+                .disable_sbpf_v0_v1_v2_deployment;
+            deploy_program(
                 invoke_context,
                 &new_program_id,
                 &owner_id,
                 UpgradeableLoaderState::size_of_program().saturating_add(programdata_len),
-                buffer
-                    .get_data()
-                    .get(buffer_data_offset..)
-                    .ok_or(InstructionError::AccountDataTooSmall)?,
+                ProgramData::InstructionAccount {
+                    index: 3,
+                    offset: buffer_data_offset,
+                },
                 clock.slot,
-                invoke_context
-                    .get_feature_set()
-                    .disable_sbpf_v0_v1_v2_deployment,
-            );
-            drop(buffer);
+                disable_sbpf_v0_v1_v2_deployment,
+            )?;
 
             let transaction_context = &invoke_context.transaction_context;
             let instruction_context = transaction_context.get_current_instruction_context()?;
@@ -486,22 +483,22 @@ fn process_loader_upgradeable_instruction(
             drop(programdata);
 
             // Load and verify the program bits
-            let buffer = instruction_context.try_borrow_instruction_account(2)?;
-            deploy_program!(
+            let loader_key = *program_id;
+            let disable_sbpf_v0_v1_v2_deployment = invoke_context
+                .get_feature_set()
+                .disable_sbpf_v0_v1_v2_deployment;
+            deploy_program(
                 invoke_context,
                 &new_program_id,
-                program_id,
+                &loader_key,
                 UpgradeableLoaderState::size_of_program().saturating_add(programdata_len),
-                buffer
-                    .get_data()
-                    .get(buffer_data_offset..)
-                    .ok_or(InstructionError::AccountDataTooSmall)?,
+                ProgramData::InstructionAccount {
+                    index: 2,
+                    offset: buffer_data_offset,
+                },
                 clock.slot,
-                invoke_context
-                    .get_feature_set()
-                    .disable_sbpf_v0_v1_v2_deployment,
-            );
-            drop(buffer);
+                disable_sbpf_v0_v1_v2_deployment,
+            )?;
 
             let transaction_context = &invoke_context.transaction_context;
             let instruction_context = transaction_context.get_current_instruction_context()?;
@@ -971,23 +968,25 @@ fn common_extend_program(
     let mut programdata_account =
         instruction_context.try_borrow_instruction_account(PROGRAM_DATA_ACCOUNT_INDEX)?;
     programdata_account.set_data_length(new_len)?;
+    drop(programdata_account);
 
     let programdata_data_offset = UpgradeableLoaderState::size_of_programdata_metadata();
 
-    deploy_program!(
+    deploy_program(
         invoke_context,
         &program_key,
         &program_id,
         UpgradeableLoaderState::size_of_program().saturating_add(new_len),
-        programdata_account
-            .get_data()
-            .get(programdata_data_offset..)
-            .ok_or(InstructionError::AccountDataTooSmall)?,
+        ProgramData::InstructionAccount {
+            index: PROGRAM_DATA_ACCOUNT_INDEX,
+            offset: programdata_data_offset,
+        },
         clock_slot,
         false, // disable_sbpf_v0_v1_v2_deployment // explicitly continue to allow them for extend program
-    );
-    drop(programdata_account);
+    )?;
 
+    let transaction_context = &invoke_context.transaction_context;
+    let instruction_context = transaction_context.get_current_instruction_context()?;
     let mut programdata_account =
         instruction_context.try_borrow_instruction_account(PROGRAM_DATA_ACCOUNT_INDEX)?;
     programdata_account.set_state(&UpgradeableLoaderState::ProgramData {
@@ -4047,16 +4046,15 @@ mod tests {
         let mut file = File::open("test_elfs/out/sbpfv3_return_ok.so").expect("file open failed");
         let mut elf = Vec::new();
         file.read_to_end(&mut elf).unwrap();
-        deploy_program!(
+        deploy_program(
             invoke_context,
             &program_id,
             &bpf_loader_upgradeable::id(),
             elf.len(),
-            &elf,
+            ProgramData::Bytes(&elf),
             2_u64,
             true, // disable_sbpf_v0_v1_v2_deployment
-        );
-        Ok(())
+        )
     }
 
     // Concurrency rationale: these tests construct `ProgramCacheEntry` instances

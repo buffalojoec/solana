@@ -5,7 +5,7 @@ use {crate::program_metrics::LoadProgramMetrics, solana_svm_measure::measure::Me
 use {
     crate::{
         invoke_context::InvokeContext,
-        loaded_programs::{ProgramCacheForTxBatch, ProgramRuntimeEnvironment},
+        loaded_programs::ProgramRuntimeEnvironment,
         program_cache_entry::{DELAY_VISIBILITY_SLOT_OFFSET, ProgramCacheEntry},
     },
     solana_clock::Slot,
@@ -18,6 +18,7 @@ use {
     },
     solana_svm_log_collector::{LogCollector, ic_logger_msg},
     solana_svm_type_overrides::sync::Arc,
+    solana_transaction_context::IndexOfAccount,
     std::{cell::RefCell, rc::Rc},
 };
 
@@ -43,22 +44,31 @@ fn morph_into_deployment_environment(
     Ok(result)
 }
 
-/// Directly deploy a program using a provided invoke context.
-/// This function should only be invoked from the runtime, since it does not
-/// provide any account loads or checks.
+/// The source of the program bits to deploy.
+pub enum ProgramData<'a> {
+    /// The data of one of the current instruction's accounts, from `offset` on.
+    InstructionAccount {
+        index: IndexOfAccount,
+        offset: usize,
+    },
+    /// A caller provided buffer. Only for deploys driven by the runtime itself,
+    /// which do not have any accounts to load from.
+    Bytes(&'a [u8]),
+}
+
+/// Load `programdata`, verify it against the stricter deployment environment,
+/// and reload it into a cache entry against the regular environment.
 #[allow(clippy::too_many_arguments)]
-pub fn deploy_program(
-    log_collector: Option<Rc<RefCell<LogCollector>>>,
+fn load_and_verify_program(
+    log_collector: &Option<Rc<RefCell<LogCollector>>>,
     #[cfg(feature = "metrics")] load_program_metrics: &mut LoadProgramMetrics,
-    program_cache_for_tx_batch: &mut ProgramCacheForTxBatch,
     program_runtime_environment: ProgramRuntimeEnvironment,
     disable_sbpf_v0_v1_v2_deployment: bool,
-    program_id: &Pubkey,
     loader_key: &Pubkey,
     account_size: usize,
     programdata: &[u8],
     deployment_slot: Slot,
-) -> Result<(), InstructionError> {
+) -> Result<ProgramCacheEntry, InstructionError> {
     #[cfg(feature = "metrics")]
     let mut register_syscalls_time = Measure::start("register_syscalls_time");
     let deployment_program_runtime_environment = morph_into_deployment_environment(
@@ -119,48 +129,71 @@ pub fn deploy_program(
         ic_logger_msg!(log_collector, "{}", err);
         InstructionError::InvalidAccountData
     })?;
+    Ok(executor)
+}
+
+/// Deploy a program, and store it in the cache for the transaction batch.
+#[allow(clippy::too_many_arguments)]
+pub fn deploy_program(
+    invoke_context: &mut InvokeContext,
+    program_id: &Pubkey,
+    loader_key: &Pubkey,
+    account_size: usize,
+    programdata: ProgramData,
+    deployment_slot: Slot,
+    disable_sbpf_v0_v1_v2_deployment: bool,
+) -> Result<(), InstructionError> {
+    assert_eq!(
+        deployment_slot,
+        invoke_context.program_cache_for_tx_batch.slot()
+    );
+    let log_collector = invoke_context.get_log_collector();
+    let program_runtime_environment = invoke_context
+        .get_program_runtime_environment_for_deployment()
+        .clone();
+    #[cfg(feature = "metrics")]
+    let mut load_program_metrics = LoadProgramMetrics::default();
+
+    let load = |programdata: &[u8]| {
+        load_and_verify_program(
+            &log_collector,
+            #[cfg(feature = "metrics")]
+            &mut load_program_metrics,
+            program_runtime_environment,
+            disable_sbpf_v0_v1_v2_deployment,
+            loader_key,
+            account_size,
+            programdata,
+            deployment_slot,
+        )
+    };
+    // The account borrow has to outlive the load, since the program bits are a
+    // slice of the data it guards, and has to end before the cache is updated
+    // below, since it borrows the invoke context.
+    let executor = match programdata {
+        ProgramData::Bytes(programdata) => load(programdata)?,
+        ProgramData::InstructionAccount { index, offset } => {
+            let instruction_context = invoke_context
+                .transaction_context
+                .get_current_instruction_context()?;
+            let borrowed_account = instruction_context.try_borrow_instruction_account(index)?;
+            let programdata = borrowed_account
+                .get_data()
+                .get(offset..)
+                .ok_or(InstructionError::AccountDataTooSmall)?;
+            load(programdata)?
+        }
+    };
+
+    let program_cache_for_tx_batch = &mut invoke_context.program_cache_for_tx_batch;
     if let Some(old_entry) = program_cache_for_tx_batch.find(program_id) {
         executor.stats.merge_from(&old_entry.stats);
     }
+    program_cache_for_tx_batch.store_modified_entry(*program_id, Arc::new(executor));
     #[cfg(feature = "metrics")]
     {
         load_program_metrics.program_id = program_id.to_string();
+        load_program_metrics.submit_datapoint(&mut invoke_context.timings);
     }
-    program_cache_for_tx_batch.store_modified_entry(*program_id, Arc::new(executor));
     Ok(())
-}
-
-#[macro_export]
-macro_rules! deploy_program {
-    ($invoke_context:expr,
-     $program_id:expr,
-     $loader_key:expr,
-     $account_size:expr,
-     $programdata:expr,
-     $deployment_slot:expr,
-     $disable_sbpf_v0_v1_v2_deployment:expr $(,)?) => {
-        assert_eq!(
-            $deployment_slot,
-            $invoke_context.program_cache_for_tx_batch.slot()
-        );
-        #[cfg(feature = "metrics")]
-        let mut load_program_metrics = $crate::program_metrics::LoadProgramMetrics::default();
-        $crate::deploy::deploy_program(
-            $invoke_context.get_log_collector(),
-            #[cfg(feature = "metrics")]
-            &mut load_program_metrics,
-            $invoke_context.program_cache_for_tx_batch,
-            $invoke_context
-                .get_program_runtime_environment_for_deployment()
-                .clone(),
-            $disable_sbpf_v0_v1_v2_deployment,
-            $program_id,
-            $loader_key,
-            $account_size,
-            $programdata,
-            $deployment_slot,
-        )?;
-        #[cfg(feature = "metrics")]
-        load_program_metrics.submit_datapoint(&mut $invoke_context.timings);
-    };
 }
