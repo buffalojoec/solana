@@ -12793,3 +12793,328 @@ fn test_commit_noop_transaction_no_fees(relax_fee_payer_constraint: bool) {
         bank.calculate_capitalization_for_tests()
     );
 }
+
+// Ported from svm/tests/integration_test.rs. Rather than driving batches through
+// SvmTestEntry, every transaction runs through a Bank as its own single-entry
+// batch. All transactions execute in the same slot so the upgrade's delayed
+// visibility is observable, and the blockhash is rotated between them so that
+// otherwise-identical transactions stay unique within the slot.
+#[test]
+fn program_cache_stats() {
+    const DEPLOYMENT_SLOT: u64 = 0;
+    const EXECUTION_SLOT: u64 = 2; // must be greater than the deployment slot
+
+    let GenesisConfigInfo {
+        mut genesis_config, ..
+    } = genesis_utils::create_genesis_config(LAMPORTS_PER_SOL * 100);
+    genesis_config.rent = Rent::default();
+    genesis_config.fee_rate_governor = FeeRateGovernor::new(5000, 0);
+
+    let mut bank = Bank::new_for_tests(&genesis_config);
+    bank.feature_set = Arc::new(FeatureSet::all_enabled());
+    let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(
+        &bank_forks,
+        bank,
+        SlotLeader::default(),
+        EXECUTION_SLOT,
+    );
+
+    let rent = Rent::default();
+
+    // the fee payer is also the program's upgrade authority
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    bank.store_account(
+        &fee_payer,
+        &AccountSharedData::new(LAMPORTS_PER_SOL * 100, 0, &system_program::id()),
+    );
+
+    // deploy the noop program as an upgradeable program at the deployment slot
+    let mut program_bytecode = Vec::new();
+    File::open("../programs/bpf_loader/test_elfs/out/sbpfv3_return_ok.so")
+        .unwrap()
+        .read_to_end(&mut program_bytecode)
+        .unwrap();
+
+    let noop_program = Pubkey::new_unique();
+    let programdata_address = get_program_data_address(&noop_program);
+    {
+        let mut program_account = AccountSharedData::new_data(
+            rent.minimum_balance(UpgradeableLoaderState::size_of_program()),
+            &UpgradeableLoaderState::Program {
+                programdata_address,
+            },
+            &bpf_loader_upgradeable::id(),
+        )
+        .unwrap();
+        program_account.set_executable(true);
+
+        let programdata_offset = UpgradeableLoaderState::size_of_programdata_metadata();
+        let mut programdata_account = AccountSharedData::new(
+            rent.minimum_balance(programdata_offset + program_bytecode.len()),
+            programdata_offset + program_bytecode.len(),
+            &bpf_loader_upgradeable::id(),
+        );
+        programdata_account
+            .set_state(&UpgradeableLoaderState::ProgramData {
+                slot: DEPLOYMENT_SLOT,
+                upgrade_authority_address: Some(fee_payer),
+            })
+            .unwrap();
+        programdata_account.data_as_mut_slice()[programdata_offset..]
+            .copy_from_slice(&program_bytecode);
+
+        bank.store_account(&noop_program, &program_account);
+        bank.store_account(&programdata_address, &programdata_account);
+    }
+
+    let missing_program = Pubkey::new_unique();
+
+    // set up a future upgrade after the first batch
+    let buffer_address = Pubkey::new_unique();
+    {
+        let buffer_offset = UpgradeableLoaderState::size_of_buffer_metadata();
+        let mut buffer_account = AccountSharedData::new(
+            rent.minimum_balance(buffer_offset + program_bytecode.len()),
+            buffer_offset + program_bytecode.len(),
+            &bpf_loader_upgradeable::id(),
+        );
+        buffer_account
+            .set_state(&UpgradeableLoaderState::Buffer {
+                authority_address: Some(fee_payer),
+            })
+            .unwrap();
+        buffer_account.data_as_mut_slice()[buffer_offset..].copy_from_slice(&program_bytecode);
+
+        bank.store_account(&buffer_address, &buffer_account);
+    }
+
+    let make_transaction = |instructions: &[Instruction]| {
+        Transaction::new_signed_with_payer(
+            instructions,
+            Some(&fee_payer),
+            &[&fee_payer_keypair],
+            bank.last_blockhash(),
+        )
+    };
+
+    // the four possible outcomes of a single-transaction batch, mirroring the
+    // ExecutionStatus classification of the original harness
+    #[derive(Debug, PartialEq, Eq)]
+    enum Status {
+        Discarded,
+        ProcessedFailed,
+        ExecutedFailed,
+        Succeeded,
+    }
+    use Status::*;
+
+    // execute a transaction as its own batch, assert its status, then rotate the
+    // blockhash so subsequent identical transactions stay unique within the slot
+    let execute = |transaction: Transaction, expected: Status| {
+        let batch = bank.prepare_batch_for_tests(vec![transaction]);
+        let commit_result = bank
+            .load_execute_and_commit_transactions(
+                &batch,
+                ExecutionRecordingConfig::new_single_setting(true),
+                &mut ExecuteTimings::default(),
+                None,
+            )
+            .0
+            .into_iter()
+            .next()
+            .unwrap();
+        // fee-only (load failure) transactions never execute, so they record no
+        // logs; executed transactions always do with recording enabled
+        let actual = match commit_result {
+            Err(_) => Discarded,
+            Ok(committed) if committed.log_messages.is_none() => ProcessedFailed,
+            Ok(committed) if committed.status.is_ok() => Succeeded,
+            Ok(_) => ExecutedFailed,
+        };
+        assert_eq!(actual, expected);
+        bank.register_unique_recent_blockhash_for_test();
+    };
+
+    let successful_noop_instruction = Instruction::new_with_bytes(noop_program, &[], vec![]);
+    let successful_transfer_instruction =
+        system_instruction::transfer(&fee_payer, &Pubkey::new_unique(), LAMPORTS_PER_SOL);
+    let failing_transfer_instruction =
+        system_instruction::transfer(&fee_payer, &Pubkey::new_unique(), LAMPORTS_PER_SOL * 1000);
+    let fee_only_noop_instruction = Instruction::new_with_bytes(missing_program, &[], vec![]);
+
+    let mut noop_tx_usage = 0;
+    let mut system_tx_usage = 0;
+
+    execute(
+        make_transaction(std::slice::from_ref(&successful_noop_instruction)),
+        Succeeded,
+    );
+    noop_tx_usage += 1;
+
+    execute(
+        make_transaction(std::slice::from_ref(&successful_transfer_instruction)),
+        Succeeded,
+    );
+    system_tx_usage += 1;
+
+    execute(
+        make_transaction(std::slice::from_ref(&failing_transfer_instruction)),
+        ExecutedFailed,
+    );
+    system_tx_usage += 1;
+
+    execute(
+        make_transaction(&[
+            successful_noop_instruction.clone(),
+            successful_noop_instruction.clone(),
+            successful_transfer_instruction.clone(),
+            successful_transfer_instruction.clone(),
+            successful_noop_instruction.clone(),
+        ]),
+        Succeeded,
+    );
+    noop_tx_usage += 1;
+    system_tx_usage += 1;
+
+    execute(
+        make_transaction(&[
+            failing_transfer_instruction.clone(),
+            successful_noop_instruction.clone(),
+            successful_transfer_instruction.clone(),
+        ]),
+        ExecutedFailed,
+    );
+    noop_tx_usage += 1;
+    system_tx_usage += 1;
+
+    // load failure/fee-only does not touch the program cache
+    execute(
+        make_transaction(&[
+            successful_noop_instruction.clone(),
+            fee_only_noop_instruction,
+        ]),
+        ProcessedFailed,
+    );
+
+    // nor does discard: an unregistered blockhash is rejected before processing
+    execute(
+        Transaction::new_signed_with_payer(
+            std::slice::from_ref(&successful_transfer_instruction),
+            Some(&fee_payer),
+            &[&fee_payer_keypair],
+            Hash::new_unique(),
+        ),
+        Discarded,
+    );
+
+    // check all usage stats are as we expect
+    let global_program_cache = bank
+        .transaction_processor
+        .global_program_cache
+        .read()
+        .unwrap()
+        .get_flattened_entries_for_tests()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>();
+
+    let (_, noop_entry) = global_program_cache
+        .iter()
+        .find(|(pubkey, _)| *pubkey == noop_program)
+        .unwrap();
+
+    assert_eq!(
+        noop_entry.stats.uses.load(Relaxed),
+        noop_tx_usage,
+        "noop_tx_usage matches"
+    );
+
+    let (_, system_entry) = global_program_cache
+        .iter()
+        .find(|(pubkey, _)| *pubkey == system_program::id())
+        .unwrap();
+
+    assert_eq!(
+        system_entry.stats.uses.load(Relaxed),
+        system_tx_usage,
+        "system_tx_usage matches"
+    );
+
+    assert!(
+        !global_program_cache
+            .iter()
+            .any(|(pubkey, _)| *pubkey == missing_program),
+        "missing_program is missing"
+    );
+
+    // upgrade the program. this blocks execution but does not create a tombstone
+    // the main thing we are testing is the tx counter is ported across upgrades
+    //
+    // note the upgrade transaction actually counts as a usage, per the existing rules
+    // the program cache must load the program because it has no idea if it will be used for cpi
+    execute(
+        Transaction::new_signed_with_payer(
+            &[solana_loader_v3_interface::instruction::upgrade(
+                &noop_program,
+                &buffer_address,
+                &fee_payer,
+                &Pubkey::new_unique(),
+            )],
+            Some(&fee_payer),
+            &[&fee_payer_keypair],
+            bank.last_blockhash(),
+        ),
+        Succeeded,
+    );
+    noop_tx_usage += 1;
+
+    execute(
+        make_transaction(std::slice::from_ref(&successful_noop_instruction)),
+        ExecutedFailed,
+    );
+    noop_tx_usage += 1;
+
+    let (_, noop_entry) = bank
+        .transaction_processor
+        .global_program_cache
+        .read()
+        .unwrap()
+        .get_flattened_entries_for_tests()
+        .into_iter()
+        .rev()
+        .find(|(pubkey, _)| *pubkey == noop_program)
+        .unwrap();
+
+    assert_eq!(
+        noop_entry.stats.uses.load(Relaxed),
+        noop_tx_usage,
+        "noop_tx_usage matches"
+    );
+
+    // third batch, this creates a delayed visibility tombstone
+    execute(
+        make_transaction(std::slice::from_ref(&successful_noop_instruction)),
+        ExecutedFailed,
+    );
+    noop_tx_usage += 1;
+
+    let (_, noop_entry) = bank
+        .transaction_processor
+        .global_program_cache
+        .read()
+        .unwrap()
+        .get_flattened_entries_for_tests()
+        .into_iter()
+        .rev()
+        .find(|(pubkey, _)| *pubkey == noop_program)
+        .unwrap();
+
+    assert_eq!(
+        noop_entry.stats.uses.load(Relaxed),
+        noop_tx_usage,
+        "noop_tx_usage matches"
+    );
+}
