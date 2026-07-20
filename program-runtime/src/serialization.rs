@@ -1696,4 +1696,81 @@ mod tests {
             remaining_allowed_growth,
         );
     }
+
+    #[test]
+    fn test_modify_memory_region_of_account() {
+        let program_id = Pubkey::new_unique();
+        let mut transaction_context = TransactionContext::new(
+            vec![
+                (Pubkey::new_unique(), AccountSharedData::new(0, 8, &program_id)), // readonly
+                (Pubkey::new_unique(), AccountSharedData::new(0, 8, &program_id)), // writable
+                (program_id, AccountSharedData::default()),                        // program
+            ],
+            Rent::default(),
+            /* max_instruction_stack_depth */ 1,
+            /* max_instruction_trace_length */ 1,
+            /* number_of_top_level_instructions */ 1,
+        );
+        transaction_context
+            .configure_top_level_instruction_for_tests(
+                2,
+                vec![
+                    InstructionAccount::new(0, false, false), // readonly
+                    InstructionAccount::new(1, false, true),  // writable
+                ],
+                vec![],
+            )
+            .unwrap();
+        transaction_context.push().unwrap();
+        let instruction_context = transaction_context
+            .get_current_instruction_context()
+            .unwrap();
+
+        for (index_in_instruction, can_data_be_changed) in [(0, false), (1, true)] {
+            let mut account = instruction_context
+                .try_borrow_instruction_account(index_in_instruction)
+                .unwrap();
+            assert_eq!(account.can_data_be_changed().is_ok(), can_data_be_changed);
+
+            // Mirror how `Serializer::write_account` sizes an account's region: the
+            // backing buffer reserves `MAX_PERMITTED_DATA_INCREASE` bytes beyond the
+            // account's current data so a writable account can grow in place.
+            let original_data_len = account.get_data().len();
+            let mut backing = vec![0u8; original_data_len + MAX_PERMITTED_DATA_INCREASE];
+            let mut region = MemoryRegion::new(&raw mut backing[..], MM_INPUT_START);
+            let region_len_before = region.len();
+
+            modify_memory_region_of_account(&mut account, &mut region);
+
+            // Run with `--nocapture` to see the lengths.
+            println!(
+                "index {index_in_instruction} (can_data_be_changed={can_data_be_changed}): \
+                 original_data_len={original_data_len}, region_len {region_len_before}->{} \
+                 (+{} reserved)",
+                region.len(),
+                region.len() - original_data_len,
+            );
+
+            // Redirecting the region never changes its size: it still spans the
+            // original account data plus the reserved growth room, regardless of
+            // whether the data can be changed.
+            assert_eq!(region.len(), region_len_before);
+            assert!(region.len() > original_data_len);
+            assert_eq!(region.len(), original_data_len + MAX_PERMITTED_DATA_INCREASE);
+
+            if can_data_be_changed {
+                // Writable account: the region stays mutable and carries the payload
+                // used by the access violation handler to grow the account.
+                assert!(region.host_buffer().is_mutable());
+                assert_eq!(
+                    region.access_violation_handler_payload,
+                    Some(account.get_index_in_transaction()),
+                );
+            } else {
+                // Readonly account: the region is made immutable and drops the payload.
+                assert!(!region.host_buffer().is_mutable());
+                assert_eq!(region.access_violation_handler_payload, None);
+            }
+        }
+    }
 }
