@@ -1,5 +1,6 @@
 farf/
 target/
+.venv/
 /solana-release/
 /solana-release.tar.bz2
 /solana-metrics/
