@@ -9643,6 +9643,7 @@ dependencies = [
  "base64 0.22.1",
  "bincode",
  "cfg-if 1.0.4",
+ "criterion",
  "itertools 0.14.0",
  "libsecp256k1",
  "log",
@@ -9693,6 +9694,7 @@ dependencies = [
  "solana-transaction-context",
  "test-case",
  "thiserror 2.0.18",
+ "tikv-jemallocator",
  "wincode",
 ]
 

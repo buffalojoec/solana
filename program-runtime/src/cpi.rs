@@ -1,5 +1,7 @@
 //! Cross-Program Invocation (CPI) error types
 
+#[cfg(feature = "dev-context-only-utils")]
+use qualifier_attr::qualifiers;
 use {
     crate::{
         invoke_context::InvokeContext,
@@ -70,6 +72,7 @@ const ACCOUNT_INFO_BYTE_SIZE: usize = 80;
 /// Rust representation of C's SolInstruction
 #[derive(Debug)]
 #[repr(C)]
+#[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
 struct SolInstruction {
     pub program_id_addr: u64,
     pub accounts_addr: u64,
@@ -81,6 +84,7 @@ struct SolInstruction {
 /// Rust representation of C's SolAccountMeta
 #[derive(Debug)]
 #[repr(C)]
+#[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
 struct SolAccountMeta {
     pub pubkey_addr: u64,
     pub is_writable: bool,
@@ -90,6 +94,7 @@ struct SolAccountMeta {
 /// Rust representation of C's SolAccountInfo
 #[derive(Debug)]
 #[repr(C)]
+#[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
 struct SolAccountInfo {
     pub key_addr: u64,
     pub lamports_addr: u64,
