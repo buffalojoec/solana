@@ -298,9 +298,8 @@ fn bench_point(
     account_data_len: usize,
     instruction_data_len: usize,
     parameter: usize,
-    series: &str,
+    (series, feature_set): FeatureConfig,
 ) {
-    let feature_set = SVMFeatureSet::all_enabled();
     let transaction_accounts = setup_accounts(num_accounts, account_data_len);
     let instruction_data = vec![0u8; instruction_data_len];
 
@@ -320,9 +319,24 @@ fn bench_point(
     });
 }
 
-/// Series label for the current feature configuration. Another configuration
-/// plots as a second line in the same group.
-const ALL_FEATURES: &str = "all_features";
+/// A labelled feature configuration, plotted as one line per sweep.
+type FeatureConfig = (&'static str, SVMFeatureSet);
+
+/// Account data direct mapping lets the callee read the caller's account data
+/// in place instead of copying it across the boundary, so the two settings are
+/// plotted against each other on every sweep.
+fn configs() -> [FeatureConfig; 2] {
+    [
+        ("dm_on", SVMFeatureSet::all_enabled()),
+        (
+            "dm_off",
+            SVMFeatureSet {
+                account_data_direct_mapping: false,
+                ..SVMFeatureSet::all_enabled()
+            },
+        ),
+    ]
+}
 
 const KIB: usize = 1024;
 
@@ -345,16 +359,18 @@ fn group<'a>(c: &'a mut Criterion, name: &str) -> BenchmarkGroup<'a, WallTime> {
 fn bench_account_count(c: &mut Criterion) {
     const ACCOUNT_DATA_LEN: usize = 32;
     let mut group = group(c, "cpi_account_count");
-    for num_accounts in [1, 2, 4, 8, 16, 32, 64, 128, MAX_DATA_ACCOUNTS] {
-        group.throughput(Throughput::Elements(num_accounts as u64));
-        bench_point(
-            &mut group,
-            num_accounts,
-            ACCOUNT_DATA_LEN,
-            0,
-            num_accounts,
-            ALL_FEATURES,
-        );
+    for config in configs() {
+        for num_accounts in [1, 2, 4, 8, 16, 32, 64, 128, MAX_DATA_ACCOUNTS] {
+            group.throughput(Throughput::Elements(num_accounts as u64));
+            bench_point(
+                &mut group,
+                num_accounts,
+                ACCOUNT_DATA_LEN,
+                0,
+                num_accounts,
+                config,
+            );
+        }
     }
 }
 
@@ -367,8 +383,10 @@ fn bench_account_data_kib(c: &mut Criterion) {
     const NUM_ACCOUNTS: usize = 1;
     const MAX_KIB: usize = MAX_ACCOUNT_DATA_LEN as usize / KIB;
     let mut group = group(c, "cpi_account_data_kib");
-    for kib in [0, 1, 4, 16, 64, 256, 1024, 4096, MAX_KIB] {
-        bench_point(&mut group, NUM_ACCOUNTS, kib * KIB, 0, kib, ALL_FEATURES);
+    for config in configs() {
+        for kib in [0, 1, 4, 16, 64, 256, 1024, 4096, MAX_KIB] {
+            bench_point(&mut group, NUM_ACCOUNTS, kib * KIB, 0, kib, config);
+        }
     }
 }
 
@@ -377,25 +395,27 @@ fn bench_instruction_data_bytes(c: &mut Criterion) {
     const NUM_ACCOUNTS: usize = 1;
     const ACCOUNT_DATA_LEN: usize = 32;
     let mut group = group(c, "cpi_instruction_data_bytes");
-    for bytes in [
-        0,
-        64,
-        128,
-        256,
-        512,
-        1024,
-        2048,
-        4096,
-        MAX_INSTRUCTION_DATA_LEN,
-    ] {
-        bench_point(
-            &mut group,
-            NUM_ACCOUNTS,
-            ACCOUNT_DATA_LEN,
-            bytes,
-            bytes,
-            ALL_FEATURES,
-        );
+    for config in configs() {
+        for bytes in [
+            0,
+            64,
+            128,
+            256,
+            512,
+            1024,
+            2048,
+            4096,
+            MAX_INSTRUCTION_DATA_LEN,
+        ] {
+            bench_point(
+                &mut group,
+                NUM_ACCOUNTS,
+                ACCOUNT_DATA_LEN,
+                bytes,
+                bytes,
+                config,
+            );
+        }
     }
 }
 

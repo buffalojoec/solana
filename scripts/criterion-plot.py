@@ -63,9 +63,15 @@ THEMES = {
 }
 
 
-def collect(criterion_dir):
-    """Map each group to its (input value, mean nanoseconds) points."""
+def collect(criterion_dir, series_filter=None):
+    """Map each group to its (input value, mean nanoseconds) points.
+
+    A group holds one line per configuration criterion calls a "function", so
+    those are kept apart here; merging them would interleave two curves into one
+    meaningless line.
+    """
     groups = {}
+    functions = set()
     for benchmark_path in sorted(criterion_dir.glob("*/*/*/new/benchmark.json")):
         estimates_path = benchmark_path.with_name("estimates.json")
         if not estimates_path.exists():
@@ -76,12 +82,16 @@ def collect(criterion_dir):
             value = float(benchmark["value_str"])
         except (KeyError, ValueError):
             continue
+        function = benchmark.get("function_id", "")
+        functions.add(function)
+        if series_filter is not None and function != series_filter:
+            continue
         groups.setdefault(benchmark["group_id"], []).append(
             (value, estimates["mean"]["point_estimate"])
         )
     for points in groups.values():
         points.sort()
-    return groups
+    return groups, sorted(functions)
 
 
 def shared_prefix(names):
@@ -241,13 +251,29 @@ def main():
     parser.add_argument("criterion_dir", nargs="?", default="target/criterion")
     parser.add_argument("-o", "--output")
     parser.add_argument("-t", "--title")
+    parser.add_argument(
+        "-s",
+        "--series",
+        help="configuration to chart when a group holds more than one",
+    )
     args = parser.parse_args()
 
     criterion_dir = pathlib.Path(args.criterion_dir)
     if not criterion_dir.is_dir():
         sys.exit(f"no criterion output at {criterion_dir} — run cargo bench first")
 
-    groups = collect(criterion_dir)
+    _, functions = collect(criterion_dir)
+    chosen = args.series
+    if chosen is None and len(functions) > 1:
+        sys.exit(
+            "each group holds more than one configuration, and they are not "
+            "comparable on a shared normalised axis.\n"
+            f"  pick one with --series: {', '.join(functions)}"
+        )
+    if chosen is not None and chosen not in functions:
+        sys.exit(f"no configuration named {chosen!r}; found: {', '.join(functions)}")
+
+    groups, _ = collect(criterion_dir, chosen)
     if not groups:
         sys.exit(f"no numeric-parameter benchmarks under {criterion_dir}")
 
@@ -261,10 +287,12 @@ def main():
 
     strip = shared_prefix(sorted(groups))
     subject = "_".join(sorted(groups)[0].split("_")[:strip]) if strip else "benchmark"
-    title = args.title or f"{subject} cost by input"
+    suffix = f" ({chosen})" if chosen else ""
+    title = args.title or f"{subject} cost by input{suffix}"
 
     print(table(groups))
-    base = pathlib.Path(args.output) if args.output else criterion_dir / "comparison.svg"
+    default = f"comparison-{chosen}.svg" if chosen else "comparison.svg"
+    base = pathlib.Path(args.output) if args.output else criterion_dir / default
     for theme_name in THEMES:
         suffix = "" if theme_name == "light" else "-dark"
         output = base.with_name(f"{base.stem}{suffix}{base.suffix}")
