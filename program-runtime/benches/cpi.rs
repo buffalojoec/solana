@@ -3,8 +3,8 @@
 
 use {
     criterion::{
-        BenchmarkGroup, BenchmarkId, Criterion, criterion_group, criterion_main,
-        measurement::WallTime,
+        AxisScale, BenchmarkGroup, BenchmarkId, Criterion, PlotConfiguration, Throughput,
+        criterion_group, criterion_main, measurement::WallTime,
     },
     solana_account::{Account, AccountSharedData, WritableAccount},
     solana_instruction::Instruction,
@@ -298,12 +298,13 @@ fn bench_point(
     account_data_len: usize,
     instruction_data_len: usize,
     parameter: usize,
+    series: &str,
 ) {
     let feature_set = SVMFeatureSet::all_enabled();
     let transaction_accounts = setup_accounts(num_accounts, account_data_len);
     let instruction_data = vec![0u8; instruction_data_len];
 
-    group.bench_function(BenchmarkId::from_parameter(parameter), |b| {
+    group.bench_function(BenchmarkId::new(series, parameter), |b| {
         b.iter_custom(|iters| {
             (0..iters)
                 .map(|_| {
@@ -319,50 +320,99 @@ fn bench_point(
     });
 }
 
-/// Accounts passed to the CPI, at a fixed small account data size.
+/// Series label for the current feature configuration. Another configuration
+/// plots as a second line in the same group.
+const ALL_FEATURES: &str = "all_features";
+
+const KIB: usize = 1024;
+
+/// Sweeps are geometric, so a linear axis collapses every point below the
+/// largest onto the origin.
+///
+/// Criterion only draws the comparison line chart when every parameter in the
+/// group parses as a number, so parameters stay numeric and the group name
+/// carries the unit.
+fn group<'a>(c: &'a mut Criterion, name: &str) -> BenchmarkGroup<'a, WallTime> {
+    let mut group = c.benchmark_group(name);
+    group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
+    group
+}
+
+/// Accounts handed to the CPI, at a fixed small account data size.
+///
+/// Throughput is per account, so a flat line is linear scaling and a rising one
+/// is not.
 fn bench_account_count(c: &mut Criterion) {
     const ACCOUNT_DATA_LEN: usize = 32;
-    let mut group = c.benchmark_group("cpi_account_count");
-    for num_accounts in [1, 8, 32, 128, MAX_DATA_ACCOUNTS] {
-        bench_point(&mut group, num_accounts, ACCOUNT_DATA_LEN, 0, num_accounts);
+    let mut group = group(c, "cpi_account_count");
+    for num_accounts in [1, 2, 4, 8, 16, 32, 64, 128, MAX_DATA_ACCOUNTS] {
+        group.throughput(Throughput::Elements(num_accounts as u64));
+        bench_point(
+            &mut group,
+            num_accounts,
+            ACCOUNT_DATA_LEN,
+            0,
+            num_accounts,
+            ALL_FEATURES,
+        );
     }
 }
 
 /// Account data size, at a fixed account count. Drives the caller/callee sync.
-fn bench_account_data_len(c: &mut Criterion) {
+///
+/// Deliberately no throughput: the cost is flat, so bytes/sec would climb into
+/// the terabytes and read as a result rather than an artifact of dividing a
+/// constant by the input size.
+fn bench_account_data_kib(c: &mut Criterion) {
     const NUM_ACCOUNTS: usize = 1;
-    let mut group = c.benchmark_group("cpi_account_data_len");
-    for account_data_len in [0, 1024, 65536, 1024 * 1024, MAX_ACCOUNT_DATA_LEN as usize] {
-        bench_point(
-            &mut group,
-            NUM_ACCOUNTS,
-            account_data_len,
-            0,
-            account_data_len,
-        );
+    const MAX_KIB: usize = MAX_ACCOUNT_DATA_LEN as usize / KIB;
+    let mut group = group(c, "cpi_account_data_kib");
+    for kib in [0, 1, 4, 16, 64, 256, 1024, 4096, MAX_KIB] {
+        bench_point(&mut group, NUM_ACCOUNTS, kib * KIB, 0, kib, ALL_FEATURES);
     }
 }
 
 /// Instruction data length, which only drives `translate_instruction`.
-fn bench_instruction_data_len(c: &mut Criterion) {
+fn bench_instruction_data_bytes(c: &mut Criterion) {
     const NUM_ACCOUNTS: usize = 1;
     const ACCOUNT_DATA_LEN: usize = 32;
-    let mut group = c.benchmark_group("cpi_instruction_data_len");
-    for instruction_data_len in [0, 128, 1024, MAX_INSTRUCTION_DATA_LEN] {
+    let mut group = group(c, "cpi_instruction_data_bytes");
+    for bytes in [
+        0,
+        64,
+        128,
+        256,
+        512,
+        1024,
+        2048,
+        4096,
+        MAX_INSTRUCTION_DATA_LEN,
+    ] {
         bench_point(
             &mut group,
             NUM_ACCOUNTS,
             ACCOUNT_DATA_LEN,
-            instruction_data_len,
-            instruction_data_len,
+            bytes,
+            bytes,
+            ALL_FEATURES,
         );
     }
 }
 
-criterion_group!(
-    benches,
-    bench_account_count,
-    bench_account_data_len,
-    bench_instruction_data_len
-);
+/// Only `cpi_common` is timed, but every iteration still rebuilds the caller,
+/// which at 10 MiB is far more expensive than the call itself. Criterion sizes
+/// its iteration count from the reported duration, so the sample count is kept
+/// low to stop wall-clock from running away on the largest points.
+fn config() -> Criterion {
+    Criterion::default()
+        .sample_size(30)
+        .warm_up_time(Duration::from_millis(500))
+        .measurement_time(Duration::from_secs(2))
+}
+
+criterion_group! {
+    name = benches;
+    config = config();
+    targets = bench_account_count, bench_account_data_kib, bench_instruction_data_bytes
+}
 criterion_main!(benches);
