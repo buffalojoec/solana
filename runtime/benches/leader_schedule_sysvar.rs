@@ -106,9 +106,14 @@ fn serialize_crude(schedule: &LeaderSchedule, out: &mut [u8]) -> usize {
     header[20] = SLOTS_PER_WINDOW;
     header[21..24].fill(0);
 
-    for (window, chunk) in (0..num_windows).zip(body.chunks_exact_mut(ENTRY_LEN)) {
+    for (window, (leader, chunk)) in schedule
+        .get_slot_leaders()
+        .step_by(SLOTS_PER_WINDOW as usize)
+        .zip(body.chunks_exact_mut(ENTRY_LEN))
+        .enumerate()
+    {
         chunk[..8].copy_from_slice(&window_slot(window).to_le_bytes());
-        chunk[8..].copy_from_slice(window_leader(schedule, window).as_ref());
+        chunk[8..].copy_from_slice(leader.id.as_ref());
     }
 
     CRUDE_HEADER_LEN + ENTRY_LEN * num_windows
