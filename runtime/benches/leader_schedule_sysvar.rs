@@ -11,13 +11,13 @@ use {
     criterion::{Criterion, criterion_group, criterion_main},
     solana_account::AccountSharedData,
     solana_leader_schedule::{LeaderSchedule, NUM_CONSECUTIVE_LEADER_SLOTS, SlotLeader},
-    solana_pubkey::Pubkey,
+    solana_pubkey::{Pubkey, PubkeyHasherBuilder},
     solana_runtime::{
         bank::Bank,
         genesis_utils::{GenesisConfigInfo, create_genesis_config},
     },
     solana_sdk_ids::sysvar,
-    std::{hint::black_box, sync::Arc, time::Duration},
+    std::{collections::HashMap, hint::black_box, sync::Arc, time::Duration},
 };
 
 #[cfg(not(any(target_env = "msvc", target_os = "freebsd")))]
@@ -41,71 +41,6 @@ const COMPACT_LEN: usize =
 const CRUDE_LEN: usize = CRUDE_HEADER_LEN + ENTRY_LEN * NUM_WINDOWS as usize;
 const UPCOMING_LEN: usize = 2 * ENTRY_LEN;
 
-struct Compact {
-    epoch: u64,
-    first_slot: u64,
-    leaders: Vec<Pubkey>,
-    windows: Vec<u16>,
-}
-
-struct Crude {
-    epoch: u64,
-    first_slot: u64,
-    windows: Vec<(u64, Pubkey)>,
-}
-
-type Upcoming = [(u64, Pubkey); 2];
-
-fn serialize_compact(schedule: &Compact, out: &mut [u8]) -> usize {
-    let (header, body) = out.split_at_mut(COMPACT_HEADER_LEN);
-    header[0..8].copy_from_slice(&schedule.epoch.to_le_bytes());
-    header[8..16].copy_from_slice(&schedule.first_slot.to_le_bytes());
-    header[16..20].copy_from_slice(&(schedule.leaders.len() as u32).to_le_bytes());
-    header[20..24].copy_from_slice(&(schedule.windows.len() as u32).to_le_bytes());
-    header[24] = SLOTS_PER_WINDOW;
-    header[25] = INDEX_WIDTH;
-    header[26..32].fill(0);
-
-    let (table, index) = body.split_at_mut(32 * schedule.leaders.len());
-    for (leader, chunk) in schedule.leaders.iter().zip(table.chunks_exact_mut(32)) {
-        chunk.copy_from_slice(leader.as_ref());
-    }
-    for (window, chunk) in schedule.windows.iter().zip(index.chunks_exact_mut(2)) {
-        chunk.copy_from_slice(&window.to_le_bytes());
-    }
-
-    COMPACT_HEADER_LEN + 32 * schedule.leaders.len() + INDEX_WIDTH as usize * schedule.windows.len()
-}
-
-fn serialize_crude(schedule: &Crude, out: &mut [u8]) -> usize {
-    let (header, body) = out.split_at_mut(CRUDE_HEADER_LEN);
-    header[0..8].copy_from_slice(&schedule.epoch.to_le_bytes());
-    header[8..16].copy_from_slice(&schedule.first_slot.to_le_bytes());
-    header[16..20].copy_from_slice(&(schedule.windows.len() as u32).to_le_bytes());
-    header[20] = SLOTS_PER_WINDOW;
-    header[21..24].fill(0);
-
-    for ((slot, leader), chunk) in schedule
-        .windows
-        .iter()
-        .zip(body.chunks_exact_mut(ENTRY_LEN))
-    {
-        chunk[..8].copy_from_slice(&slot.to_le_bytes());
-        chunk[8..].copy_from_slice(leader.as_ref());
-    }
-
-    CRUDE_HEADER_LEN + ENTRY_LEN * schedule.windows.len()
-}
-
-fn serialize_upcoming(upcoming: &Upcoming, out: &mut [u8]) -> usize {
-    for ((slot, leader), chunk) in upcoming.iter().zip(out.chunks_exact_mut(ENTRY_LEN)) {
-        chunk[..8].copy_from_slice(&slot.to_le_bytes());
-        chunk[8..].copy_from_slice(leader.as_ref());
-    }
-
-    ENTRY_LEN * upcoming.len()
-}
-
 fn num_windows(schedule: &LeaderSchedule) -> usize {
     schedule.num_slots() / SLOTS_PER_WINDOW as usize
 }
@@ -116,56 +51,82 @@ fn window_leader(schedule: &LeaderSchedule, window: usize) -> Pubkey {
         .id
 }
 
-fn derive_compact(schedule: &LeaderSchedule) -> Compact {
-    let window_leaders = (0..num_windows(schedule))
-        .map(|window| window_leader(schedule, window))
-        .collect::<Vec<_>>();
-
-    let mut leaders = window_leaders.clone();
-    leaders.sort_unstable();
-    leaders.dedup();
-
-    let windows = window_leaders
-        .iter()
-        .map(|leader| leaders.binary_search(leader).unwrap() as u16)
-        .collect();
-
-    Compact {
-        epoch: EPOCH,
-        first_slot: FIRST_SLOT,
-        leaders,
-        windows,
-    }
+fn window_slot(window: usize) -> u64 {
+    FIRST_SLOT + window as u64 * SLOTS_PER_WINDOW as u64
 }
 
-fn derive_crude(schedule: &LeaderSchedule) -> Crude {
-    let windows = (0..num_windows(schedule))
-        .map(|window| {
-            (
-                FIRST_SLOT + window as u64 * SLOTS_PER_WINDOW as u64,
-                window_leader(schedule, window),
-            )
-        })
-        .collect();
-
-    Crude {
-        epoch: EPOCH,
-        first_slot: FIRST_SLOT,
-        windows,
-    }
-}
-
-fn derive_upcoming(schedule: &LeaderSchedule, window: usize) -> Upcoming {
+fn serialize_compact(schedule: &LeaderSchedule, out: &mut [u8]) -> usize {
     let num_windows = num_windows(schedule);
-    let entry = |window: usize| {
-        let window = window % num_windows;
-        (
-            FIRST_SLOT + window as u64 * SLOTS_PER_WINDOW as u64,
-            window_leader(schedule, window),
-        )
-    };
+    let mut indices = HashMap::<Pubkey, u16, PubkeyHasherBuilder>::default();
+    let mut window_indices = Vec::with_capacity(num_windows);
+    let mut num_leaders = 0usize;
 
-    [entry(window), entry(window + 1)]
+    for window in 0..num_windows {
+        let leader = window_leader(schedule, window);
+        let index = match indices.get(&leader) {
+            Some(index) => *index,
+            None => {
+                let index = num_leaders as u16;
+                let offset = COMPACT_HEADER_LEN + 32 * num_leaders;
+                out[offset..offset + 32].copy_from_slice(leader.as_ref());
+                indices.insert(leader, index);
+                num_leaders += 1;
+                index
+            }
+        };
+        window_indices.push(index);
+    }
+
+    let index_offset = COMPACT_HEADER_LEN + 32 * num_leaders;
+    for (index, chunk) in window_indices
+        .iter()
+        .zip(out[index_offset..].chunks_exact_mut(2))
+    {
+        chunk.copy_from_slice(&index.to_le_bytes());
+    }
+
+    out[0..8].copy_from_slice(&EPOCH.to_le_bytes());
+    out[8..16].copy_from_slice(&FIRST_SLOT.to_le_bytes());
+    out[16..20].copy_from_slice(&(num_leaders as u32).to_le_bytes());
+    out[20..24].copy_from_slice(&(num_windows as u32).to_le_bytes());
+    out[24] = SLOTS_PER_WINDOW;
+    out[25] = INDEX_WIDTH;
+    out[26..32].fill(0);
+
+    index_offset + INDEX_WIDTH as usize * num_windows
+}
+
+fn serialize_crude(schedule: &LeaderSchedule, out: &mut [u8]) -> usize {
+    let num_windows = num_windows(schedule);
+    let (header, body) = out.split_at_mut(CRUDE_HEADER_LEN);
+
+    header[0..8].copy_from_slice(&EPOCH.to_le_bytes());
+    header[8..16].copy_from_slice(&FIRST_SLOT.to_le_bytes());
+    header[16..20].copy_from_slice(&(num_windows as u32).to_le_bytes());
+    header[20] = SLOTS_PER_WINDOW;
+    header[21..24].fill(0);
+
+    for (window, chunk) in (0..num_windows).zip(body.chunks_exact_mut(ENTRY_LEN)) {
+        chunk[..8].copy_from_slice(&window_slot(window).to_le_bytes());
+        chunk[8..].copy_from_slice(window_leader(schedule, window).as_ref());
+    }
+
+    CRUDE_HEADER_LEN + ENTRY_LEN * num_windows
+}
+
+fn serialize_upcoming(schedule: &LeaderSchedule, window: usize, out: &mut [u8]) -> usize {
+    let num_windows = num_windows(schedule);
+
+    for (window, chunk) in [window, window + 1]
+        .into_iter()
+        .zip(out.chunks_exact_mut(ENTRY_LEN))
+    {
+        let window = window % num_windows;
+        chunk[..8].copy_from_slice(&window_slot(window).to_le_bytes());
+        chunk[8..].copy_from_slice(window_leader(schedule, window).as_ref());
+    }
+
+    UPCOMING_LEN
 }
 
 fn setup_leader_schedule() -> LeaderSchedule {
@@ -192,34 +153,8 @@ fn store_sysvar(bank: &Bank, pubkey: &Pubkey, data: Arc<Vec<u8>>) {
     bank.store_account(pubkey, &account);
 }
 
-// Profiles memory derivation from the runtime's `LeaderSchedule` data
-// structure to each in-memory layout, for one epoch of updates.
-fn bench_derive(c: &mut Criterion) {
-    let schedule = setup_leader_schedule();
-
-    let mut group = c.benchmark_group("leader_schedule_sysvar/derive");
-    group
-        .sample_size(10)
-        .measurement_time(Duration::from_secs(10));
-
-    group.bench_function("compact", |b| {
-        b.iter(|| black_box(derive_compact(&schedule)))
-    });
-
-    group.bench_function("crude", |b| b.iter(|| black_box(derive_crude(&schedule))));
-
-    group.bench_function("upcoming", |b| {
-        b.iter(|| {
-            for window in 0..num_windows(&schedule) {
-                black_box(derive_upcoming(&schedule, window));
-            }
-        })
-    });
-
-    group.finish();
-}
-
-// Profiles derivation and actual serialization of the sysvar data.
+// Profiles serialization of the sysvar data from the runtime's `LeaderSchedule`
+// data structure, for one epoch of updates.
 fn bench_serialize(c: &mut Criterion) {
     let schedule = setup_leader_schedule();
 
@@ -234,16 +169,14 @@ fn bench_serialize(c: &mut Criterion) {
 
     group.bench_function("compact", |b| {
         b.iter(|| {
-            let compact = derive_compact(&schedule);
-            serialize_compact(&compact, &mut compact_buffer);
+            serialize_compact(&schedule, &mut compact_buffer);
             black_box(&compact_buffer);
         })
     });
 
     group.bench_function("crude", |b| {
         b.iter(|| {
-            let crude = derive_crude(&schedule);
-            serialize_crude(&crude, &mut crude_buffer);
+            serialize_crude(&schedule, &mut crude_buffer);
             black_box(&crude_buffer);
         })
     });
@@ -251,8 +184,7 @@ fn bench_serialize(c: &mut Criterion) {
     group.bench_function("upcoming", |b| {
         b.iter(|| {
             for window in 0..num_windows(&schedule) {
-                let upcoming = derive_upcoming(&schedule, window);
-                serialize_upcoming(&upcoming, &mut upcoming_buffer);
+                serialize_upcoming(&schedule, window, &mut upcoming_buffer);
                 black_box(&upcoming_buffer);
             }
         })
@@ -261,7 +193,7 @@ fn bench_serialize(c: &mut Criterion) {
     group.finish();
 }
 
-/// Full sysvar update path: derive, serialize, update account.
+// Profiles the full sysvar update path: serialize, update account.
 fn bench_bank_update(c: &mut Criterion) {
     let schedule = setup_leader_schedule();
     let compact_id = Pubkey::new_unique();
@@ -276,9 +208,8 @@ fn bench_bank_update(c: &mut Criterion) {
     group.bench_function("compact", |b| {
         let bank = setup_bank();
         b.iter(|| {
-            let compact = derive_compact(&schedule);
             let mut data = vec![0u8; COMPACT_LEN];
-            serialize_compact(&compact, &mut data);
+            serialize_compact(&schedule, &mut data);
             store_sysvar(&bank, &compact_id, Arc::new(data));
             bank.finish_accounts_lt_hash_updates();
         })
@@ -287,9 +218,8 @@ fn bench_bank_update(c: &mut Criterion) {
     group.bench_function("crude", |b| {
         let bank = setup_bank();
         b.iter(|| {
-            let crude = derive_crude(&schedule);
             let mut data = vec![0u8; CRUDE_LEN];
-            serialize_crude(&crude, &mut data);
+            serialize_crude(&schedule, &mut data);
             store_sysvar(&bank, &crude_id, Arc::new(data));
             bank.finish_accounts_lt_hash_updates();
         })
@@ -299,9 +229,8 @@ fn bench_bank_update(c: &mut Criterion) {
         let bank = setup_bank();
         b.iter(|| {
             for window in 0..num_windows(&schedule) {
-                let upcoming = derive_upcoming(&schedule, window);
                 let mut data = vec![0u8; UPCOMING_LEN];
-                serialize_upcoming(&upcoming, &mut data);
+                serialize_upcoming(&schedule, window, &mut data);
                 store_sysvar(&bank, &upcoming_id, Arc::new(data));
             }
             bank.finish_accounts_lt_hash_updates();
@@ -311,5 +240,5 @@ fn bench_bank_update(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_derive, bench_serialize, bench_bank_update);
+criterion_group!(benches, bench_serialize, bench_bank_update);
 criterion_main!(benches);
