@@ -61,8 +61,11 @@ fn serialize_compact(schedule: &LeaderSchedule, out: &mut [u8]) -> usize {
     let mut window_indices = Vec::with_capacity(num_windows);
     let mut num_leaders = 0usize;
 
-    for window in 0..num_windows {
-        let leader = window_leader(schedule, window);
+    for leader in schedule
+        .get_slot_leaders()
+        .step_by(SLOTS_PER_WINDOW as usize)
+    {
+        let leader = leader.id;
         let index = match indices.get(&leader) {
             Some(index) => *index,
             None => {
