@@ -55,7 +55,7 @@ fn window_slot(window: usize) -> u64 {
     FIRST_SLOT + window as u64 * SLOTS_PER_WINDOW as u64
 }
 
-fn serialize_compact(schedule: &LeaderSchedule, out: &mut [u8]) -> usize {
+fn serialize_compact(schedule: &LeaderSchedule, out: &mut [u8]) {
     let num_windows = num_windows(schedule);
     let mut indices = HashMap::<Pubkey, u16, PubkeyHasherBuilder>::default();
     let mut window_indices = Vec::with_capacity(num_windows);
@@ -95,11 +95,9 @@ fn serialize_compact(schedule: &LeaderSchedule, out: &mut [u8]) -> usize {
     out[24] = SLOTS_PER_WINDOW;
     out[25] = INDEX_WIDTH;
     out[26..32].fill(0);
-
-    index_offset + INDEX_WIDTH as usize * num_windows
 }
 
-fn serialize_crude(schedule: &LeaderSchedule, out: &mut [u8]) -> usize {
+fn serialize_crude(schedule: &LeaderSchedule, out: &mut [u8]) {
     let num_windows = num_windows(schedule);
     let (header, body) = out.split_at_mut(CRUDE_HEADER_LEN);
 
@@ -118,19 +116,15 @@ fn serialize_crude(schedule: &LeaderSchedule, out: &mut [u8]) -> usize {
         chunk[..8].copy_from_slice(&window_slot(window).to_le_bytes());
         chunk[8..].copy_from_slice(leader.id.as_ref());
     }
-
-    CRUDE_HEADER_LEN + ENTRY_LEN * num_windows
 }
 
-fn serialize_upcoming(schedule: &LeaderSchedule, window: usize, out: &mut [u8]) -> usize {
+fn serialize_upcoming(schedule: &LeaderSchedule, window: usize, out: &mut [u8]) {
     let slot = window_slot(window);
 
     out[0..8].copy_from_slice(&slot.to_le_bytes());
     out[8..40].copy_from_slice(window_leader(schedule, window).as_ref());
     out[40..48].copy_from_slice(&(slot + SLOTS_PER_WINDOW as u64).to_le_bytes());
     out[48..80].copy_from_slice(window_leader(schedule, window + 1).as_ref());
-
-    UPCOMING_LEN
 }
 
 fn setup_leader_schedule() -> LeaderSchedule {
