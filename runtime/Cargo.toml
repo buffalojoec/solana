@@ -227,5 +227,9 @@ name = "prioritization_fee_cache"
 name = "epoch_turnover"
 harness = false
 
+[[bench]]
+name = "leader_schedule_sysvar"
+harness = false
+
 [lints]
 workspace = true
