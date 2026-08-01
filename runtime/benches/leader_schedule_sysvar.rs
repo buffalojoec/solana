@@ -115,16 +115,12 @@ fn serialize_crude(schedule: &LeaderSchedule, out: &mut [u8]) -> usize {
 }
 
 fn serialize_upcoming(schedule: &LeaderSchedule, window: usize, out: &mut [u8]) -> usize {
-    let num_windows = num_windows(schedule);
+    let slot = window_slot(window);
 
-    for (window, chunk) in [window, window + 1]
-        .into_iter()
-        .zip(out.chunks_exact_mut(ENTRY_LEN))
-    {
-        let window = window % num_windows;
-        chunk[..8].copy_from_slice(&window_slot(window).to_le_bytes());
-        chunk[8..].copy_from_slice(window_leader(schedule, window).as_ref());
-    }
+    out[0..8].copy_from_slice(&slot.to_le_bytes());
+    out[8..40].copy_from_slice(window_leader(schedule, window).as_ref());
+    out[40..48].copy_from_slice(&(slot + SLOTS_PER_WINDOW as u64).to_le_bytes());
+    out[48..80].copy_from_slice(window_leader(schedule, window + 1).as_ref());
 
     UPCOMING_LEN
 }
