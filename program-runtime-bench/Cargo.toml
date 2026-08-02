@@ -1,0 +1,36 @@
+[package]
+name = "solana-program-runtime-bench"
+description = "Benchmarks for the Solana program runtime"
+publish = false
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[features]
+agave-unstable-api = []
+dev-context-only-utils = []
+
+[dependencies]
+solana-clock = { workspace = true }
+solana-compute-budget = { workspace = true }
+solana-program-runtime = { workspace = true, features = ["metrics"] }
+solana-svm-feature-set = { workspace = true }
+solana-syscalls = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+solana-sdk-ids = { workspace = true }
+
+[[bench]]
+name = "program_load"
+harness = false
+
+[lints]
+workspace = true

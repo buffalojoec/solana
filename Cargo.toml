@@ -61,6 +61,7 @@ members = [
     "precompiles",
     "program-binaries",
     "program-runtime",
+    "program-runtime-bench",
     "program-test",
     "programs/bpf-loader-tests",
     "programs/bpf_loader",

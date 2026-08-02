@@ -9693,6 +9693,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-program-runtime-bench"
+version = "4.3.0-alpha.2"
+dependencies = [
+ "criterion",
+ "solana-clock",
+ "solana-compute-budget",
+ "solana-program-runtime",
+ "solana-sdk-ids",
+ "solana-svm-feature-set",
+ "solana-syscalls",
+]
+
+[[package]]
 name = "solana-program-test"
 version = "4.3.0-alpha.2"
 dependencies = [
