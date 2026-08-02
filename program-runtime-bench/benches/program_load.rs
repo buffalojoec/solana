@@ -27,6 +27,32 @@ fn bench_program_load(c: &mut Criterion) {
             .unwrap()
         })
     });
+    group.bench_function("reload", |b| {
+        // Verifies the ELF against this environment, which is the precondition
+        // `reload` assumes has already been met.
+        ProgramCacheEntry::new(
+            &bpf_loader_upgradeable::id(),
+            ProgramRuntimeEnvironment::clone(&program_runtime_environment),
+            DEPLOYMENT_SLOT,
+            NOOP_ALIGNED,
+            &mut LoadProgramMetrics::default(),
+        )
+        .unwrap();
+        b.iter_with_large_drop(|| {
+            // SAFETY: The executable has been verified just above, against the
+            // same environment.
+            unsafe {
+                ProgramCacheEntry::reload(
+                    &bpf_loader_upgradeable::id(),
+                    ProgramRuntimeEnvironment::clone(&program_runtime_environment),
+                    DEPLOYMENT_SLOT,
+                    NOOP_ALIGNED,
+                    &mut LoadProgramMetrics::default(),
+                )
+                .unwrap()
+            }
+        })
+    });
     group.finish();
 }
 
