@@ -120,7 +120,7 @@ solana-rpc-client = { path = "../rpc-client", version = "=4.3.0-alpha.2", defaul
 solana-rpc-client-api = { path = "../rpc-client-api", version = "=4.3.0-alpha.2" }
 solana-runtime = { path = "../runtime", version = "=4.3.0-alpha.2", features = ["agave-unstable-api"] }
 solana-runtime-transaction = { path = "../runtime-transaction", version = "=4.3.0-alpha.2", features = ["agave-unstable-api"] }
-solana-sbpf = { git = "https://github.com/buffalojoec/sbpf.git", rev = "5e501a5952b12a80b14f1e2af55a573e1ed3a485", default-features = false }
+solana-sbpf = { git = "https://github.com/buffalojoec/sbpf.git", rev = "27cf5ec0175f490a71854b7299d4456cd44c8f3c", default-features = false }
 solana-sdk-ids = "3.1.0"
 solana-shred-version = "3.0.1"
 solana-signature = { version = "3.4.1", default-features = false }

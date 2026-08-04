@@ -8069,7 +8069,7 @@ checksum = "dcf09694a0fc14e5ffb18f9b7b7c0f15ecb6eac5b5610bf76a1853459d19daf9"
 [[package]]
 name = "solana-sbpf"
 version = "0.22.0"
-source = "git+https://github.com/buffalojoec/sbpf.git?rev=5e501a5952b12a80b14f1e2af55a573e1ed3a485#5e501a5952b12a80b14f1e2af55a573e1ed3a485"
+source = "git+https://github.com/buffalojoec/sbpf.git?rev=27cf5ec0175f490a71854b7299d4456cd44c8f3c#27cf5ec0175f490a71854b7299d4456cd44c8f3c"
 dependencies = [
  "byteorder",
  "combine 3.8.1",
