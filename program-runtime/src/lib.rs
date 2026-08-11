@@ -3,6 +3,8 @@
 #![deny(clippy::arithmetic_side_effects)]
 #![deny(clippy::indexing_slicing)]
 
+// This is supposed to trigger a conformance run.
+
 pub use solana_sbpf;
 pub mod cpi;
 pub mod deploy;
