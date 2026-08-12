@@ -6994,6 +6994,7 @@ dependencies = [
  "solana-stake-history",
  "solana-stake-interface",
  "solana-sysvar",
+ "solana-sysvar-account",
  "solana-vote-interface",
  "solana-zk-sdk-pod",
  "spl-generic-token",
@@ -7440,6 +7441,7 @@ dependencies = [
  "solana-syscalls",
  "solana-system-interface",
  "solana-system-program",
+ "solana-sysvar-account",
  "solana-sysvar-id",
  "solana-transaction-context",
  "test-case",
@@ -10937,6 +10939,7 @@ dependencies = [
  "solana-system-program",
  "solana-system-transaction",
  "solana-sysvar",
+ "solana-sysvar-account",
  "solana-sysvar-id",
  "solana-transaction",
  "solana-transaction-context",
@@ -11052,6 +11055,7 @@ dependencies = [
  "solana-svm-log-collector",
  "solana-svm-type-overrides",
  "solana-sysvar",
+ "solana-sysvar-account",
  "solana-sysvar-id",
  "solana-transaction-context",
  "test-case",
@@ -11103,9 +11107,9 @@ dependencies = [
  "solana-system-interface",
  "solana-system-program",
  "solana-sysvar",
+ "solana-sysvar-account",
  "solana-sysvar-id",
  "solana-transaction-context",
- "wincode",
 ]
 
 [[package]]
@@ -11154,6 +11158,18 @@ dependencies = [
  "solana-slot-hashes",
  "solana-slot-history",
  "solana-stake-history",
+ "solana-sysvar-id",
+ "wincode",
+]
+
+[[package]]
+name = "solana-sysvar-account"
+version = "4.5.0-alpha.1"
+dependencies = [
+ "solana-account",
+ "solana-pubkey 4.4.0",
+ "solana-sdk-ids",
+ "solana-sysvar",
  "solana-sysvar-id",
  "wincode",
 ]
@@ -11738,12 +11754,12 @@ dependencies = [
  "solana-svm-feature-set",
  "solana-system-interface",
  "solana-system-program",
+ "solana-sysvar-account",
  "solana-sysvar-id",
  "solana-transaction-context",
  "solana-vote-interface",
  "solana-vote-program",
  "test-case",
- "wincode",
 ]
 
 [[package]]

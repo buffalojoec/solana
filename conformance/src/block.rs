@@ -782,14 +782,13 @@ mod tests {
             TransactionMessage as ProtoTransactionMessage, VoteAccountVersion,
             acct_state::DataRepr,
         },
-        solana_account::{Account, DUMMY_INHERITABLE_ACCOUNT_FIELDS},
+        solana_account::Account,
         solana_clock::Clock,
         solana_epoch_schedule::EpochSchedule,
         solana_hash::Hash,
         solana_pubkey::Pubkey,
         solana_rent::Rent,
-        solana_runtime::sysvar_account::create_account,
-        solana_sdk_ids::{native_loader, system_program, sysvar},
+        solana_sdk_ids::{native_loader, system_program},
         solana_slot_hashes::SlotHashes,
         solana_slot_history::SlotHistory,
         solana_stake_history::StakeHistory,
@@ -797,6 +796,7 @@ mod tests {
             epoch_rewards::EpochRewards, last_restart_slot::LastRestartSlot,
             recent_blockhashes::RecentBlockhashes,
         },
+        solana_sysvar_account::keyed_sysvar_account,
         solana_sysvar_id::SysvarId,
     };
 
@@ -835,14 +835,12 @@ mod tests {
         )
     }
 
-    fn sysvar_account<T>(pubkey: Pubkey, value: &T) -> AcctState
+    fn sysvar_account<T>(value: &T) -> AcctState
     where
         T: wincode::Serialize<Src = T> + SysvarId,
     {
-        input_account(
-            pubkey,
-            create_account(value, DUMMY_INHERITABLE_ACCOUNT_FIELDS).into(),
-        )
+        let (pubkey, account) = keyed_sysvar_account(value);
+        input_account(pubkey, account.into())
     }
 
     fn block_sysvar_accounts(parent_slot: u64, epoch_schedule: &EpochSchedule) -> Vec<AcctState> {
@@ -865,27 +863,15 @@ mod tests {
         slot_history.add(parent_slot);
 
         vec![
-            sysvar_account(sysvar::clock::id(), &clock),
-            sysvar_account(sysvar::epoch_schedule::id(), epoch_schedule),
-            sysvar_account(sysvar::epoch_rewards::id(), &EpochRewards::default()),
-            sysvar_account(sysvar::rent::id(), &Rent::default()),
-            sysvar_account(sysvar::slot_hashes::id(), &slot_hashes),
-            sysvar_account(
-                sysvar::recent_blockhashes::id(),
-                &RecentBlockhashes::default(),
-            ),
-            input_account(
-                sysvar::stake_history::id(),
-                Account {
-                    lamports: 1,
-                    data: bincode::serialize(&StakeHistory::default()).unwrap(),
-                    owner: sysvar::id(),
-                    executable: false,
-                    rent_epoch: u64::MAX,
-                },
-            ),
-            sysvar_account(sysvar::last_restart_slot::id(), &LastRestartSlot::default()),
-            sysvar_account(sysvar::slot_history::id(), &slot_history),
+            sysvar_account(&clock),
+            sysvar_account(epoch_schedule),
+            sysvar_account(&EpochRewards::default()),
+            sysvar_account(&Rent::default()),
+            sysvar_account(&slot_hashes),
+            sysvar_account(&RecentBlockhashes::default()),
+            sysvar_account(&StakeHistory::default()),
+            sysvar_account(&LastRestartSlot::default()),
+            sysvar_account(&slot_history),
         ]
     }
 
