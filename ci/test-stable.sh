@@ -40,7 +40,14 @@ abi_v2_integration_test() {
   cargo_build_sbf="$(realpath ./cargo-build-sbf)"
 
   pushd programs/sbf
-  $cargo_build_sbf --arch v3 --abi-v2 --workspace
+
+  abi_v2_programs=("abi_v2_cpi" "abi_v2_memory")
+  for program in "${abi_v2_programs[@]}"
+  do
+    $cargo_build_sbf --arch v3 --abi-v2 --manifest-path rust/"$program"/Cargo.toml
+  done
+
+  $cargo_build_sbf --arch v3 --manifest-path rust/abi_v1_v2_cpi/Cargo.toml
 
   SBF_OUT_DIR=target/deploy cargo test --features=abi-v2 --test abi_v2
   popd

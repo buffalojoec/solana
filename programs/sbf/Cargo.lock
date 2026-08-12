@@ -8362,6 +8362,16 @@ name = "solana-sbf-rust-128bit-dep"
 version = "4.3.0-alpha.2"
 
 [[package]]
+name = "solana-sbf-rust-abi-v1-v2-cpi"
+version = "4.3.0-alpha.2"
+dependencies = [
+ "solana-account-info",
+ "solana-program",
+ "solana-program-entrypoint",
+ "solana-pubkey 4.2.0",
+]
+
+[[package]]
 name = "solana-sbf-rust-abi-v2-cpi"
 version = "4.3.0-alpha.2"
 dependencies = [

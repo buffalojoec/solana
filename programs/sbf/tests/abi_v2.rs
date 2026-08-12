@@ -774,11 +774,148 @@ fn test_basic_cpi() {
         AccountMeta::new(acc_3_key, false),
     ];
 
-    let data = [10u8];
+    let data = [0u8];
     let ix_1 = Instruction::new_with_bytes(base_program_id, &data, metas_for_ix_1);
     let message = Message::new(&[ix_1], Some(&mint_keypair.pubkey()));
     let tx = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
     let (_, _, logs, _) = process_transaction_and_record_inner(&bank, tx);
 
+    assert!(logs.last().unwrap().contains("success"));
+}
+
+#[test]
+fn test_cpi_into_v1() {
+    let GenesisConfigInfo {
+        genesis_config,
+        mint_keypair,
+        ..
+    } = create_genesis_config(50);
+
+    let (bank, bank_forks) = Bank::new_with_bank_forks_for_tests(&genesis_config);
+    let mut bank_client = BankClient::new_shared(bank.clone());
+    let authority_keypair = Keypair::new();
+
+    let (_, base_program_id) = load_upgradeable_program_and_advance_slot(
+        &mut bank_client,
+        &bank_forks,
+        &mint_keypair,
+        &authority_keypair,
+        "solana_sbf_rust_abi_v2_cpi",
+    );
+
+    let (bank, cpi_program_id) = load_upgradeable_program_and_advance_slot(
+        &mut bank_client,
+        &bank_forks,
+        &mint_keypair,
+        &authority_keypair,
+        "solana_sbf_rust_abi_v1_v2_cpi",
+    );
+
+    let acc_1_key = Pubkey::new_unique();
+    let acc_1 = AccountSharedData::create_from_existing_shared_data(
+        10,
+        vec![].into(),
+        cpi_program_id,
+        false,
+        64,
+    );
+    bank.store_account(&acc_1_key, &acc_1);
+
+    let acc_2_key = Pubkey::new_unique();
+    let acc_2 = AccountSharedData::create_from_existing_shared_data(
+        40,
+        vec![4, 5, 6].into(),
+        base_program_id,
+        false,
+        64,
+    );
+    bank.store_account(&acc_2_key, &acc_2);
+
+    let metas_for_ix_1 = vec![
+        AccountMeta::new_readonly(cpi_program_id, false),
+        AccountMeta::new(acc_1_key, false),
+        AccountMeta::new_readonly(acc_2_key, false),
+    ];
+
+    let data = [1u8];
+    let ix_1 = Instruction::new_with_bytes(base_program_id, &data, metas_for_ix_1);
+    let message = Message::new(&[ix_1], Some(&mint_keypair.pubkey()));
+    let tx = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
+    let (_, _, logs, _) = process_transaction_and_record_inner(&bank, tx);
+
+    std::eprintln!("logs: {:?}", logs);
+    assert!(logs.last().unwrap().contains("success"));
+}
+
+#[test]
+fn test_three_level_cpi() {
+    let GenesisConfigInfo {
+        genesis_config,
+        mint_keypair,
+        ..
+    } = create_genesis_config(50);
+
+    let (bank, bank_forks) = Bank::new_with_bank_forks_for_tests(&genesis_config);
+    let mut bank_client = BankClient::new_shared(bank.clone());
+    let authority_keypair = Keypair::new();
+
+    let (_, base_v2_program_id) = load_upgradeable_program_and_advance_slot(
+        &mut bank_client,
+        &bank_forks,
+        &mint_keypair,
+        &authority_keypair,
+        "solana_sbf_rust_abi_v2_cpi",
+    );
+
+    let (_, v1_program_id) = load_upgradeable_program_and_advance_slot(
+        &mut bank_client,
+        &bank_forks,
+        &mint_keypair,
+        &authority_keypair,
+        "solana_sbf_rust_abi_v1_v2_cpi",
+    );
+
+    let (bank, third_v2_program_id) = load_upgradeable_program_and_advance_slot(
+        &mut bank_client,
+        &bank_forks,
+        &mint_keypair,
+        &authority_keypair,
+        "solana_sbf_rust_abi_v2_cpi",
+    );
+
+    let acc_1_key = Pubkey::new_unique();
+    let acc_1 = AccountSharedData::create_from_existing_shared_data(
+        10,
+        vec![].into(),
+        v1_program_id,
+        false,
+        64,
+    );
+    bank.store_account(&acc_1_key, &acc_1);
+
+    let acc_2_key = Pubkey::new_unique();
+    let acc_2 = AccountSharedData::create_from_existing_shared_data(
+        40,
+        vec![4, 5, 6].into(),
+        third_v2_program_id,
+        false,
+        64,
+    );
+    bank.store_account(&acc_2_key, &acc_2);
+
+    let metas_for_ix = vec![
+        AccountMeta::new_readonly(v1_program_id, false),
+        AccountMeta::new_readonly(third_v2_program_id, false),
+        AccountMeta::new(acc_1_key, false),
+        AccountMeta::new(acc_2_key, false),
+    ];
+
+    let data = [4u8];
+    let ix_1 = Instruction::new_with_bytes(base_v2_program_id, &data, metas_for_ix);
+    let message = Message::new(&[ix_1], Some(&mint_keypair.pubkey()));
+    let tx = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
+    let (_, _, logs, _) = process_transaction_and_record_inner(&bank, tx);
+
+    std::eprintln!("logs: {:?}", logs);
     assert!(logs.last().unwrap().contains("success"));
 }

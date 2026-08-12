@@ -265,6 +265,22 @@ pub fn execute<'a, 'b: 'a>(
         initialize_abi_v2_areas(invoke_context, executable)?;
         None
     } else {
+        // When executing an ABIv1 CPI invoked from a ABIv2 program, we will charge extra
+        if invoke_context
+            .transaction_context
+            .get_current_instruction_context()?
+            .get_stack_height()
+            > 1
+            && invoke_context
+                .memory_contexts
+                .is_parent_abi_v2_instruction()?
+        {
+            let compute_cost = invoke_context.get_execution_cost();
+            invoke_context
+                .compute_meter
+                .consume_checked(compute_cost.abi_v1_cpi_surcharge)?;
+        }
+
         let mut serialize_time = Measure::start("serialize");
         let (parameter_bytes, regions, accounts_metadata, instruction_data_offset) =
             serialization::serialize_parameters(
@@ -589,5 +605,5 @@ fn initialize_abi_v2_areas<C: ContextObject>(
 
     invoke_context
         .memory_contexts
-        .abi_v2_prepare_for_instruction(invoke_context.transaction_context)
+        .abi_v2_prepare_for_instruction(invoke_context.transaction_context, false)
 }

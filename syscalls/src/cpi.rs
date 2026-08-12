@@ -113,6 +113,14 @@ declare_builtin_function!(
 
         // Invoke program
         invoke_context.internal_native_invoke(&signers)?;
+
+        // Update the account permissions and pointers
+        let transaction_context = &mut invoke_context.transaction_context;
+        invoke_context.memory_contexts.abi_v2_prepare_for_instruction(transaction_context, true)?;
+        invoke_context.memory_contexts.abi_v2_update_return_data(transaction_context);
+        invoke_context.memory_contexts.memory_mapping_mut()?.initialize()
+            .expect("Memory regions should have been configured correctly by runtime");
+
         Ok(0)
     }
 );

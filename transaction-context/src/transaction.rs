@@ -787,7 +787,10 @@ impl<'ix_data> TransactionContext<'ix_data> {
     }
 
     pub fn instruction_trace_as_raw_slice(&self) -> *const [InstructionFrame] {
-        &raw const self.instruction_trace[..]
+        &raw const self
+            .instruction_trace
+            .get(..self.get_instruction_trace_length())
+            .expect("Length should be less than the size of array")[..]
     }
 
     pub fn return_data_region(&mut self) -> MemoryRegion {

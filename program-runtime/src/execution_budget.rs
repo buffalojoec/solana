@@ -210,6 +210,8 @@ pub struct SVMTransactionExecutionCost {
     pub sol_transfer_lamports_cost: u64,
     /// ABIv2 base cost
     pub abi_v2_cpi_base: u64,
+    /// How much more a CPI from an ABIv2 program to an ABIv1 program will cost
+    pub abi_v1_cpi_surcharge: u64,
 }
 
 impl Default for SVMTransactionExecutionCost {
@@ -270,6 +272,7 @@ impl Default for SVMTransactionExecutionCost {
             abi_v2_assign_owner: 20,
             sol_transfer_lamports_cost: 50,
             abi_v2_cpi_base: 100,
+            abi_v1_cpi_surcharge: 1000,
         }
     }
 }

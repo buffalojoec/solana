@@ -17,11 +17,11 @@ dummy-for-ci-check = ["solana-transaction-context/dummy-for-ci-check"]
 [dependencies]
 bincode = { workspace = true }
 solana-clock = { workspace = true }
-solana-epoch-rewards = { workspace = true }
-solana-epoch-schedule = { workspace = true }
-solana-last-restart-slot = { workspace = true }
+solana-epoch-rewards = { workspace = true, features = ["serde"] }
+solana-epoch-schedule = { workspace = true, features = ["serde"] }
+solana-last-restart-slot = { workspace = true, features = ["serde"] }
 solana-pubkey = { workspace = true }
-solana-rent = { workspace = true, features = ["sysvar"] }
-solana-slot-hashes = { workspace = true }
-solana-stake-history = { workspace = true }
+solana-rent = { workspace = true, features = ["sysvar", "serde"] }
+solana-slot-hashes = { workspace = true, features = ["serde"] }
+solana-stake-history = { workspace = true, features = ["serde"] }
 solana-transaction-context = { workspace = true, features = ["agave-unstable-api"] }

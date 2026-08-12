@@ -8941,6 +8941,12 @@ mod tests {
         // Let's perform the CPI
         invoke_context.push().unwrap();
         invoke_context.memory_contexts.set_abi_v2().unwrap();
+        invoke_context
+            .memory_contexts
+            .memory_mapping_mut()
+            .unwrap()
+            .initialize()
+            .unwrap();
 
         // Now we cannot resize the same areas anymore
         let result = SyscallSetBufferLength::rust(

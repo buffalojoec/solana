@@ -2,7 +2,7 @@ use {
     crate::invoke_context::{BpfAllocator, InvokeContext},
     solana_instruction::error::InstructionError,
     solana_sbpf::{
-        ebpf::{MM_BYTECODE_START, MM_HEAP_START, MM_RODATA_START, MM_STACK_START},
+        ebpf::{MM_BYTECODE_START, MM_HEAP_START, MM_REGION_SIZE, MM_RODATA_START, MM_STACK_START},
         elf::Executable,
         memory_region::{AccessViolationHandler, MemoryMapping, MemoryRegion},
         program::SBPFVersion,
@@ -14,7 +14,8 @@ use {
         transaction::TransactionContext,
         vm_addresses::{
             self, ACCOUNT_METADATA_AREA, GUEST_ACCOUNT_PAYLOAD_BASE_ADDRESS,
-            GUEST_INSTRUCTION_ACCOUNT_END_ADDRESS, GUEST_SYSVARS_BASE_ADDRESS,
+            GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS, GUEST_INSTRUCTION_ACCOUNT_END_ADDRESS,
+            GUEST_INSTRUCTION_DATA_BASE_ADDRESS, GUEST_SYSVARS_BASE_ADDRESS,
             GUEST_SYSVARS_END_ADDRESS, INSTRUCTION_TRACE_AREA, RETURN_DATA_SCRATCHPAD,
             TRANSACTION_FRAME_ADDRESS, abiv2_region_index_from_vm_address,
         },
@@ -120,9 +121,21 @@ impl MemoryContexts {
         self.contexts = vec![MemoryContextType::ABIv2];
     }
 
-    pub fn push_placeholder(&mut self) {
+    pub fn push(&mut self, transaction_context: &TransactionContext) {
         // We are only pushing a placeholder to be configured later
         self.contexts.push(MemoryContextType::Placeholder);
+        if self.abi_v2_regions_exist() {
+            // The instruction trace length has changed so we need to update the
+            // underlying mapping
+            let regions = self.abiv2_mappings.get_regions_mut();
+            let trace_index = abiv2_region_index_from_vm_address(INSTRUCTION_TRACE_AREA);
+            *regions
+                .get_mut(trace_index)
+                .expect("Instruction trace region must exist") = MemoryRegion::new(
+                transaction_context.instruction_trace_as_raw_slice(),
+                INSTRUCTION_TRACE_AREA,
+            );
+        }
     }
 
     pub fn pop(&mut self) {
@@ -157,13 +170,30 @@ impl MemoryContexts {
         Ok(())
     }
 
+    /// Returns if an ABIv2 instruction is the parent of this one
+    ///
+    /// This function can only be called after `MemoryContexts::push` was invoked,
+    /// and the placeholder has been replaced by either an ABIv1 or v2 memory context.
+    pub fn is_parent_abi_v2_instruction(&self) -> Result<bool, InstructionError> {
+        Ok(matches!(
+            self.contexts
+                .get(self.contexts.len().saturating_sub(2))
+                .ok_or(InstructionError::CallDepth)?,
+            MemoryContextType::ABIv2
+        ))
+    }
+
     /// Modifies the memory regions as needed between any instruction edges.
     ///
     /// This function is to be called before execution changes between instructions: before a new
     /// program is executed, after a CPI return, etc.
+    ///
+    /// When returning from a CPI, we must also reconfigure the account permissions. If the CPI
+    /// was made into an ABIv1 program, the underlying pointer may have changed, so `check_pointers = true`
     pub fn abi_v2_prepare_for_instruction(
         &mut self,
         transaction_context: &TransactionContext,
+        check_pointers: bool,
     ) -> Result<(), InstructionError> {
         let current_instruction = transaction_context.get_current_instruction_context()?;
         let regions = self.abiv2_mappings.get_regions_mut();
@@ -188,6 +218,21 @@ impl MemoryContexts {
             {
                 let borrowed_account =
                     current_instruction.try_borrow_instruction_account(idx_in_ix)?;
+
+                // If an account has been reallocated in ABIv1, we must update the backing
+                // pointer
+                if check_pointers
+                    && !core::ptr::eq(
+                        borrowed_account.get_data().as_ptr(),
+                        acc_region.host_buffer().ptr() as *const u8,
+                    )
+                {
+                    // SAFETY: The new underlying memory is backed by a valid pointer
+                    unsafe {
+                        acc_region.redirect(&raw const borrowed_account.get_data()[..]);
+                    }
+                }
+
                 let can_data_be_changed = borrowed_account.can_data_be_changed();
                 if can_data_be_changed.is_ok() && !acc_region.host_buffer().is_mutable() {
                     acc_region.access_violation_handler_payload = Some(tx_idx as IndexOfAccount);
@@ -202,6 +247,61 @@ impl MemoryContexts {
         }
 
         Ok(())
+    }
+
+    /// Update the backing memory for return data, when returning from an ABIv1 program
+    pub fn abi_v2_update_return_data(&mut self, transaction_context: &mut TransactionContext) {
+        let regions = self.abiv2_mappings.get_regions_mut();
+        let return_data_scratchpad_index =
+            abiv2_region_index_from_vm_address(RETURN_DATA_SCRATCHPAD);
+        let return_data_region = regions
+            .get_mut(return_data_scratchpad_index)
+            .expect("Return data scratchpad must exist");
+
+        *return_data_region = transaction_context.return_data_region();
+    }
+
+    /// When configuring CPI from an ABIv1 program, manually update the instruction
+    /// area regions.
+    pub fn prepare_instruction_regions(
+        &mut self,
+        transaction_context: &mut TransactionContext,
+        instruction_index: usize,
+    ) {
+        // ABIv2 regions are lazily initialized. If the transaction has not yet executed an ABIv2
+        // instruction, the regions do not exist and do not need to be prepared. The creation,
+        // when it happens in `create_abiv2_regions` will already have the updated values.
+        if !self.abi_v2_regions_exist() {
+            return;
+        }
+
+        let regions = self.abiv2_mappings.get_regions_mut();
+        let ix_ctx = transaction_context
+            .get_instruction_context_at_index_in_trace(instruction_index)
+            .expect("Instruction must exist");
+
+        // Configure instruction data
+        let data_vm_address = GUEST_INSTRUCTION_DATA_BASE_ADDRESS
+            .saturating_add(MM_REGION_SIZE.saturating_mul(instruction_index as u64));
+        let instruction_data_index = abiv2_region_index_from_vm_address(data_vm_address);
+
+        *regions
+            .get_mut(instruction_data_index)
+            .expect("Region must have been pre configured") = MemoryRegion::new(
+            &raw const ix_ctx.get_instruction_data()[..],
+            data_vm_address,
+        );
+
+        // Configure instruction accounts
+        let accounts_vm_address = GUEST_INSTRUCTION_ACCOUNT_BASE_ADDRESS
+            .saturating_add(MM_REGION_SIZE.saturating_mul(instruction_index as u64));
+        let instruction_accounts_index = abiv2_region_index_from_vm_address(accounts_vm_address);
+        *regions
+            .get_mut(instruction_accounts_index)
+            .expect("Region must have been pre configured") = MemoryRegion::new(
+            &raw const ix_ctx.instruction_accounts()[..],
+            accounts_vm_address,
+        );
     }
 }
 
@@ -389,7 +489,7 @@ mod test {
         // IX 1
         tx_context.push().unwrap();
         memory_contexts
-            .abi_v2_prepare_for_instruction(&tx_context)
+            .abi_v2_prepare_for_instruction(&tx_context, false)
             .unwrap();
         let end = start.saturating_add(tx_context.accounts().len());
         let ix1_regions = memory_contexts
@@ -431,7 +531,7 @@ mod test {
         tx_context.push().unwrap();
 
         memory_contexts
-            .abi_v2_prepare_for_instruction(&tx_context)
+            .abi_v2_prepare_for_instruction(&tx_context, false)
             .unwrap();
         let end = start.saturating_add(tx_context.accounts().len());
         let ix2_regions = memory_contexts
@@ -473,7 +573,7 @@ mod test {
 
         tx_context.push().unwrap();
         memory_contexts
-            .abi_v2_prepare_for_instruction(&tx_context)
+            .abi_v2_prepare_for_instruction(&tx_context, false)
             .unwrap();
         let end = start.saturating_add(tx_context.accounts().len());
         let ix3_regions = memory_contexts
@@ -508,7 +608,7 @@ mod test {
         }
         first_account.access_violation_handler_payload = None;
         memory_contexts
-            .abi_v2_prepare_for_instruction(&tx_context)
+            .abi_v2_prepare_for_instruction(&tx_context, false)
             .unwrap();
         let end = start.saturating_add(tx_context.accounts().len());
         let ix3_regions = memory_contexts

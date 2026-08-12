@@ -299,7 +299,7 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
         }
 
         self.transaction_context.push()?;
-        self.memory_contexts.push_placeholder();
+        self.memory_contexts.push(self.transaction_context);
         Ok(())
     }
 
@@ -494,15 +494,21 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
 
         // This ? operator should not error out because `fn get_current_instruction_index` is also called
         // in `get_current_instruction_context`
+        let instruction_index = self.transaction_context.get_instruction_trace_length();
         let caller_index = self.transaction_context.get_current_instruction_index()?;
         self.transaction_context.configure_instruction_at_index(
-            self.transaction_context.get_instruction_trace_length(),
+            instruction_index,
             program_account_index,
             instruction_accounts,
             transaction_callee_map,
             Cow::Owned(instruction.data),
             Some(caller_index as u16),
         )?;
+
+        // For ABIv2, we must update the mappings according to the newly created instruction
+        // payload and instruction accounts
+        self.memory_contexts
+            .prepare_instruction_regions(self.transaction_context, instruction_index);
         Ok(())
     }
 

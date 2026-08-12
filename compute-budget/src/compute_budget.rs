@@ -155,6 +155,8 @@ pub struct ComputeBudget {
     pub sol_transfer_lamports_cost: u64,
     /// ABIv2 base cost
     pub abi_v2_cpi_base: u64,
+    /// How much more a CPI from an ABIv2 program to an ABIv1 program will cost
+    pub abi_v1_cpi_surcharge: u64,
 }
 
 #[cfg(feature = "dev-context-only-utils")]
@@ -243,6 +245,7 @@ impl ComputeBudget {
             abi_v2_assign_owner: cost.abi_v2_assign_owner,
             sol_transfer_lamports_cost: cost.sol_transfer_lamports_cost,
             abi_v2_cpi_base: cost.abi_v2_cpi_base,
+            abi_v1_cpi_surcharge: cost.abi_v1_cpi_surcharge,
         }
     }
 
@@ -316,6 +319,7 @@ impl ComputeBudget {
             abi_v2_assign_owner: self.abi_v2_assign_owner,
             sol_transfer_lamports_cost: self.sol_transfer_lamports_cost,
             abi_v2_cpi_base: self.abi_v2_cpi_base,
+            abi_v1_cpi_surcharge: self.abi_v1_cpi_surcharge,
         }
     }
 
