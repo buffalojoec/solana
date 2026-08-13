@@ -267,6 +267,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "agave-program-cache-harness"
+version = "4.4.0-alpha.0"
+dependencies = [
+ "agave-feature-set",
+ "solana-account 4.6.0",
+ "solana-epoch-schedule",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-leader-schedule",
+ "solana-message",
+ "solana-native-token",
+ "solana-program-runtime",
+ "solana-pubkey 4.3.0",
+ "solana-rent",
+ "solana-runtime",
+ "solana-sdk-ids",
+ "solana-signer",
+ "solana-transaction",
+ "solana-transaction-error",
+]
+
+[[package]]
 name = "agave-random"
 version = "4.4.0-alpha.0"
 dependencies = [

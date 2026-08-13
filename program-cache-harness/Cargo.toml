@@ -1,0 +1,39 @@
+[package]
+name = "agave-program-cache-harness"
+description = "Fork harness for testing the program cache"
+publish = false
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+
+[features]
+agave-unstable-api = []
+dev-context-only-utils = []
+
+[dependencies]
+agave-feature-set = { workspace = true }
+solana-account = { workspace = true }
+solana-epoch-schedule = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-leader-schedule = { workspace = true }
+solana-message = { workspace = true }
+solana-native-token = { workspace = true }
+solana-program-runtime = { workspace = true, features = [
+    "dev-context-only-utils",
+    "metrics",
+] }
+solana-pubkey = { workspace = true }
+solana-rent = { workspace = true }
+solana-runtime = { workspace = true, features = ["dev-context-only-utils"] }
+solana-sdk-ids = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
+solana-transaction-error = { workspace = true }
+
+[lints]
+workspace = true
