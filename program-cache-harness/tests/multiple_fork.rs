@@ -177,3 +177,55 @@ fn sanity_all_unloaded() {
 
     run(genesis, timeline);
 }
+
+/// A fresh deployment on one fork and an upgrade on the other.
+///
+/// ```text
+///                   ┌─ 5   deploy: fresh, canonical tip
+/// 0 ─ 1 ─ 2 ─ 3 ─ 4 ┤
+///     ▲             └─ 6   upgrade: existing, non-canonical
+///     └─ root
+/// ```
+#[test]
+fn sanity_deployments() {
+    let existing = Pubkey::new_unique();
+    let fresh = Pubkey::new_unique();
+
+    let genesis = Genesis::new_with_features_all_enabled(vec![Entry::new_loaded(existing, 0)], 4);
+
+    let timeline = Timeline {
+        steps: vec![
+            Step::NewSlot {
+                parent: 4,
+                slot: 5,
+                canonical: true,
+            },
+            Step::Deploy {
+                slot: 5,
+                targets: vec![fresh],
+            },
+            Step::Assert(vec![
+                Entry::new_loaded(existing, 0),
+                Entry::new_unloaded(fresh, 5),
+            ]),
+            Step::NewSlot {
+                parent: 4,
+                slot: 6,
+                canonical: false,
+            },
+            Step::Deploy {
+                slot: 6,
+                targets: vec![existing],
+            },
+            // Both forks feed the one cache: the fresh deployment from the
+            // canonical fork, and the upgrade from the branch beside it.
+            Step::Assert(vec![
+                Entry::new_loaded(existing, 0),
+                Entry::new_unloaded(existing, 6),
+                Entry::new_unloaded(fresh, 5),
+            ]),
+        ],
+    };
+
+    run(genesis, timeline);
+}

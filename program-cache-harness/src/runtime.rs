@@ -56,14 +56,16 @@ use {
         entry::{Entry, EntryType, NoopBuiltin},
         genesis::Genesis,
         timeline::Step,
-        transaction::invoke,
+        transaction::{deploy, invoke},
     },
+    solana_keypair::Keypair,
     solana_leader_schedule::SlotLeader,
     solana_program_runtime::solana_sbpf::program::BuiltinFunctionDefinition,
     solana_runtime::{
         bank::{Bank, test_utils::goto_end_of_slot},
         bank_forks::BankForks,
     },
+    solana_signer::Signer,
     std::sync::{Arc, RwLock},
 };
 
@@ -73,6 +75,9 @@ pub(crate) struct TestRuntime {
     bank_forks: Arc<RwLock<BankForks>>,
     /// The fork the harness roots against, declared by each `NewSlot` step.
     canonical_tip: u64,
+    /// Authority over every program the harness seeds or deploys, so that an
+    /// upgrade has someone to sign for it.
+    upgrade_authority: Keypair,
 }
 
 impl TestRuntime {
@@ -80,6 +85,7 @@ impl TestRuntime {
     /// forward to its starting slot.
     pub(crate) fn new_from_genesis(genesis: Genesis) -> Self {
         let (mut bank, _) = create_genesis_bank(&genesis.feature_set);
+        let upgrade_authority = Keypair::new();
 
         let environment = bank
             .transaction_processor()
@@ -91,7 +97,11 @@ impl TestRuntime {
                 bank.add_mockup_builtin(entry.id, NoopBuiltin::register);
                 continue;
             }
-            for (address, account) in entry.accounts().into_iter().flatten() {
+            for (address, account) in entry
+                .accounts(&upgrade_authority.pubkey())
+                .into_iter()
+                .flatten()
+            {
                 bank.store_account(&address, &account);
             }
             if let Some(cache_entry) = entry.program_cache_entry(&environment) {
@@ -108,6 +118,7 @@ impl TestRuntime {
         let mut runtime = Self {
             bank_forks,
             canonical_tip: 0,
+            upgrade_authority,
         };
         for slot in 1..=genesis.slot {
             runtime.new_slot(slot.saturating_sub(1), slot, true);
@@ -126,6 +137,14 @@ impl TestRuntime {
             Step::Invoke { slot, targets } => {
                 let bank = self.bank(slot);
                 let transactions = targets.iter().map(|target| invoke(&bank, target)).collect();
+                process_transactions_and_assert_success(&bank, transactions);
+            }
+            Step::Deploy { slot, targets } => {
+                let bank = self.bank(slot);
+                let transactions = targets
+                    .iter()
+                    .map(|target| deploy(&bank, target, &self.upgrade_authority))
+                    .collect();
                 process_transactions_and_assert_success(&bank, transactions);
             }
             Step::Assert(expected) => {

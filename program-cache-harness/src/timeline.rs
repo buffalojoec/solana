@@ -25,6 +25,14 @@ pub enum Step {
         /// Targets to invoke. Single transaction per invocation, one batch.
         targets: Vec<Pubkey>,
     },
+    /// Deploy each target in the `targets` list with its own transaction.
+    /// A target already deployed on this fork is upgraded rather than created.
+    Deploy {
+        /// The node in the fork graph to target.
+        slot: u64,
+        /// Targets to deploy. Single transaction per deployment, one batch.
+        targets: Vec<Pubkey>,
+    },
     /// Assert the entire contents of the global program cache at this point.
     /// Anything the list omits must be absent.
     Assert(Vec<Entry>),

@@ -1,7 +1,7 @@
 //! Program cache entry types.
 
 use {
-    crate::consts::DEFAULT_ENTRY_OWNER,
+    crate::consts::{DEFAULT_ENTRY_OWNER, NOOP_ELF},
     solana_account::AccountSharedData,
     solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState},
     solana_program_runtime::{
@@ -14,11 +14,6 @@ use {
     solana_rent::Rent,
     std::sync::Arc,
 };
-
-/// The ELF backing every non-builtin entry. What the program does is not
-/// important, only that it verifies and executes.
-const NOOP_ELF: &[u8] =
-    include_bytes!("../../programs/bpf_loader/test_elfs/out/sbpfv3_return_ok.so");
 
 // The no-op builtin function backing every builtin entry.
 declare_process_instruction!(NoopBuiltin, 1, |_invoke_context| { Ok(()) });
@@ -75,7 +70,10 @@ impl Entry {
         Self::new(id, 0, EntryType::Builtin)
     }
 
-    pub(crate) fn accounts(&self) -> Option<[(Pubkey, AccountSharedData); 2]> {
+    pub(crate) fn accounts(
+        &self,
+        upgrade_authority: &Pubkey,
+    ) -> Option<[(Pubkey, AccountSharedData); 2]> {
         if self.ty == EntryType::Builtin {
             // `Bank::add_mockup_builtin` writes its own account.
             return None;
@@ -102,7 +100,7 @@ impl Entry {
             // The deployment slot the cache reports comes from this header.
             let mut data = bincode::serialize(&UpgradeableLoaderState::ProgramData {
                 slot: self.slot,
-                upgrade_authority_address: Some(Pubkey::default()),
+                upgrade_authority_address: Some(*upgrade_authority),
             })
             .unwrap();
             data.extend_from_slice(NOOP_ELF);
@@ -171,7 +169,7 @@ mod tests {
     fn builtins_bring_no_accounts() {
         assert!(
             Entry::new_builtin(Pubkey::new_unique())
-                .accounts()
+                .accounts(&Pubkey::new_unique())
                 .is_none()
         );
     }
@@ -179,10 +177,13 @@ mod tests {
     #[test]
     fn loader_v3_splits_a_program_across_two_accounts() {
         let id = Pubkey::new_unique();
+        let authority = Pubkey::new_unique();
         let [
             (program_address, program),
             (programdata_address, programdata),
-        ] = Entry::new_cold(id, 7).accounts().expect("no accounts");
+        ] = Entry::new_cold(id, 7)
+            .accounts(&authority)
+            .expect("no accounts");
 
         assert_eq!(program_address, id);
         assert_eq!(programdata_address, get_program_data_address(&id));
@@ -205,7 +206,7 @@ mod tests {
             bincode::deserialize::<UpgradeableLoaderState>(header).unwrap(),
             UpgradeableLoaderState::ProgramData {
                 slot: 7,
-                upgrade_authority_address: Some(Pubkey::default()),
+                upgrade_authority_address: Some(authority),
             },
         );
         assert_eq!(elf, NOOP_ELF);

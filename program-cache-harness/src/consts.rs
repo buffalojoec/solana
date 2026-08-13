@@ -33,3 +33,8 @@ pub(crate) const NATIVE_BUILTINS: [Pubkey; 8] = [
     zk_elgamal_proof_program::ID,
     zk_token_proof_program::ID,
 ];
+
+/// The ELF backing every non-builtin entry. What the program does is not
+/// important, only that it verifies and executes.
+pub(crate) const NOOP_ELF: &[u8] =
+    include_bytes!("../../programs/bpf_loader/test_elfs/out/sbpfv3_return_ok.so");

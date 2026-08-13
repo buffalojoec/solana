@@ -151,3 +151,67 @@ fn sanity_all_unloaded() {
 
     run(genesis, timeline);
 }
+
+/// A fresh deployment and an upgrade in one flow.
+///
+/// ```text
+/// 0 ─ 1 ─ 2 ─ 3 ─ 4 ─ 5 ─ 6
+///     │           │   │   └─ invoke: fresh, then upgrade: existing
+///     │           │   └───── deploy: fresh
+///     │           └───────── genesis tip
+///     └───────────────────── root
+/// ```
+#[test]
+fn sanity_deployments() {
+    let existing = Pubkey::new_unique();
+    let fresh = Pubkey::new_unique();
+
+    let genesis = Genesis::new_with_features_all_enabled(vec![Entry::new_loaded(existing, 0)], 4);
+
+    let timeline = Timeline {
+        steps: vec![
+            Step::NewSlot {
+                parent: 4,
+                slot: 5,
+                canonical: true,
+            },
+            Step::Deploy {
+                slot: 5,
+                targets: vec![fresh],
+            },
+            // A fresh deployment lands unloaded: nothing has invoked it, and
+            // delay visibility means nothing can until the next slot.
+            Step::Assert(vec![
+                Entry::new_loaded(existing, 0),
+                Entry::new_unloaded(fresh, 5),
+            ]),
+            Step::NewSlot {
+                parent: 5,
+                slot: 6,
+                canonical: true,
+            },
+            Step::Invoke {
+                slot: 6,
+                targets: vec![fresh],
+            },
+            // Invoking it compiles the entry, still at its deployment slot.
+            Step::Assert(vec![
+                Entry::new_loaded(existing, 0),
+                Entry::new_loaded(fresh, 5),
+            ]),
+            Step::Deploy {
+                slot: 6,
+                targets: vec![existing],
+            },
+            // An upgrade leaves the old version in place and adds a second,
+            // ordered after it by deployment slot.
+            Step::Assert(vec![
+                Entry::new_loaded(existing, 0),
+                Entry::new_unloaded(existing, 6),
+                Entry::new_loaded(fresh, 5),
+            ]),
+        ],
+    };
+
+    run(genesis, timeline);
+}
