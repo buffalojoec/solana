@@ -45,13 +45,14 @@
 //! ```
 //!
 //! [`Step::Invoke`] runs one transaction per target against a named bank, in a
-//! single batch. Each step ends by reading the cache back from the canonical
-//! tip; that snapshot is what `step` returns.
+//! single batch. [`Step::Assert`] reads the cache back from the canonical tip
+//! and compares it against what the timeline declares.
 
 use {
     crate::{
         bank::{create_genesis_bank, process_transactions_and_assert_success},
-        consts::FINALITY_SLOTS,
+        consts::{FINALITY_SLOTS, NATIVE_BUILTINS},
+        effects::assert_cache_contents,
         entry::{Entry, EntryType, NoopBuiltin},
         genesis::Genesis,
         timeline::Step,
@@ -114,8 +115,8 @@ impl TestRuntime {
         runtime
     }
 
-    /// Run a single step, returning the cache contents it leaves behind.
-    pub(crate) fn step(&mut self, step: Step) -> Vec<Entry> {
+    /// Run a single step.
+    pub(crate) fn step(&mut self, step: Step) {
         match step {
             Step::NewSlot {
                 parent,
@@ -127,13 +128,10 @@ impl TestRuntime {
                 let transactions = targets.iter().map(|target| invoke(&bank, target)).collect();
                 process_transactions_and_assert_success(&bank, transactions);
             }
-            Step::Assert(expectations) => {
-                let entries = self.cache_contents();
-                expectations.iter().for_each(|exp| exp.assert(&entries));
-                return entries;
+            Step::Assert(expected) => {
+                assert_cache_contents(&self.cache_contents(), &expected);
             }
         }
-        self.cache_contents()
     }
 
     /// Create a bank at `slot` on top of `parent`, optionally making it the
@@ -163,13 +161,12 @@ impl TestRuntime {
             .global_program_cache
             .read()
             .unwrap();
-        let mut entries: Vec<Entry> = cache
+        cache
             .get_flattened_entries_for_tests()
             .into_iter()
+            .filter(|(id, _)| !NATIVE_BUILTINS.contains(id))
             .filter_map(|(id, entry)| Entry::from_program_cache_entry(id, &entry))
-            .collect();
-        entries.sort_by_key(|entry| (entry.id, entry.slot));
-        entries
+            .collect()
     }
 
     /// The bank at `slot`. Panics if no step ever created it.

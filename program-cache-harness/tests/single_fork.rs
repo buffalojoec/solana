@@ -1,7 +1,7 @@
 //! Single-fork happy path.
 
 use {
-    agave_program_cache_harness::{Entry, Expect, Genesis, Step, Timeline, run},
+    agave_program_cache_harness::{Entry, Genesis, Step, Timeline, run},
     solana_pubkey::Pubkey,
 };
 
@@ -37,9 +37,8 @@ fn sanity() {
             Step::Assert(vec![
                 // Genesis seeded these two, so they are cached before anything
                 // executes. The cold program has an account but no entry.
-                Expect::Present(Entry::new_loaded(cached, 0)),
-                Expect::Present(Entry::new_builtin(builtin)),
-                Expect::Absent(cold),
+                Entry::new_loaded(cached, 0),
+                Entry::new_builtin(builtin),
             ]),
             Step::Invoke {
                 slot: 5,
@@ -47,7 +46,9 @@ fn sanity() {
             },
             Step::Assert(vec![
                 // Invoking the cold program drove the real extraction path.
-                Expect::Present(Entry::new_loaded(cold, 0)),
+                Entry::new_loaded(cached, 0),
+                Entry::new_loaded(cold, 0),
+                Entry::new_builtin(builtin),
             ]),
             Step::NewSlot {
                 parent: 5,
@@ -97,10 +98,9 @@ fn sanity_all_cold() {
                 targets: vec![a, b],
             },
             Step::Assert(vec![
-                Expect::Present(Entry::new_loaded(a, 0)),
-                Expect::Present(Entry::new_loaded(b, 0)),
-                // Never invoked, so it never reached the cache.
-                Expect::Absent(c),
+                // `c` was never invoked, so it never reached the cache.
+                Entry::new_loaded(a, 0),
+                Entry::new_loaded(b, 0),
             ]),
         ],
     };
@@ -141,10 +141,10 @@ fn sanity_all_unloaded() {
                 targets: vec![a, b],
             },
             Step::Assert(vec![
-                Expect::Present(Entry::new_loaded(a, 0)),
-                Expect::Present(Entry::new_loaded(b, 0)),
-                // Never invoked, so its tombstone still stands.
-                Expect::Present(Entry::new_unloaded(c, 0)),
+                // `c` was never invoked, so its tombstone still stands.
+                Entry::new_loaded(a, 0),
+                Entry::new_loaded(b, 0),
+                Entry::new_unloaded(c, 0),
             ]),
         ],
     };

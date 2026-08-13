@@ -11,7 +11,6 @@ pub(crate) mod timeline;
 pub(crate) mod transaction;
 
 pub use {
-    effects::Expect,
     entry::{Entry, EntryType},
     genesis::Genesis,
     harness::run,

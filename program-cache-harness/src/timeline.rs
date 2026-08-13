@@ -1,6 +1,6 @@
 //! Steps to run against the fork graph.
 
-use {crate::effects::Expect, solana_pubkey::Pubkey};
+use {crate::entry::Entry, solana_pubkey::Pubkey};
 
 /// A step in the fork graph.
 #[derive(Clone, Debug)]
@@ -25,8 +25,9 @@ pub enum Step {
         /// Targets to invoke. Single transaction per invocation, one batch.
         targets: Vec<Pubkey>,
     },
-    /// Assert what the global program cache holds at this point.
-    Assert(Vec<Expect>),
+    /// Assert the entire contents of the global program cache at this point.
+    /// Anything the list omits must be absent.
+    Assert(Vec<Entry>),
 }
 
 /// The timeline of events that takes place, starting from the initial test

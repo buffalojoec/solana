@@ -1,7 +1,7 @@
 //! Multiple-fork happy path.
 
 use {
-    agave_program_cache_harness::{Entry, Expect, Genesis, Step, Timeline, run},
+    agave_program_cache_harness::{Entry, Genesis, Step, Timeline, run},
     solana_pubkey::Pubkey,
 };
 
@@ -45,10 +45,9 @@ fn sanity() {
             },
             Step::Assert(vec![
                 // Only the fork that ran a transaction has warmed the cache.
-                Expect::Present(Entry::new_loaded(cold_a, 0)),
-                Expect::Absent(cold_b),
-                Expect::Present(Entry::new_loaded(warm, 0)),
-                Expect::Present(Entry::new_builtin(builtin)),
+                Entry::new_loaded(cold_a, 0),
+                Entry::new_loaded(warm, 0),
+                Entry::new_builtin(builtin),
             ]),
             // Branching off the genesis tip rather than extending slot 5, and
             // leaving the canonical tip where it is.
@@ -63,11 +62,10 @@ fn sanity() {
             },
             Step::Assert(vec![
                 // The cache is global, so both forks' programs are in it.
-                Expect::Present(Entry::new_loaded(cold_a, 0)),
-                Expect::Present(Entry::new_loaded(cold_b, 0)),
-                // Untouched by the second fork, and so unchanged.
-                Expect::Present(Entry::new_loaded(warm, 0)),
-                Expect::Present(Entry::new_builtin(builtin)),
+                Entry::new_loaded(cold_a, 0),
+                Entry::new_loaded(cold_b, 0),
+                Entry::new_loaded(warm, 0),
+                Entry::new_builtin(builtin),
             ]),
         ],
     };
@@ -117,10 +115,9 @@ fn sanity_all_cold() {
                 targets: vec![b],
             },
             Step::Assert(vec![
-                Expect::Present(Entry::new_loaded(a, 0)),
-                Expect::Present(Entry::new_loaded(b, 0)),
-                // Never invoked, so it never reached the cache.
-                Expect::Absent(c),
+                // `c` was never invoked, so it never reached the cache.
+                Entry::new_loaded(a, 0),
+                Entry::new_loaded(b, 0),
             ]),
         ],
     };
@@ -170,10 +167,10 @@ fn sanity_all_unloaded() {
                 targets: vec![b],
             },
             Step::Assert(vec![
-                Expect::Present(Entry::new_loaded(a, 0)),
-                Expect::Present(Entry::new_loaded(b, 0)),
-                // Never invoked, so its tombstone still stands.
-                Expect::Present(Entry::new_unloaded(c, 0)),
+                // `c` was never invoked, so its tombstone still stands.
+                Entry::new_loaded(a, 0),
+                Entry::new_loaded(b, 0),
+                Entry::new_unloaded(c, 0),
             ]),
         ],
     };
