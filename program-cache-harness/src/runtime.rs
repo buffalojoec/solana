@@ -13,9 +13,10 @@
 //! root            canonical tip
 //! ```
 //!
-//! [`Step::NewSlot`] adds a bank on top of any existing one, and marks whether
-//! it becomes the canonical tip. A canonical slot moves the tip, and the root
-//! advances to stay `FINALITY_SLOTS` behind it.
+//! [`Step::Advance`] extends the canonical fork, hanging the new slot off the
+//! current tip. It is the only step that moves the tip, and so the only one
+//! that roots: once the fork is longer than `FINALITY_SLOTS`, the root follows
+//! that many blocks behind it.
 //!
 //! ```text
 //! 0 ─ 1 ─ 2 ─ 3 ─ 4 ─ 5
@@ -23,30 +24,26 @@
 //!     root            canonical tip
 //! ```
 //!
-//! Branching off an older slot works the same way. Slots 4 and 5 still descend
-//! from the root here, so they survive; entries are pruned once the root moves
-//! onto a branch that excludes them.
+//! [`Step::NewSlotOn`] builds anywhere else, naming its own parent, and leaves
+//! both the tip and the root alone. Starting a branch and extending one are the
+//! same step — the second just names the first as its parent:
 //!
 //! ```text
 //! 0 ─ 1 ─ 2 ─ 3 ─ 4 ─ 5
-//!             └── 6
-//!         ▲       ▲
-//!         root    canonical tip
-//! ```
-//!
-//! A non-canonical slot leaves both alone, so a branch can be built without
-//! rooting along it:
-//!
-//! ```text
-//! 0 ─ 1 ─ 2 ─ 3 ─ 4 ─ 5
-//!             └── 6
+//!             └── 6 ─ 7
 //!     ▲               ▲
 //!     root            canonical tip
 //! ```
+//!
+//! Nothing can move the canonical fork onto a branch, so the root is always a
+//! slot the fork itself passed through. Counting blocks rather than subtracting
+//! slot numbers keeps that true even when a timeline skips slots.
 //!
 //! [`Step::Invoke`] runs one transaction per target against a named bank, in a
-//! single batch. [`Step::Assert`] reads the cache back from the canonical tip
-//! and compares it against what the timeline declares.
+//! single batch, and [`Step::Deploy`] does the same for deployments. Both take
+//! the slot they run against, so either fork can execute. [`Step::Assert`]
+//! reads the cache back from the canonical tip and compares it against what the
+//! timeline declares.
 
 use {
     crate::{
@@ -73,8 +70,9 @@ use {
 /// executing steps.
 pub(crate) struct TestRuntime {
     bank_forks: Arc<RwLock<BankForks>>,
-    /// The fork the harness roots against, declared by each `NewSlot` step.
-    canonical_tip: u64,
+    /// The canonical fork, oldest slot first. Only `Advance` extends it, so
+    /// the root is always one of its own entries.
+    canonical: Vec<u64>,
     /// Authority over every program the harness seeds or deploys, so that an
     /// upgrade has someone to sign for it.
     upgrade_authority: Keypair,
@@ -117,11 +115,11 @@ impl TestRuntime {
 
         let mut runtime = Self {
             bank_forks,
-            canonical_tip: 0,
+            canonical: vec![0],
             upgrade_authority,
         };
         for slot in 1..=genesis.slot {
-            runtime.new_slot(slot.saturating_sub(1), slot, true);
+            runtime.advance(slot);
         }
         runtime
     }
@@ -129,11 +127,8 @@ impl TestRuntime {
     /// Run a single step.
     pub(crate) fn step(&mut self, step: Step) {
         match step {
-            Step::NewSlot {
-                parent,
-                slot,
-                canonical,
-            } => self.new_slot(parent, slot, canonical),
+            Step::Advance { slot } => self.advance(slot),
+            Step::NewSlotOn { parent, slot } => self.new_slot_on(parent, slot),
             Step::Invoke { slot, targets } => {
                 let bank = self.bank(slot);
                 let transactions = targets.iter().map(|target| invoke(&bank, target)).collect();
@@ -153,9 +148,15 @@ impl TestRuntime {
         }
     }
 
-    /// Create a bank at `slot` on top of `parent`, optionally making it the
-    /// canonical tip.
-    fn new_slot(&mut self, parent: u64, slot: u64, canonical: bool) {
+    /// Extend the canonical fork to `slot`.
+    fn advance(&mut self, slot: u64) {
+        self.new_slot_on(self.canonical_tip(), slot);
+        self.canonical.push(slot);
+        self.maybe_root();
+    }
+
+    /// Create a bank at `slot` on top of `parent`.
+    fn new_slot_on(&mut self, parent: u64, slot: u64) {
         let parent_bank = self.bank(parent);
         if !parent_bank.is_frozen() {
             goto_end_of_slot(parent_bank.clone());
@@ -166,15 +167,19 @@ impl TestRuntime {
             SlotLeader::default(),
             slot,
         );
-        if canonical {
-            self.canonical_tip = slot;
-            self.maybe_root();
-        }
+    }
+
+    /// The head of the canonical fork.
+    fn canonical_tip(&self) -> u64 {
+        *self
+            .canonical
+            .last()
+            .expect("canonical fork is never empty")
     }
 
     /// The global program cache, as seen from the canonical tip.
     fn cache_contents(&self) -> Vec<Entry> {
-        let bank = self.bank(self.canonical_tip);
+        let bank = self.bank(self.canonical_tip());
         let cache = bank
             .transaction_processor()
             .global_program_cache
@@ -197,10 +202,19 @@ impl TestRuntime {
             .unwrap_or_else(|| panic!("no bank at slot {slot}"))
     }
 
-    /// Advance the root to `FINALITY_SLOTS` behind the canonical tip, if the
-    /// tip has moved far enough ahead of it.
+    /// Advance the root to `FINALITY_SLOTS` blocks behind the canonical tip,
+    /// once the fork has grown that long. Counting the fork rather than
+    /// subtracting slot numbers keeps the root on it even across skipped slots.
     fn maybe_root(&mut self) {
-        let root = self.canonical_tip.saturating_sub(FINALITY_SLOTS);
+        let Some(index) = self
+            .canonical
+            .len()
+            .checked_sub(FINALITY_SLOTS as usize)
+            .and_then(|index| index.checked_sub(1))
+        else {
+            return;
+        };
+        let root = self.canonical[index];
         if root <= self.bank_forks.read().unwrap().root() {
             return;
         }
@@ -226,7 +240,7 @@ mod tests {
     #[test]
     fn genesis_rolls_forward_to_its_slot() {
         let runtime = runtime(4);
-        assert_eq!(runtime.canonical_tip, 4);
+        assert_eq!(runtime.canonical_tip(), 4);
         assert_eq!(root(&runtime), 0);
         // `bank` panics on a slot the fork graph never built.
         (0..=4).for_each(|slot| {
@@ -237,35 +251,48 @@ mod tests {
     #[test]
     fn canonical_slot_drags_the_root_along() {
         let mut runtime = runtime(4);
-        runtime.new_slot(4, 5, true);
-        assert_eq!(runtime.canonical_tip, 5);
+        runtime.advance(5);
+        assert_eq!(runtime.canonical_tip(), 5);
         assert_eq!(root(&runtime), 1);
     }
 
     #[test]
     fn non_canonical_slot_moves_neither_tip_nor_root() {
         let mut runtime = runtime(4);
-        runtime.new_slot(4, 5, true);
-        runtime.new_slot(3, 6, false);
-        assert_eq!(runtime.canonical_tip, 5);
+        runtime.advance(5);
+        runtime.new_slot_on(3, 6);
+        assert_eq!(runtime.canonical_tip(), 5);
         assert_eq!(root(&runtime), 1);
     }
 
     #[test]
-    fn canonical_branch_roots_along_the_new_fork() {
+    fn a_branch_can_be_extended_without_becoming_canonical() {
         let mut runtime = runtime(4);
-        runtime.new_slot(4, 5, true);
-        runtime.new_slot(3, 7, true);
-        assert_eq!(runtime.canonical_tip, 7);
-        assert_eq!(root(&runtime), 3);
+        runtime.advance(5);
+        runtime.new_slot_on(4, 6);
+        // Extending the branch is the same step, hung off its own tip.
+        runtime.new_slot_on(6, 7);
+        runtime.bank(7);
+        assert_eq!(runtime.canonical_tip(), 5);
+        assert_eq!(root(&runtime), 1);
+    }
+
+    #[test]
+    fn rooting_counts_blocks_not_slot_numbers() {
+        let mut runtime = runtime(4);
+        // A skipped run of slots. Subtracting `FINALITY_SLOTS` here would name
+        // slot 96, which no step ever built.
+        runtime.advance(100);
+        assert_eq!(runtime.canonical_tip(), 100);
+        assert_eq!(root(&runtime), 1);
     }
 
     #[test]
     fn branches_off_an_already_frozen_parent() {
         let mut runtime = runtime(4);
         // Freezes slot 4 on the way to building slot 5.
-        runtime.new_slot(4, 5, true);
-        runtime.new_slot(4, 6, false);
+        runtime.advance(5);
+        runtime.new_slot_on(4, 6);
         runtime.bank(6);
     }
 }

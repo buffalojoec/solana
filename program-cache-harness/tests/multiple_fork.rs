@@ -34,11 +34,7 @@ fn sanity() {
 
     let timeline = Timeline {
         steps: vec![
-            Step::NewSlot {
-                parent: 4,
-                slot: 5,
-                canonical: true,
-            },
+            Step::Advance { slot: 5 },
             Step::Invoke {
                 slot: 5,
                 targets: vec![cold_a, warm, builtin],
@@ -51,11 +47,7 @@ fn sanity() {
             ]),
             // Branching off the genesis tip rather than extending slot 5, and
             // leaving the canonical tip where it is.
-            Step::NewSlot {
-                parent: 4,
-                slot: 6,
-                canonical: false,
-            },
+            Step::NewSlotOn { parent: 4, slot: 6 },
             Step::Invoke {
                 slot: 6,
                 targets: vec![cold_b],
@@ -96,20 +88,12 @@ fn sanity_all_cold() {
 
     let timeline = Timeline {
         steps: vec![
-            Step::NewSlot {
-                parent: 4,
-                slot: 5,
-                canonical: true,
-            },
+            Step::Advance { slot: 5 },
             Step::Invoke {
                 slot: 5,
                 targets: vec![a],
             },
-            Step::NewSlot {
-                parent: 4,
-                slot: 6,
-                canonical: false,
-            },
+            Step::NewSlotOn { parent: 4, slot: 6 },
             Step::Invoke {
                 slot: 6,
                 targets: vec![b],
@@ -148,20 +132,12 @@ fn sanity_all_unloaded() {
 
     let timeline = Timeline {
         steps: vec![
-            Step::NewSlot {
-                parent: 4,
-                slot: 5,
-                canonical: true,
-            },
+            Step::Advance { slot: 5 },
             Step::Invoke {
                 slot: 5,
                 targets: vec![a],
             },
-            Step::NewSlot {
-                parent: 4,
-                slot: 6,
-                canonical: false,
-            },
+            Step::NewSlotOn { parent: 4, slot: 6 },
             Step::Invoke {
                 slot: 6,
                 targets: vec![b],
@@ -195,11 +171,7 @@ fn sanity_deployments() {
 
     let timeline = Timeline {
         steps: vec![
-            Step::NewSlot {
-                parent: 4,
-                slot: 5,
-                canonical: true,
-            },
+            Step::Advance { slot: 5 },
             Step::Deploy {
                 slot: 5,
                 targets: vec![fresh],
@@ -208,11 +180,7 @@ fn sanity_deployments() {
                 Entry::new_loaded(existing, 0),
                 Entry::new_unloaded(fresh, 5),
             ]),
-            Step::NewSlot {
-                parent: 4,
-                slot: 6,
-                canonical: false,
-            },
+            Step::NewSlotOn { parent: 4, slot: 6 },
             Step::Deploy {
                 slot: 6,
                 targets: vec![existing],

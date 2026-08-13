@@ -5,16 +5,18 @@ use {crate::entry::Entry, solana_pubkey::Pubkey};
 /// A step in the fork graph.
 #[derive(Clone, Debug)]
 pub enum Step {
-    /// Create a new slot in the fork graph. The `parent` dictates which fork
-    /// this new node lives on.
-    NewSlot {
+    /// Extend the canonical fork to `slot`. Its parent is the current tip.
+    Advance {
+        /// This node's slot.
+        slot: u64,
+    },
+    /// Create a slot on `parent`, leaving the canonical fork where it is.
+    /// Starting a branch and extending one are both just this.
+    NewSlotOn {
         /// Parent slot.
         parent: u64,
         /// This node's slot.
         slot: u64,
-        /// Whether this node becomes the canonical tip, the fork the harness
-        /// roots against.
-        canonical: bool,
     },
     /// Invoke each target in the `targets` list with its own transaction.
     /// Invoking a target runs the cache extraction workflow, causing the

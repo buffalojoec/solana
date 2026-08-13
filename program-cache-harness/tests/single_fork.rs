@@ -29,11 +29,7 @@ fn sanity() {
 
     let timeline = Timeline {
         steps: vec![
-            Step::NewSlot {
-                parent: 4,
-                slot: 5,
-                canonical: true,
-            },
+            Step::Advance { slot: 5 },
             Step::Assert(vec![
                 // Genesis seeded these two, so they are cached before anything
                 // executes. The cold program has an account but no entry.
@@ -50,11 +46,7 @@ fn sanity() {
                 Entry::new_loaded(cold, 0),
                 Entry::new_builtin(builtin),
             ]),
-            Step::NewSlot {
-                parent: 5,
-                slot: 6,
-                canonical: true,
-            },
+            Step::Advance { slot: 6 },
             Step::Invoke {
                 slot: 6,
                 targets: vec![cached],
@@ -88,11 +80,7 @@ fn sanity_all_cold() {
 
     let timeline = Timeline {
         steps: vec![
-            Step::NewSlot {
-                parent: 4,
-                slot: 5,
-                canonical: true,
-            },
+            Step::Advance { slot: 5 },
             Step::Invoke {
                 slot: 5,
                 targets: vec![a, b],
@@ -131,11 +119,7 @@ fn sanity_all_unloaded() {
 
     let timeline = Timeline {
         steps: vec![
-            Step::NewSlot {
-                parent: 4,
-                slot: 5,
-                canonical: true,
-            },
+            Step::Advance { slot: 5 },
             Step::Invoke {
                 slot: 5,
                 targets: vec![a, b],
@@ -170,11 +154,7 @@ fn sanity_deployments() {
 
     let timeline = Timeline {
         steps: vec![
-            Step::NewSlot {
-                parent: 4,
-                slot: 5,
-                canonical: true,
-            },
+            Step::Advance { slot: 5 },
             Step::Deploy {
                 slot: 5,
                 targets: vec![fresh],
@@ -185,11 +165,7 @@ fn sanity_deployments() {
                 Entry::new_loaded(existing, 0),
                 Entry::new_unloaded(fresh, 5),
             ]),
-            Step::NewSlot {
-                parent: 5,
-                slot: 6,
-                canonical: true,
-            },
+            Step::Advance { slot: 6 },
             Step::Invoke {
                 slot: 6,
                 targets: vec![fresh],
