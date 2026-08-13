@@ -91,8 +91,8 @@ impl TestRuntime {
                 bank.add_mockup_builtin(entry.id, NoopBuiltin::register);
                 continue;
             }
-            if let Some(account) = entry.account() {
-                bank.store_account(&entry.id, &account);
+            for (address, account) in entry.accounts().into_iter().flatten() {
+                bank.store_account(&address, &account);
             }
             if let Some(cache_entry) = entry.program_cache_entry(&environment) {
                 bank.transaction_processor()

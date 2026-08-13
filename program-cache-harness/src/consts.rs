@@ -11,7 +11,7 @@ use {
 };
 
 /// The loader owning every non-builtin entry.
-pub(crate) const DEFAULT_ENTRY_OWNER: ProgramCacheEntryOwner = ProgramCacheEntryOwner::LoaderV2;
+pub(crate) const DEFAULT_ENTRY_OWNER: ProgramCacheEntryOwner = ProgramCacheEntryOwner::LoaderV3;
 /// Number of slots from the root to the canonical forks' head slot.
 /// In other words, max fork length.
 pub(crate) const FINALITY_SLOTS: u64 = 4;

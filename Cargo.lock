@@ -271,11 +271,13 @@ name = "agave-program-cache-harness"
 version = "4.4.0-alpha.0"
 dependencies = [
  "agave-feature-set",
+ "bincode",
  "solana-account 4.6.0",
  "solana-epoch-schedule",
  "solana-instruction",
  "solana-keypair",
  "solana-leader-schedule",
+ "solana-loader-v3-interface",
  "solana-message",
  "solana-native-token",
  "solana-program-runtime",

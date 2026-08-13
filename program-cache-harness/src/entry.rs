@@ -3,6 +3,7 @@
 use {
     crate::consts::DEFAULT_ENTRY_OWNER,
     solana_account::AccountSharedData,
+    solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState},
     solana_program_runtime::{
         declare_process_instruction,
         loaded_programs::ProgramRuntimeEnvironment,
@@ -74,18 +75,47 @@ impl Entry {
         Self::new(id, 0, EntryType::Builtin)
     }
 
-    pub(crate) fn account(&self) -> Option<AccountSharedData> {
+    pub(crate) fn accounts(&self) -> Option<[(Pubkey, AccountSharedData); 2]> {
         if self.ty == EntryType::Builtin {
             // `Bank::add_mockup_builtin` writes its own account.
             return None;
         }
-        Some(AccountSharedData::from(solana_account::Account {
-            lamports: Rent::default().minimum_balance(NOOP_ELF.len()).max(1),
-            data: NOOP_ELF.to_vec(),
-            owner: DEFAULT_ENTRY_OWNER.into(),
-            executable: true,
-            rent_epoch: 0,
-        }))
+
+        let rent = Rent::default();
+        let programdata_address = get_program_data_address(&self.id);
+
+        let program = {
+            let data = bincode::serialize(&UpgradeableLoaderState::Program {
+                programdata_address,
+            })
+            .unwrap();
+            AccountSharedData::from(solana_account::Account {
+                lamports: rent.minimum_balance(data.len()).max(1),
+                data,
+                owner: DEFAULT_ENTRY_OWNER.into(),
+                executable: true,
+                rent_epoch: 0,
+            })
+        };
+
+        let programdata = {
+            // The deployment slot the cache reports comes from this header.
+            let mut data = bincode::serialize(&UpgradeableLoaderState::ProgramData {
+                slot: self.slot,
+                upgrade_authority_address: Some(Pubkey::default()),
+            })
+            .unwrap();
+            data.extend_from_slice(NOOP_ELF);
+            AccountSharedData::from(solana_account::Account {
+                lamports: rent.minimum_balance(data.len()).max(1),
+                data,
+                owner: DEFAULT_ENTRY_OWNER.into(),
+                executable: false,
+                rent_epoch: 0,
+            })
+        };
+
+        Some([(self.id, program), (programdata_address, programdata)])
     }
 
     pub(crate) fn program_cache_entry(
@@ -130,5 +160,54 @@ impl Entry {
             | ProgramCacheEntryType::DelayVisibility => return None,
         };
         Some(Self::new(id, entry.deployment_slot, ty))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {super::*, solana_account::ReadableAccount};
+
+    #[test]
+    fn builtins_bring_no_accounts() {
+        assert!(
+            Entry::new_builtin(Pubkey::new_unique())
+                .accounts()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn loader_v3_splits_a_program_across_two_accounts() {
+        let id = Pubkey::new_unique();
+        let [
+            (program_address, program),
+            (programdata_address, programdata),
+        ] = Entry::new_cold(id, 7).accounts().expect("no accounts");
+
+        assert_eq!(program_address, id);
+        assert_eq!(programdata_address, get_program_data_address(&id));
+        assert_eq!(program.owner(), &Pubkey::from(DEFAULT_ENTRY_OWNER));
+        assert_eq!(programdata.owner(), &Pubkey::from(DEFAULT_ENTRY_OWNER));
+        assert!(program.executable());
+        assert!(!programdata.executable());
+
+        assert_eq!(
+            bincode::deserialize::<UpgradeableLoaderState>(program.data()).unwrap(),
+            UpgradeableLoaderState::Program {
+                programdata_address,
+            },
+        );
+
+        let (header, elf) = programdata
+            .data()
+            .split_at(UpgradeableLoaderState::size_of_programdata_metadata());
+        assert_eq!(
+            bincode::deserialize::<UpgradeableLoaderState>(header).unwrap(),
+            UpgradeableLoaderState::ProgramData {
+                slot: 7,
+                upgrade_authority_address: Some(Pubkey::default()),
+            },
+        );
+        assert_eq!(elf, NOOP_ELF);
     }
 }
