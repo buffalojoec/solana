@@ -310,7 +310,11 @@ impl BankForks {
             BankWithScheduler::new_without_scheduler(bank)
         };
         let prev = self.banks.insert(bank.slot(), bank.clone_with_scheduler());
-        assert!(prev.is_none());
+        assert!(
+            prev.is_none(),
+            "bank already exists at slot {}",
+            bank.slot()
+        );
         let slot = bank.slot();
         self.descendants.entry(slot).or_default();
         for parent in bank.proper_ancestors() {

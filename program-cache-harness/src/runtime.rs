@@ -157,6 +157,10 @@ impl TestRuntime {
 
     /// Create a bank at `slot` on top of `parent`.
     fn new_slot_on(&mut self, parent: u64, slot: u64) {
+        assert!(
+            slot > parent,
+            "slot {slot} does not follow its parent {parent}"
+        );
         let parent_bank = self.bank(parent);
         if !parent_bank.is_frozen() {
             goto_end_of_slot(parent_bank.clone());
