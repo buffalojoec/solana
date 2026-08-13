@@ -1,13 +1,9 @@
 //! Single-fork happy path.
 
 use {
-    agave_program_cache_harness::{Entry, EntryType, Genesis, Step, Timeline, run},
+    agave_program_cache_harness::{Entry, Expect, Genesis, Step, Timeline, run},
     solana_pubkey::Pubkey,
 };
-
-fn find(entries: &[Entry], id: &Pubkey) -> Option<Entry> {
-    entries.iter().find(|entry| entry.id == *id).copied()
-}
 
 /// ```text
 /// 0 ─ 1 ─ 2 ─ 3 ─ 4 ─ 5 ─ 6
@@ -38,10 +34,21 @@ fn sanity() {
                 slot: 5,
                 canonical: true,
             },
+            Step::Assert(vec![
+                // Genesis seeded these two, so they are cached before anything
+                // executes. The cold program has an account but no entry.
+                Expect::Present(Entry::new_loaded(cached, 0)),
+                Expect::Present(Entry::new_builtin(builtin)),
+                Expect::Absent(cold),
+            ]),
             Step::Invoke {
                 slot: 5,
                 targets: vec![cached, cold, builtin],
             },
+            Step::Assert(vec![
+                // Invoking the cold program drove the real extraction path.
+                Expect::Present(Entry::new_loaded(cold, 0)),
+            ]),
             Step::NewSlot {
                 parent: 5,
                 slot: 6,
@@ -54,20 +61,5 @@ fn sanity() {
         ],
     };
 
-    let effects = run(genesis, timeline);
-    assert_eq!(effects.len(), 4);
-
-    let (before_execute, after_execute) = (&effects[0], &effects[1]);
-
-    // Genesis seeded these two, so they are cached before anything executes.
-    assert_eq!(find(before_execute, &cached).unwrap().ty, EntryType::Loaded);
-    assert_eq!(
-        find(before_execute, &builtin).unwrap().ty,
-        EntryType::Builtin
-    );
-
-    // The cold program has an account but no entry, until invoking it drives
-    // the real extraction path.
-    assert!(find(before_execute, &cold).is_none());
-    assert_eq!(find(after_execute, &cold).unwrap().ty, EntryType::Loaded);
+    run(genesis, timeline);
 }

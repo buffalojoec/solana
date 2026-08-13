@@ -127,6 +127,11 @@ impl TestRuntime {
                 let transactions = targets.iter().map(|target| invoke(&bank, target)).collect();
                 process_transactions_and_assert_success(&bank, transactions);
             }
+            Step::Assert(expectations) => {
+                let entries = self.cache_contents();
+                expectations.iter().for_each(|exp| exp.assert(&entries));
+                return entries;
+            }
         }
         self.cache_contents()
     }
