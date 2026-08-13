@@ -16,7 +16,8 @@ use {
 
 /// The ELF backing every non-builtin entry. What the program does is not
 /// important, only that it verifies and executes.
-const NOOP_ELF: &[u8] = include_bytes!("../../programs/bpf_loader/test_elfs/out/noop_aligned.so");
+const NOOP_ELF: &[u8] =
+    include_bytes!("../../programs/bpf_loader/test_elfs/out/sbpfv3_return_ok.so");
 
 // The no-op builtin function backing every builtin entry.
 declare_process_instruction!(NoopBuiltin, 1, |_invoke_context| { Ok(()) });
