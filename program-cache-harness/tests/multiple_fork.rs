@@ -411,3 +411,74 @@ fn sanity_environments() {
 
     run(genesis, timeline);
 }
+
+/// The epoch-boundary sweep is a property of the global cache, not of a fork.
+/// A branch that never saw the transition loses the alternate-environment entry
+/// along with the canonical fork.
+///
+/// ```text
+/// 0 ─ 1 … 4 ─ 5 … 9 ─ 16 ─ 32 ─ 33 ─ 34 ─ 35 ─ 36   invoke: prog
+///     └─ 6                          └─ 40           invoke: prog
+/// ```
+#[test]
+fn sanity_epoch_transition() {
+    let prog = Pubkey::new_unique();
+    let stale = Pubkey::new_unique();
+
+    let genesis = Genesis::new_with_features_all_enabled(
+        vec![
+            Entry::new_loaded(prog, 0),
+            Entry::new_unloaded(stale, 0).in_env(Env::Alternate),
+        ],
+        4,
+    );
+
+    let timeline = vec![
+        Frame {
+            build: vec![
+                Build::Advance { slot: 5 },
+                Build::NewSlotOn { parent: 4, slot: 6 },
+            ],
+            run: vec![Run::Invoke {
+                slot: 6,
+                targets: vec![prog],
+                served: vec![Entry::new_loaded(prog, 0)],
+            }],
+            assert: vec![
+                Entry::new_loaded(prog, 0),
+                Entry::new_unloaded(stale, 0).in_env(Env::Alternate),
+            ],
+        },
+        Frame {
+            // The branch at 40 hangs off 34, above where the root lands, so it
+            // survives the transition without ever being part of it.
+            build: vec![
+                Build::Advance { slot: 16 },
+                Build::Advance { slot: 32 },
+                Build::Advance { slot: 33 },
+                Build::Advance { slot: 34 },
+                Build::Advance { slot: 35 },
+                Build::Advance { slot: 36 },
+                Build::NewSlotOn {
+                    parent: 34,
+                    slot: 40,
+                },
+            ],
+            run: vec![
+                Run::Invoke {
+                    slot: 36,
+                    targets: vec![prog],
+                    served: vec![Entry::new_loaded(prog, 0)],
+                },
+                Run::Invoke {
+                    slot: 40,
+                    targets: vec![prog],
+                    served: vec![Entry::new_loaded(prog, 0)],
+                },
+            ],
+            assert: vec![Entry::new_loaded(prog, 0)],
+        },
+    ];
+
+    run(genesis, timeline);
+}

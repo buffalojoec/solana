@@ -339,3 +339,63 @@ fn sanity_environments() {
 
     run(genesis, timeline);
 }
+
+/// Crossing an epoch boundary sweeps entries whose environment is not the
+/// rerooting bank's. Ordinary rerooting inside an epoch does not: `prune` only
+/// receives an environment to match against on the reroot that concludes an
+/// epoch transition.
+///
+/// ```text
+/// 0 ─ 1 ─ 2 ─ 3 ─ 4 ─ 5 … 9 ─ 16 ─ 32 … 36
+///                       │         │      └─ invoke: prog
+///                       │         └──────── epoch 1 begins
+///                       └────────────────── still epoch 0
+/// ```
+#[test]
+fn sanity_epoch_transition() {
+    let prog = Pubkey::new_unique();
+    let stale = Pubkey::new_unique();
+
+    let genesis = Genesis::new_with_features_all_enabled(
+        vec![
+            Entry::new_loaded(prog, 0),
+            Entry::new_unloaded(stale, 0).in_env(Env::Alternate),
+        ],
+        4,
+    );
+
+    let timeline = vec![
+        Frame {
+            // Five reroots, all inside epoch 0.
+            build: (5..=9).map(|slot| Build::Advance { slot }).collect(),
+            run: vec![Run::Invoke {
+                slot: 9,
+                targets: vec![prog],
+                served: vec![Entry::new_loaded(prog, 0)],
+            }],
+            // The alternate-environment entry is untouched by an ordinary
+            // reroot, however many of them run.
+            assert: vec![
+                Entry::new_loaded(prog, 0),
+                Entry::new_unloaded(stale, 0).in_env(Env::Alternate),
+            ],
+        },
+        Frame {
+            // Slot 16 enters the recompilation phase, which arms the upcoming
+            // environment; slot 32 begins epoch 1; the root reaches 32 last.
+            build: vec![16, 32, 33, 34, 35, 36]
+                .into_iter()
+                .map(|slot| Build::Advance { slot })
+                .collect(),
+            run: vec![Run::Invoke {
+                slot: 36,
+                targets: vec![prog],
+                served: vec![Entry::new_loaded(prog, 0)],
+            }],
+            // The transition swept it.
+            assert: vec![Entry::new_loaded(prog, 0)],
+        },
+    ];
+
+    run(genesis, timeline);
+}
