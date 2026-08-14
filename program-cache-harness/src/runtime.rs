@@ -137,7 +137,7 @@ impl TestRuntime {
                 let bank = self.bank(slot);
                 let transactions = targets.iter().map(|target| invoke(&bank, target)).collect();
                 let batch = process_transactions_and_assert_success(&bank, transactions);
-                assert_served(&batch, &targets, &served);
+                assert_served(&batch, &served);
             }
             Step::Deploy { slot, targets } => {
                 let bank = self.bank(slot);

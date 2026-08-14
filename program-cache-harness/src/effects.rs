@@ -1,8 +1,10 @@
 //! Expected effects on the global program cache.
 
 use {
-    crate::entry::Entry, solana_program_runtime::loaded_programs::ProgramCacheForTxBatch,
-    solana_pubkey::Pubkey, std::collections::HashMap,
+    crate::{consts::NATIVE_BUILTINS, entry::Entry},
+    solana_program_runtime::loaded_programs::ProgramCacheForTxBatch,
+    solana_pubkey::Pubkey,
+    std::collections::HashMap,
 };
 
 /// Panics unless the cache holds exactly `expected` — no more, no less.
@@ -25,31 +27,25 @@ fn slot_versions(entries: &[Entry]) -> HashMap<Pubkey, Vec<Entry>> {
     versions
 }
 
-/// Panics unless the batch was served `expected` for `targets`, in order.
-pub(crate) fn assert_served(
-    batch: &ProgramCacheForTxBatch,
-    targets: &[Pubkey],
-    expected: &[Entry],
-) {
-    assert_entries(batch, targets, expected, "served entry mismatch");
+/// Panics unless the batch was served exactly `expected` — no more, no less,
+/// except for native builtins.
+pub(crate) fn assert_served(batch: &ProgramCacheForTxBatch, expected: &[Entry]) {
+    let served: Vec<Entry> = batch
+        .get_entries_for_tests()
+        .into_iter()
+        .filter(|(id, _)| !NATIVE_BUILTINS.contains(id))
+        .filter_map(|(id, entry)| Entry::from_program_cache_entry(id, &entry))
+        .collect();
+    assert_eq!(
+        slot_versions(&served),
+        slot_versions(expected),
+        "served entry mismatch"
+    );
 }
 
 /// Panics unless each target was deployed at the batch's slot. We know it was
 /// deployed if it's an `Unloaded` entry at that slot in this forks' batch cache.
 pub(crate) fn assert_deployed(batch: &ProgramCacheForTxBatch, targets: &[Pubkey]) {
-    let expected: Vec<Entry> = targets
-        .iter()
-        .map(|target| Entry::new_unloaded(*target, batch.slot()))
-        .collect();
-    assert_entries(batch, targets, &expected, "deployed entry mismatch");
-}
-
-fn assert_entries(
-    batch: &ProgramCacheForTxBatch,
-    targets: &[Pubkey],
-    expected: &[Entry],
-    message: &str,
-) {
     let found: Vec<Option<Entry>> = targets
         .iter()
         .map(|target| {
@@ -58,6 +54,9 @@ fn assert_entries(
                 .and_then(|entry| Entry::from_program_cache_entry(*target, &entry))
         })
         .collect();
-    let expected: Vec<Option<Entry>> = expected.iter().copied().map(Some).collect();
-    assert_eq!(found, expected, "{message}");
+    let expected: Vec<Option<Entry>> = targets
+        .iter()
+        .map(|target| Some(Entry::new_unloaded(*target, batch.slot())))
+        .collect();
+    assert_eq!(found, expected, "deployed entry mismatch");
 }

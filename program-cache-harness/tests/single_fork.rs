@@ -55,7 +55,11 @@ fn sanity() {
             Step::Invoke {
                 slot: 6,
                 targets: vec![cached],
-                served: vec![Entry::new_loaded(cached, 0)],
+                served: vec![
+                    Entry::new_loaded(cached, 0),
+                    // Builtins are always served.
+                    Entry::new_builtin(builtin),
+                ],
             },
         ],
     };

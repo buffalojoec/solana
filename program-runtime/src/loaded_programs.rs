@@ -352,6 +352,15 @@ impl ProgramCacheForTxBatch {
         self.entries.get(key).cloned()
     }
 
+    /// Every entry ONLY from `entries`, not `modified_entries`.
+    #[cfg(feature = "dev-context-only-utils")]
+    pub fn get_entries_for_tests(&self) -> Vec<(Pubkey, Arc<ProgramCacheEntry>)> {
+        self.entries
+            .iter()
+            .map(|(key, entry)| (*key, entry.clone()))
+            .collect()
+    }
+
     pub fn slot(&self) -> Slot {
         self.slot
     }

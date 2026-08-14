@@ -56,7 +56,11 @@ fn sanity() {
             Step::Invoke {
                 slot: 6,
                 targets: vec![cold_b],
-                served: vec![Entry::new_loaded(cold_b, 0)],
+                served: vec![
+                    Entry::new_loaded(cold_b, 0),
+                    // Builtins are always served.
+                    Entry::new_builtin(builtin),
+                ],
             },
             Step::Assert(vec![
                 // The cache is global, so both forks' programs are in it.
