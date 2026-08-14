@@ -139,7 +139,9 @@ use {
     solana_precompile_error::PrecompileError,
     solana_program_runtime::{
         invoke_context::BuiltinFunctionRegisterer,
-        loaded_programs::{ProgramRuntimeEnvironment, ProgramRuntimeEnvironments},
+        loaded_programs::{
+            ProgramCacheForTxBatch, ProgramRuntimeEnvironment, ProgramRuntimeEnvironments,
+        },
         program_cache_entry::ProgramCacheEntry,
     },
     solana_pubkey::Pubkey,
@@ -354,6 +356,10 @@ pub struct LoadAndExecuteTransactionsOutput {
     // Balances accumulated for TransactionStatusSender when transaction
     // balance recording is enabled.
     pub balance_collector: Option<BalanceCollector>,
+    // The program cache entries this batch was served, for tests to inspect
+    // which version of a program a fork resolved.
+    #[cfg(feature = "dev-context-only-utils")]
+    pub program_cache_for_tx_batch: ProgramCacheForTxBatch,
 }
 
 #[derive(Debug, PartialEq)]
@@ -4148,6 +4154,8 @@ impl Bank {
             processing_results: sanitized_output.processing_results,
             processed_counts,
             balance_collector: sanitized_output.balance_collector,
+            #[cfg(feature = "dev-context-only-utils")]
+            program_cache_for_tx_batch: sanitized_output.program_cache_for_tx_batch,
         }
     }
 
@@ -4591,6 +4599,8 @@ impl Bank {
             timings,
             log_messages_bytes_limit,
             None::<fn(&_) -> _>,
+            #[cfg(feature = "dev-context-only-utils")]
+            None::<fn(&_)>,
         )
         .unwrap()
     }
@@ -4602,6 +4612,9 @@ impl Bank {
         timings: &mut ExecuteTimings,
         log_messages_bytes_limit: Option<usize>,
         pre_commit_callback: impl FnOnce(&[TransactionProcessingResult]) -> Result<()>,
+        #[cfg(feature = "dev-context-only-utils")] inspect_output_callback: Option<
+            impl FnOnce(&LoadAndExecuteTransactionsOutput),
+        >,
     ) -> Result<(Vec<TransactionCommitResult>, Option<BalanceCollector>)> {
         self.do_load_execute_and_commit_transactions_with_pre_commit_callback(
             batch,
@@ -4609,6 +4622,8 @@ impl Bank {
             timings,
             log_messages_bytes_limit,
             Some(pre_commit_callback),
+            #[cfg(feature = "dev-context-only-utils")]
+            inspect_output_callback,
         )
     }
 
@@ -4619,12 +4634,11 @@ impl Bank {
         timings: &mut ExecuteTimings,
         log_messages_bytes_limit: Option<usize>,
         pre_commit_callback: Option<impl FnOnce(&[TransactionProcessingResult]) -> Result<()>>,
+        #[cfg(feature = "dev-context-only-utils")] inspect_output_callback: Option<
+            impl FnOnce(&LoadAndExecuteTransactionsOutput),
+        >,
     ) -> Result<(Vec<TransactionCommitResult>, Option<BalanceCollector>)> {
-        let LoadAndExecuteTransactionsOutput {
-            processing_results,
-            processed_counts,
-            balance_collector,
-        } = self.load_and_execute_transactions(
+        let output = self.load_and_execute_transactions(
             batch,
             self.max_processing_age(),
             timings,
@@ -4640,6 +4654,17 @@ impl Bank {
                 drop_noop_transactions: false,
             },
         );
+
+        #[cfg(feature = "dev-context-only-utils")]
+        if let Some(inspect_output_callback) = inspect_output_callback {
+            inspect_output_callback(&output);
+        }
+        let LoadAndExecuteTransactionsOutput {
+            processing_results,
+            processed_counts,
+            balance_collector,
+            ..
+        } = output;
 
         if let Some(pre_commit_callback) = pre_commit_callback {
             let () = pre_commit_callback(&processing_results)?;
@@ -4704,6 +4729,31 @@ impl Bank {
     ) -> Result<Vec<Result<()>>> {
         let batch = self.prepare_entry_batch(txs)?;
         Ok(self.process_transaction_batch(&batch))
+    }
+
+    /// `process_entry_transactions`, with a look at the execution output before
+    /// it is committed and dropped.
+    #[cfg(feature = "dev-context-only-utils")]
+    pub fn process_entry_transactions_and_inspect(
+        &self,
+        txs: Vec<VersionedTransaction>,
+        inspect_output_callback: impl FnOnce(&LoadAndExecuteTransactionsOutput),
+    ) -> Result<Vec<Result<()>>> {
+        let batch = self.prepare_entry_batch(txs)?;
+        let (commit_results, _) = self
+            .do_load_execute_and_commit_transactions_with_pre_commit_callback(
+                &batch,
+                ExecutionRecordingConfig::new_single_setting(false),
+                &mut ExecuteTimings::default(),
+                None,
+                None::<fn(&_) -> _>,
+                Some(inspect_output_callback),
+            )
+            .unwrap();
+        Ok(commit_results
+            .into_iter()
+            .map(|commit_result| commit_result.and_then(|committed_tx| committed_tx.status))
+            .collect())
     }
 
     #[must_use]

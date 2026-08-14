@@ -84,6 +84,8 @@ pub fn execute_batch<'a>(
             timings,
             log_messages_bytes_limit,
             pre_commit_callback,
+            #[cfg(feature = "dev-context-only-utils")]
+            None::<fn(&_)>,
         )?;
 
     let mut check_block_costs_elapsed = Measure::start("check_block_costs");

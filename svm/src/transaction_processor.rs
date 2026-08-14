@@ -89,6 +89,10 @@ pub struct LoadAndExecuteSanitizedTransactionsOutput {
     /// Balances accumulated for TransactionStatusSender when
     /// transaction balance recording is enabled.
     pub balance_collector: Option<BalanceCollector>,
+    /// The program cache entries this batch was served, for tests to inspect
+    /// which version of a program a fork resolved.
+    #[cfg(feature = "dev-context-only-utils")]
+    pub program_cache_for_tx_batch: ProgramCacheForTxBatch,
 }
 
 /// Configuration of the recording capabilities for transaction execution
@@ -454,6 +458,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 // If we abort the batch and balance recording is enabled, no balances should be
                 // collected. If this is a leader thread, no batch will be committed.
                 balance_collector: None,
+                #[cfg(feature = "dev-context-only-utils")]
+                program_cache_for_tx_batch,
             };
         }
 
@@ -565,6 +571,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                             // If we abort the batch and balance recording is enabled, no balances should be
                             // collected. If this is a leader thread, no batch will be committed.
                             balance_collector: None,
+                            #[cfg(feature = "dev-context-only-utils")]
+                            program_cache_for_tx_batch,
                         };
                     }
 
@@ -646,6 +654,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     // If we abort the batch and balance recording is enabled, no balances should be
                     // collected. If this is a leader thread, no batch will be committed.
                     balance_collector: None,
+                    #[cfg(feature = "dev-context-only-utils")]
+                    program_cache_for_tx_batch,
                 };
             }
 
@@ -683,6 +693,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             execute_timings,
             processing_results,
             balance_collector,
+            #[cfg(feature = "dev-context-only-utils")]
+            program_cache_for_tx_batch,
         }
     }
 

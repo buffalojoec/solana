@@ -26,6 +26,8 @@ pub enum Step {
         slot: u64,
         /// Targets to invoke. Single transaction per invocation, one batch.
         targets: Vec<Pubkey>,
+        /// The cache entry each target resolved to on this fork.
+        served: Vec<Entry>,
     },
     /// Deploy each target in the `targets` list with its own transaction.
     /// A target already deployed on this fork is upgraded rather than created.

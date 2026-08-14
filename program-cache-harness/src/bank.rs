@@ -5,6 +5,7 @@ use {
     agave_feature_set::FeatureSet,
     solana_epoch_schedule::EpochSchedule,
     solana_keypair::Keypair,
+    solana_program_runtime::loaded_programs::ProgramCacheForTxBatch,
     solana_runtime::{
         bank::Bank,
         genesis_utils::{GenesisConfigInfo, create_genesis_config, deactivate_features},
@@ -31,12 +32,21 @@ pub(crate) fn create_genesis_bank(feature_set: &FeatureSet) -> (Bank, Keypair) {
 pub(crate) fn process_transactions_and_assert_success(
     bank: &Bank,
     transactions: Vec<VersionedTransaction>,
-) {
-    for (index, result) in bank
-        .process_entry_transactions(transactions)
-        .into_iter()
-        .enumerate()
-    {
+) -> ProgramCacheForTxBatch {
+    let mut batch = None;
+    let results = bank
+        .process_entry_transactions_and_inspect(transactions, |output| {
+            batch = Some(output.program_cache_for_tx_batch.clone());
+        })
+        .expect("failed to sanitize transactions");
+    for (index, result) in results.into_iter().enumerate() {
         assert!(result.is_ok(), "transaction {index} failed: {result:?}");
     }
+    let batch = batch.expect("inspect callback never ran");
+    assert_eq!(
+        batch.slot(),
+        bank.slot(),
+        "batch cache belongs to another bank"
+    );
+    batch
 }

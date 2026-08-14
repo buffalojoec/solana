@@ -346,6 +346,12 @@ impl ProgramCacheForTxBatch {
             })
     }
 
+    /// Find a cache entry ONLY from `entries`, not `modified_entries`.
+    #[cfg(feature = "dev-context-only-utils")]
+    pub fn find_entry(&self, key: &Pubkey) -> Option<Arc<ProgramCacheEntry>> {
+        self.entries.get(key).cloned()
+    }
+
     pub fn slot(&self) -> Slot {
         self.slot
     }

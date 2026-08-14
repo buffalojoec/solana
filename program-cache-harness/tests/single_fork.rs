@@ -39,6 +39,11 @@ fn sanity() {
             Step::Invoke {
                 slot: 5,
                 targets: vec![cached, cold, builtin],
+                served: vec![
+                    Entry::new_loaded(cached, 0),
+                    Entry::new_loaded(cold, 0),
+                    Entry::new_builtin(builtin),
+                ],
             },
             Step::Assert(vec![
                 // Invoking the cold program drove the real extraction path.
@@ -50,6 +55,7 @@ fn sanity() {
             Step::Invoke {
                 slot: 6,
                 targets: vec![cached],
+                served: vec![Entry::new_loaded(cached, 0)],
             },
         ],
     };
@@ -84,6 +90,7 @@ fn sanity_all_cold() {
             Step::Invoke {
                 slot: 5,
                 targets: vec![a, b],
+                served: vec![Entry::new_loaded(a, 0), Entry::new_loaded(b, 0)],
             },
             Step::Assert(vec![
                 // `c` was never invoked, so it never reached the cache.
@@ -123,6 +130,7 @@ fn sanity_all_unloaded() {
             Step::Invoke {
                 slot: 5,
                 targets: vec![a, b],
+                served: vec![Entry::new_loaded(a, 0), Entry::new_loaded(b, 0)],
             },
             Step::Assert(vec![
                 // `c` was never invoked, so its tombstone still stands.
@@ -169,6 +177,7 @@ fn sanity_deployments() {
             Step::Invoke {
                 slot: 6,
                 targets: vec![fresh],
+                served: vec![Entry::new_loaded(fresh, 5)],
             },
             // Invoking it compiles the entry, still at its deployment slot.
             Step::Assert(vec![
@@ -186,6 +195,13 @@ fn sanity_deployments() {
                 Entry::new_unloaded(existing, 6),
                 Entry::new_loaded(fresh, 5),
             ]),
+            Step::Advance { slot: 7 },
+            // With two versions to choose between, the newer one resolves.
+            Step::Invoke {
+                slot: 7,
+                targets: vec![existing],
+                served: vec![Entry::new_loaded(existing, 6)],
+            },
         ],
     };
 

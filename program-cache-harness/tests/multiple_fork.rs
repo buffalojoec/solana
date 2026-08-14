@@ -38,6 +38,11 @@ fn sanity() {
             Step::Invoke {
                 slot: 5,
                 targets: vec![cold_a, warm, builtin],
+                served: vec![
+                    Entry::new_loaded(cold_a, 0),
+                    Entry::new_loaded(warm, 0),
+                    Entry::new_builtin(builtin),
+                ],
             },
             Step::Assert(vec![
                 // Only the fork that ran a transaction has warmed the cache.
@@ -51,6 +56,7 @@ fn sanity() {
             Step::Invoke {
                 slot: 6,
                 targets: vec![cold_b],
+                served: vec![Entry::new_loaded(cold_b, 0)],
             },
             Step::Assert(vec![
                 // The cache is global, so both forks' programs are in it.
@@ -92,11 +98,13 @@ fn sanity_all_cold() {
             Step::Invoke {
                 slot: 5,
                 targets: vec![a],
+                served: vec![Entry::new_loaded(a, 0)],
             },
             Step::NewSlotOn { parent: 4, slot: 6 },
             Step::Invoke {
                 slot: 6,
                 targets: vec![b],
+                served: vec![Entry::new_loaded(b, 0)],
             },
             Step::Assert(vec![
                 // `c` was never invoked, so it never reached the cache.
@@ -136,11 +144,13 @@ fn sanity_all_unloaded() {
             Step::Invoke {
                 slot: 5,
                 targets: vec![a],
+                served: vec![Entry::new_loaded(a, 0)],
             },
             Step::NewSlotOn { parent: 4, slot: 6 },
             Step::Invoke {
                 slot: 6,
                 targets: vec![b],
+                served: vec![Entry::new_loaded(b, 0)],
             },
             Step::Assert(vec![
                 // `c` was never invoked, so its tombstone still stands.
@@ -192,6 +202,49 @@ fn sanity_deployments() {
                 Entry::new_unloaded(existing, 6),
                 Entry::new_unloaded(fresh, 5),
             ]),
+        ],
+    };
+
+    run(genesis, timeline);
+}
+
+/// Upgrade on a branch, then invoke on each fork and assert which entry each
+/// one was actually served. The global cache holds both versions; only the
+/// fork-scoped lookup says which one a given fork sees.
+///
+/// ```text
+/// 0 ─ 1 ─ 2 ─ 3 ─ 4 ─ 5      served the slot-0 version
+///                 └── 6 ─ 7   upgraded at 6; served the slot-6 version
+/// ```
+#[test]
+fn sanity_extract() {
+    let prog = Pubkey::new_unique();
+
+    let genesis = Genesis::new_with_features_all_enabled(vec![Entry::new_loaded(prog, 0)], 4);
+
+    let timeline = Timeline {
+        steps: vec![
+            Step::Advance { slot: 5 },
+            Step::NewSlotOn { parent: 4, slot: 6 },
+            Step::Deploy {
+                slot: 6,
+                targets: vec![prog],
+            },
+            // The canonical fork never saw slot 6, so it still resolves the
+            // original even though the index now holds both versions.
+            Step::Invoke {
+                slot: 5,
+                targets: vec![prog],
+                served: vec![Entry::new_loaded(prog, 0)],
+            },
+            Step::NewSlotOn { parent: 6, slot: 7 },
+            // This fork descends from the upgrade, so it resolves the new one.
+            Step::Invoke {
+                slot: 7,
+                targets: vec![prog],
+                served: vec![Entry::new_loaded(prog, 6)],
+            },
+            Step::Assert(vec![Entry::new_loaded(prog, 0), Entry::new_loaded(prog, 6)]),
         ],
     };
 

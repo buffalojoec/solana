@@ -49,7 +49,7 @@ use {
     crate::{
         bank::{create_genesis_bank, process_transactions_and_assert_success},
         consts::{FINALITY_SLOTS, NATIVE_BUILTINS},
-        effects::assert_cache_contents,
+        effects::{assert_cache_contents, assert_deployed, assert_served},
         entry::{Entry, EntryType, NoopBuiltin},
         genesis::Genesis,
         timeline::Step,
@@ -129,10 +129,15 @@ impl TestRuntime {
         match step {
             Step::Advance { slot } => self.advance(slot),
             Step::NewSlotOn { parent, slot } => self.new_slot_on(parent, slot),
-            Step::Invoke { slot, targets } => {
+            Step::Invoke {
+                slot,
+                targets,
+                served,
+            } => {
                 let bank = self.bank(slot);
                 let transactions = targets.iter().map(|target| invoke(&bank, target)).collect();
-                process_transactions_and_assert_success(&bank, transactions);
+                let batch = process_transactions_and_assert_success(&bank, transactions);
+                assert_served(&batch, &targets, &served);
             }
             Step::Deploy { slot, targets } => {
                 let bank = self.bank(slot);
@@ -140,7 +145,8 @@ impl TestRuntime {
                     .iter()
                     .map(|target| deploy(&bank, target, &self.upgrade_authority))
                     .collect();
-                process_transactions_and_assert_success(&bank, transactions);
+                let batch = process_transactions_and_assert_success(&bank, transactions);
+                assert_deployed(&batch, &targets);
             }
             Step::Assert(expected) => {
                 assert_cache_contents(&self.cache_contents(), &expected);
