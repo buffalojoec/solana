@@ -46,17 +46,37 @@ pub(crate) fn assert_served(batch: &ProgramCacheForTxBatch, expected: &[Entry]) 
 /// Panics unless each target was deployed at the batch's slot. We know it was
 /// deployed if it's an `Unloaded` entry at that slot in this forks' batch cache.
 pub(crate) fn assert_deployed(batch: &ProgramCacheForTxBatch, targets: &[Pubkey]) {
+    assert_targets(
+        batch,
+        targets,
+        Entry::new_unloaded,
+        "deployed entry mismatch",
+    );
+}
+
+/// Panics unless each target was closed at the batch's slot. We know it was
+/// closed if it's a `Closed` entry at that slot in this forks' batch cache.
+pub(crate) fn assert_closed(batch: &ProgramCacheForTxBatch, targets: &[Pubkey]) {
+    assert_targets(batch, targets, Entry::new_closed, "closed entry mismatch");
+}
+
+fn assert_targets(
+    batch: &ProgramCacheForTxBatch,
+    targets: &[Pubkey],
+    entry: fn(Pubkey, u64) -> Entry,
+    message: &str,
+) {
     let found: Vec<Option<Entry>> = targets
         .iter()
         .map(|target| {
             batch
                 .find_entry(target)
-                .and_then(|entry| Entry::from_program_cache_entry(*target, &entry))
+                .and_then(|found| Entry::from_program_cache_entry(*target, &found))
         })
         .collect();
     let expected: Vec<Option<Entry>> = targets
         .iter()
-        .map(|target| Some(Entry::new_unloaded(*target, batch.slot())))
+        .map(|target| Some(entry(*target, batch.slot())))
         .collect();
-    assert_eq!(found, expected, "deployed entry mismatch");
+    assert_eq!(found, expected, "{message}");
 }

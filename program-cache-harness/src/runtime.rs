@@ -49,11 +49,11 @@ use {
     crate::{
         bank::{create_genesis_bank, process_transactions_and_assert_success},
         consts::{FINALITY_SLOTS, NATIVE_BUILTINS},
-        effects::{assert_cache_contents, assert_deployed, assert_served},
+        effects::{assert_cache_contents, assert_closed, assert_deployed, assert_served},
         entry::{Entry, EntryType, NoopBuiltin},
         genesis::Genesis,
         timeline::Step,
-        transaction::{deploy, invoke},
+        transaction::{close, deploy, invoke},
     },
     solana_keypair::Keypair,
     solana_leader_schedule::SlotLeader,
@@ -147,6 +147,15 @@ impl TestRuntime {
                     .collect();
                 let batch = process_transactions_and_assert_success(&bank, transactions);
                 assert_deployed(&batch, &targets);
+            }
+            Step::Close { slot, targets } => {
+                let bank = self.bank(slot);
+                let transactions = targets
+                    .iter()
+                    .map(|target| close(&bank, target, &self.upgrade_authority))
+                    .collect();
+                let batch = process_transactions_and_assert_success(&bank, transactions);
+                assert_closed(&batch, &targets);
             }
             Step::Assert(expected) => {
                 assert_cache_contents(&self.cache_contents(), &expected);

@@ -7,7 +7,7 @@ use {
     solana_keypair::Keypair,
     solana_loader_v3_interface::{
         get_program_data_address,
-        instruction::{deploy_with_max_program_len, upgrade},
+        instruction::{close_any, deploy_with_max_program_len, upgrade},
         state::UpgradeableLoaderState,
     },
     solana_message::Message,
@@ -55,6 +55,18 @@ pub(crate) fn deploy(bank: &Bank, target: &Pubkey, authority: &Keypair) -> Versi
         .split_off(1)
     };
     versioned_transaction(bank, &payer, &[authority], &instructions)
+}
+
+/// Craft a transaction closing `target`.
+pub(crate) fn close(bank: &Bank, target: &Pubkey, authority: &Keypair) -> VersionedTransaction {
+    let payer = store_payer(bank);
+    let instruction = close_any(
+        &get_program_data_address(target),
+        &payer.pubkey(),
+        Some(&authority.pubkey()),
+        Some(target),
+    );
+    versioned_transaction(bank, &payer, &[authority], &[instruction])
 }
 
 fn store_payer(bank: &Bank) -> Keypair {

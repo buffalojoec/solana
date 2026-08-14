@@ -37,6 +37,13 @@ pub enum Step {
         /// Targets to deploy. Single transaction per deployment, one batch.
         targets: Vec<Pubkey>,
     },
+    /// Close each target in the `targets` list with its own transaction.
+    Close {
+        /// The node in the fork graph to target.
+        slot: u64,
+        /// Targets to close. Single transaction per close, one batch.
+        targets: Vec<Pubkey>,
+    },
     /// Assert the entire contents of the global program cache at this point.
     /// Anything the list omits must be absent.
     Assert(Vec<Entry>),

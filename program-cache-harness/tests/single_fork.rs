@@ -211,3 +211,41 @@ fn sanity_deployments() {
 
     run(genesis, timeline);
 }
+
+/// Close a program, leaving a tombstone behind at the slot that ran it.
+///
+/// ```text
+/// 0 ─ 1 ─ 2 ─ 3 ─ 4 ─ 5
+///     │           │   └─ close: prog
+///     │           └───── genesis tip
+///     └───────────────── root
+/// ```
+#[test]
+fn sanity_close() {
+    let prog = Pubkey::new_unique();
+    let other = Pubkey::new_unique();
+
+    let genesis = Genesis::new_with_features_all_enabled(
+        vec![Entry::new_loaded(prog, 0), Entry::new_loaded(other, 0)],
+        4,
+    );
+
+    let timeline = Timeline {
+        steps: vec![
+            Step::Advance { slot: 5 },
+            Step::Close {
+                slot: 5,
+                targets: vec![prog],
+            },
+            // The tombstone sits at the closing slot, and the version it
+            // replaced stays in the index beside it.
+            Step::Assert(vec![
+                Entry::new_loaded(prog, 0),
+                Entry::new_closed(prog, 5),
+                Entry::new_loaded(other, 0),
+            ]),
+        ],
+    };
+
+    run(genesis, timeline);
+}

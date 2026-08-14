@@ -254,3 +254,39 @@ fn sanity_extract() {
 
     run(genesis, timeline);
 }
+
+/// Close on a branch. The canonical fork never saw the close, so it still
+/// resolves the live program.
+///
+/// ```text
+///                   ┌─ 5   invoke: prog, canonical tip
+/// 0 ─ 1 ─ 2 ─ 3 ─ 4 ┤
+///     ▲             └─ 6   close: prog
+///     └─ root
+/// ```
+#[test]
+fn sanity_close() {
+    let prog = Pubkey::new_unique();
+
+    let genesis = Genesis::new_with_features_all_enabled(vec![Entry::new_loaded(prog, 0)], 4);
+
+    let timeline = Timeline {
+        steps: vec![
+            Step::NewSlotOn { parent: 4, slot: 6 },
+            Step::Close {
+                slot: 6,
+                targets: vec![prog],
+            },
+            Step::Advance { slot: 5 },
+            // The close is not on this fork, so the program still resolves.
+            Step::Invoke {
+                slot: 5,
+                targets: vec![prog],
+                served: vec![Entry::new_loaded(prog, 0)],
+            },
+            Step::Assert(vec![Entry::new_loaded(prog, 0), Entry::new_closed(prog, 6)]),
+        ],
+    };
+
+    run(genesis, timeline);
+}
