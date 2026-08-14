@@ -34,6 +34,46 @@ pub enum EntryType {
     Builtin,
 }
 
+/// Which program runtime environment an entry belongs to.
+///
+/// The cache compares environments by `Arc` pointer, not by content, so these
+/// are identities rather than configurations: `Alternate` is a second
+/// environment built exactly like `Current`, and differs only in being a
+/// different allocation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Env {
+    /// The environment the bank executes with.
+    #[default]
+    Current,
+    /// An environment the bank is not executing with. `extract` skips entries
+    /// under it, and `prune` discards them once the root moves past.
+    Alternate,
+}
+
+/// The environments a timeline can name, and their identities.
+pub(crate) struct Environments {
+    pub(crate) current: ProgramRuntimeEnvironment,
+    pub(crate) alternate: ProgramRuntimeEnvironment,
+}
+
+impl Environments {
+    pub(crate) fn get(&self, env: Env) -> &ProgramRuntimeEnvironment {
+        match env {
+            Env::Current => &self.current,
+            Env::Alternate => &self.alternate,
+        }
+    }
+
+    /// Resolve an entry's environment back to a stable id. Entries carrying
+    /// none — tombstones and builtins — report `Current`.
+    fn id_of(&self, environment: Option<&ProgramRuntimeEnvironment>) -> Env {
+        match environment {
+            Some(environment) if environment == &self.alternate => Env::Alternate,
+            _ => Env::Current,
+        }
+    }
+}
+
 /// Represents a cached program.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Entry {
@@ -43,11 +83,24 @@ pub struct Entry {
     pub slot: u64,
     /// Type of cache entry.
     pub ty: EntryType,
+    /// The environment this entry belongs to.
+    pub env: Env,
 }
 
 impl Entry {
     fn new(id: Pubkey, slot: u64, ty: EntryType) -> Self {
-        Self { id, slot, ty }
+        Self {
+            id,
+            slot,
+            ty,
+            env: Env::Current,
+        }
+    }
+
+    /// Place this entry under `env` rather than the bank's own environment.
+    pub fn in_env(mut self, env: Env) -> Self {
+        self.env = env;
+        self
     }
 
     pub fn new_cold(id: Pubkey, slot: u64) -> Self {
@@ -147,7 +200,11 @@ impl Entry {
         Some(Arc::new(entry))
     }
 
-    pub(crate) fn from_program_cache_entry(id: Pubkey, entry: &ProgramCacheEntry) -> Option<Self> {
+    pub(crate) fn from_program_cache_entry(
+        id: Pubkey,
+        entry: &ProgramCacheEntry,
+        environments: &Environments,
+    ) -> Option<Self> {
         let ty = match entry.program {
             ProgramCacheEntryType::Loaded(_) => EntryType::Loaded,
             ProgramCacheEntryType::Unloaded(_) => EntryType::Unloaded,
@@ -157,7 +214,8 @@ impl Entry {
             ProgramCacheEntryType::FailedVerification(_)
             | ProgramCacheEntryType::DelayVisibility => return None,
         };
-        Some(Self::new(id, entry.deployment_slot, ty))
+        let env = environments.id_of(entry.program.get_environment());
+        Some(Self::new(id, entry.deployment_slot, ty).in_env(env))
     }
 }
 

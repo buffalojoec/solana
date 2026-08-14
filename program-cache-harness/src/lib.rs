@@ -11,7 +11,7 @@ pub(crate) mod timeline;
 pub(crate) mod transaction;
 
 pub use {
-    entry::{Entry, EntryType},
+    entry::{Entry, EntryType, Env},
     genesis::Genesis,
     harness::run,
     timeline::{Build, Frame, Run},

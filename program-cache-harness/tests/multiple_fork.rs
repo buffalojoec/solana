@@ -1,7 +1,7 @@
 //! Multiple-fork happy path.
 
 use {
-    agave_program_cache_harness::{Build, Entry, Frame, Genesis, Run, run},
+    agave_program_cache_harness::{Build, Entry, Env, Frame, Genesis, Run, run},
     solana_pubkey::Pubkey,
 };
 
@@ -363,6 +363,51 @@ fn sanity_close() {
             assert: vec![Entry::new_loaded(prog, 0), Entry::new_closed(prog, 6)],
         },
     ];
+
+    run(genesis, timeline);
+}
+
+/// One program under an environment neither fork executes with. Both forks
+/// invoke it at once; each is served a reload under the bank's own
+/// environment, and the alternate entry survives beside it.
+///
+/// ```text
+///                   ┌─ 5   invoke: prog
+/// 0 ─ 1 ─ 2 ─ 3 ─ 4 ┤      (one frame, both at once)
+///     ▲             └─ 6   invoke: prog
+///     └─ root
+/// ```
+#[test]
+fn sanity_environments() {
+    let prog = Pubkey::new_unique();
+
+    let genesis = Genesis::new_with_features_all_enabled(
+        vec![Entry::new_unloaded(prog, 0).in_env(Env::Alternate)],
+        4,
+    );
+
+    let timeline = vec![Frame {
+        build: vec![
+            Build::Advance { slot: 5 },
+            Build::NewSlotOn { parent: 4, slot: 6 },
+        ],
+        run: vec![
+            Run::Invoke {
+                slot: 5,
+                targets: vec![prog],
+                served: vec![Entry::new_loaded(prog, 0)],
+            },
+            Run::Invoke {
+                slot: 6,
+                targets: vec![prog],
+                served: vec![Entry::new_loaded(prog, 0)],
+            },
+        ],
+        assert: vec![
+            Entry::new_unloaded(prog, 0).in_env(Env::Alternate),
+            Entry::new_loaded(prog, 0),
+        ],
+    }];
 
     run(genesis, timeline);
 }

@@ -1,7 +1,7 @@
 //! Single-fork happy path.
 
 use {
-    agave_program_cache_harness::{Build, Entry, Frame, Genesis, Run, run},
+    agave_program_cache_harness::{Build, Entry, Env, Frame, Genesis, Run, run},
     solana_pubkey::Pubkey,
 };
 
@@ -298,6 +298,42 @@ fn sanity_close() {
             Entry::new_loaded(prog, 0),
             Entry::new_closed(prog, 5),
             Entry::new_loaded(other, 0),
+        ],
+    }];
+
+    run(genesis, timeline);
+}
+
+/// The same program cached under two environments. `extract` skips the entry
+/// whose environment does not match the bank's, so invoking reloads the
+/// program and leaves both entries side by side at one deployment slot.
+///
+/// ```text
+/// 0 ─ 1 ─ 2 ─ 3 ─ 4 ─ 5
+///     │           │   └─ invoke: prog
+///     │           └───── genesis tip
+///     └───────────────── root
+/// ```
+#[test]
+fn sanity_environments() {
+    let prog = Pubkey::new_unique();
+
+    let genesis = Genesis::new_with_features_all_enabled(
+        vec![Entry::new_unloaded(prog, 0).in_env(Env::Alternate)],
+        4,
+    );
+
+    let timeline = vec![Frame {
+        build: vec![Build::Advance { slot: 5 }],
+        run: vec![Run::Invoke {
+            slot: 5,
+            targets: vec![prog],
+            served: vec![Entry::new_loaded(prog, 0)],
+        }],
+        assert: vec![
+            // The seeded entry is untouched; the reload sits beside it.
+            Entry::new_unloaded(prog, 0).in_env(Env::Alternate),
+            Entry::new_loaded(prog, 0),
         ],
     }];
 

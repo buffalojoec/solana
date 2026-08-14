@@ -52,7 +52,7 @@ use {
         bank::{create_genesis_bank, process_transactions_and_assert_success},
         consts::{FINALITY_SLOTS, NATIVE_BUILTINS},
         effects::{assert_cache_contents, assert_closed, assert_deployed, assert_served},
-        entry::{Entry, EntryType, NoopBuiltin},
+        entry::{Entry, EntryType, Environments, NoopBuiltin},
         genesis::Genesis,
         timeline::{Build, Frame, Run},
         transaction::{close, deploy, invoke},
@@ -72,6 +72,9 @@ use {
 /// executing frames.
 pub(crate) struct TestRuntime {
     bank_forks: Arc<RwLock<BankForks>>,
+    /// The environments a timeline can seed entries under. `current` is the
+    /// bank's own; `alternate` is a second one it never executes with.
+    environments: Environments,
     /// The canonical fork, oldest slot first. Only `Advance` extends it, so
     /// the root is always one of its own entries.
     canonical: Vec<u64>,
@@ -87,10 +90,19 @@ impl TestRuntime {
         let (mut bank, _) = create_genesis_bank(&genesis.feature_set);
         let upgrade_authority = Keypair::new();
 
-        let environment = bank
-            .transaction_processor()
-            .program_runtime_environment
-            .clone();
+        // A second bank built the same way yields a second environment. Only
+        // its identity matters: the cache compares environments by pointer.
+        let (alternate_bank, _) = create_genesis_bank(&genesis.feature_set);
+        let environments = Environments {
+            current: bank
+                .transaction_processor()
+                .program_runtime_environment
+                .clone(),
+            alternate: alternate_bank
+                .transaction_processor()
+                .program_runtime_environment
+                .clone(),
+        };
 
         for entry in &genesis.cache_contents {
             if entry.ty == EntryType::Builtin {
@@ -104,12 +116,13 @@ impl TestRuntime {
             {
                 bank.store_account(&address, &account);
             }
-            if let Some(cache_entry) = entry.program_cache_entry(&environment) {
+            let environment = environments.get(entry.env);
+            if let Some(cache_entry) = entry.program_cache_entry(environment) {
                 bank.transaction_processor()
                     .global_program_cache
                     .write()
                     .unwrap()
-                    .assign_program(&environment, entry.id, entry.slot, cache_entry);
+                    .assign_program(environment, entry.id, entry.slot, cache_entry);
             }
         }
 
@@ -117,6 +130,7 @@ impl TestRuntime {
 
         let mut runtime = Self {
             bank_forks,
+            environments,
             canonical: vec![0],
             upgrade_authority,
         };
@@ -156,7 +170,7 @@ impl TestRuntime {
                 let bank = self.bank(*slot);
                 let transactions = targets.iter().map(|target| invoke(&bank, target)).collect();
                 let batch = process_transactions_and_assert_success(&bank, transactions);
-                assert_served(&batch, served);
+                assert_served(&batch, served, &self.environments);
             }
             Run::Deploy { slot, targets } => {
                 let bank = self.bank(*slot);
@@ -165,7 +179,7 @@ impl TestRuntime {
                     .map(|target| deploy(&bank, target, &self.upgrade_authority))
                     .collect();
                 let batch = process_transactions_and_assert_success(&bank, transactions);
-                assert_deployed(&batch, targets);
+                assert_deployed(&batch, targets, &self.environments);
             }
             Run::Close { slot, targets } => {
                 let bank = self.bank(*slot);
@@ -174,7 +188,7 @@ impl TestRuntime {
                     .map(|target| close(&bank, target, &self.upgrade_authority))
                     .collect();
                 let batch = process_transactions_and_assert_success(&bank, transactions);
-                assert_closed(&batch, targets);
+                assert_closed(&batch, targets, &self.environments);
             }
         }
     }
@@ -224,7 +238,9 @@ impl TestRuntime {
             .get_flattened_entries_for_tests()
             .into_iter()
             .filter(|(id, _)| !NATIVE_BUILTINS.contains(id))
-            .filter_map(|(id, entry)| Entry::from_program_cache_entry(id, &entry))
+            .filter_map(|(id, entry)| {
+                Entry::from_program_cache_entry(id, &entry, &self.environments)
+            })
             .collect()
     }
 
