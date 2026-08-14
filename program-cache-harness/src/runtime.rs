@@ -1,4 +1,4 @@
-//! The test apparatus driven by a [`Timeline`](crate::timeline::Timeline).
+//! The test apparatus driven by a timeline of [`Frame`]s.
 //!
 //! One [`BankForks`] holds every bank in the timeline. All of them share a
 //! single global program cache, which is what the harness observes.
@@ -13,7 +13,7 @@
 //! root            canonical tip
 //! ```
 //!
-//! [`Step::Advance`] extends the canonical fork, hanging the new slot off the
+//! [`Build::Advance`] extends the canonical fork, hanging the new slot off the
 //! current tip. It is the only step that moves the tip, and so the only one
 //! that roots: once the fork is longer than `FINALITY_SLOTS`, the root follows
 //! that many blocks behind it.
@@ -24,7 +24,7 @@
 //!     root            canonical tip
 //! ```
 //!
-//! [`Step::NewSlotOn`] builds anywhere else, naming its own parent, and leaves
+//! [`Build::NewSlotOn`] builds anywhere else, naming its own parent, and leaves
 //! both the tip and the root alone. Starting a branch and extending one are the
 //! same step — the second just names the first as its parent:
 //!
@@ -39,11 +39,13 @@
 //! slot the fork itself passed through. Counting blocks rather than subtracting
 //! slot numbers keeps that true even when a timeline skips slots.
 //!
-//! [`Step::Invoke`] runs one transaction per target against a named bank, in a
-//! single batch, and [`Step::Deploy`] does the same for deployments. Both take
-//! the slot they run against, so either fork can execute. [`Step::Assert`]
-//! reads the cache back from the canonical tip and compares it against what the
-//! timeline declares.
+//! [`Run::Invoke`] runs one transaction per target against a named bank, in a
+//! single batch, and [`Run::Deploy`] and [`Run::Close`] do the same for
+//! deployments and closures. Each names the slot it runs against, so either
+//! fork can execute.
+//!
+//! A frame builds its banks first, then runs everything in `run` at once, one
+//! thread apiece.
 
 use {
     crate::{
@@ -52,7 +54,7 @@ use {
         effects::{assert_cache_contents, assert_closed, assert_deployed, assert_served},
         entry::{Entry, EntryType, NoopBuiltin},
         genesis::Genesis,
-        timeline::Step,
+        timeline::{Build, Frame, Run},
         transaction::{close, deploy, invoke},
     },
     solana_keypair::Keypair,
@@ -67,7 +69,7 @@ use {
 };
 
 /// The prepared test environment, built from [`Genesis`], ready to start
-/// executing steps.
+/// executing frames.
 pub(crate) struct TestRuntime {
     bank_forks: Arc<RwLock<BankForks>>,
     /// The canonical fork, oldest slot first. Only `Advance` extends it, so
@@ -124,41 +126,55 @@ impl TestRuntime {
         runtime
     }
 
-    /// Run a single step.
-    pub(crate) fn step(&mut self, step: Step) {
-        match step {
-            Step::Advance { slot } => self.advance(slot),
-            Step::NewSlotOn { parent, slot } => self.new_slot_on(parent, slot),
-            Step::Invoke {
+    /// Run a single frame: build its banks, run every batch at once, then
+    /// assert the cache once they have all joined.
+    pub(crate) fn frame(&mut self, frame: Frame) {
+        for build in &frame.build {
+            match *build {
+                Build::Advance { slot } => self.advance(slot),
+                Build::NewSlotOn { parent, slot } => self.new_slot_on(parent, slot),
+            }
+        }
+        let this = &*self;
+        std::thread::scope(|scope| {
+            for run in &frame.run {
+                scope.spawn(move || this.run(run));
+            }
+        });
+        assert_cache_contents(&self.cache_contents(), &frame.assert);
+    }
+
+    /// Run one batch of transactions. Every batch in a frame runs at once, so
+    /// this only reads the fork graph.
+    fn run(&self, run: &Run) {
+        match run {
+            Run::Invoke {
                 slot,
                 targets,
                 served,
             } => {
-                let bank = self.bank(slot);
+                let bank = self.bank(*slot);
                 let transactions = targets.iter().map(|target| invoke(&bank, target)).collect();
                 let batch = process_transactions_and_assert_success(&bank, transactions);
-                assert_served(&batch, &served);
+                assert_served(&batch, served);
             }
-            Step::Deploy { slot, targets } => {
-                let bank = self.bank(slot);
+            Run::Deploy { slot, targets } => {
+                let bank = self.bank(*slot);
                 let transactions = targets
                     .iter()
                     .map(|target| deploy(&bank, target, &self.upgrade_authority))
                     .collect();
                 let batch = process_transactions_and_assert_success(&bank, transactions);
-                assert_deployed(&batch, &targets);
+                assert_deployed(&batch, targets);
             }
-            Step::Close { slot, targets } => {
-                let bank = self.bank(slot);
+            Run::Close { slot, targets } => {
+                let bank = self.bank(*slot);
                 let transactions = targets
                     .iter()
                     .map(|target| close(&bank, target, &self.upgrade_authority))
                     .collect();
                 let batch = process_transactions_and_assert_success(&bank, transactions);
-                assert_closed(&batch, &targets);
-            }
-            Step::Assert(expected) => {
-                assert_cache_contents(&self.cache_contents(), &expected);
+                assert_closed(&batch, targets);
             }
         }
     }

@@ -14,5 +14,5 @@ pub use {
     entry::{Entry, EntryType},
     genesis::Genesis,
     harness::run,
-    timeline::{Step, Timeline},
+    timeline::{Build, Frame, Run},
 };

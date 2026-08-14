@@ -1,9 +1,9 @@
 //! The in-out harness.
 
-use crate::{genesis::Genesis, runtime::TestRuntime, timeline::Timeline};
+use crate::{genesis::Genesis, runtime::TestRuntime, timeline::Frame};
 
 /// Run `timeline` against the environment prepared by `genesis`.
-pub fn run(genesis: Genesis, timeline: Timeline) {
+pub fn run(genesis: Genesis, timeline: Vec<Frame>) {
     let mut test = TestRuntime::new_from_genesis(genesis);
-    timeline.steps.into_iter().for_each(|step| test.step(step));
+    timeline.into_iter().for_each(|frame| test.frame(frame));
 }

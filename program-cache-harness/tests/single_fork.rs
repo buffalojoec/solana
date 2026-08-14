@@ -1,7 +1,7 @@
 //! Single-fork happy path.
 
 use {
-    agave_program_cache_harness::{Entry, Genesis, Step, Timeline, run},
+    agave_program_cache_harness::{Build, Entry, Frame, Genesis, Run, run},
     solana_pubkey::Pubkey,
 };
 
@@ -27,16 +27,10 @@ fn sanity() {
         4,
     );
 
-    let timeline = Timeline {
-        steps: vec![
-            Step::Advance { slot: 5 },
-            Step::Assert(vec![
-                // Genesis seeded these two, so they are cached before anything
-                // executes. The cold program has an account but no entry.
-                Entry::new_loaded(cached, 0),
-                Entry::new_builtin(builtin),
-            ]),
-            Step::Invoke {
+    let timeline = vec![
+        Frame {
+            build: vec![Build::Advance { slot: 5 }],
+            run: vec![Run::Invoke {
                 slot: 5,
                 targets: vec![cached, cold, builtin],
                 served: vec![
@@ -44,15 +38,18 @@ fn sanity() {
                     Entry::new_loaded(cold, 0),
                     Entry::new_builtin(builtin),
                 ],
-            },
-            Step::Assert(vec![
-                // Invoking the cold program drove the real extraction path.
+            }],
+            assert: vec![
+                // Genesis seeded `cached` and the builtin; invoking the cold
+                // program drove the real extraction path for the third.
                 Entry::new_loaded(cached, 0),
                 Entry::new_loaded(cold, 0),
                 Entry::new_builtin(builtin),
-            ]),
-            Step::Advance { slot: 6 },
-            Step::Invoke {
+            ],
+        },
+        Frame {
+            build: vec![Build::Advance { slot: 6 }],
+            run: vec![Run::Invoke {
                 slot: 6,
                 targets: vec![cached],
                 served: vec![
@@ -60,9 +57,14 @@ fn sanity() {
                     // Builtins are always served.
                     Entry::new_builtin(builtin),
                 ],
-            },
-        ],
-    };
+            }],
+            assert: vec![
+                Entry::new_loaded(cached, 0),
+                Entry::new_loaded(cold, 0),
+                Entry::new_builtin(builtin),
+            ],
+        },
+    ];
 
     run(genesis, timeline);
 }
@@ -88,21 +90,19 @@ fn sanity_all_cold() {
         4,
     );
 
-    let timeline = Timeline {
-        steps: vec![
-            Step::Advance { slot: 5 },
-            Step::Invoke {
-                slot: 5,
-                targets: vec![a, b],
-                served: vec![Entry::new_loaded(a, 0), Entry::new_loaded(b, 0)],
-            },
-            Step::Assert(vec![
-                // `c` was never invoked, so it never reached the cache.
-                Entry::new_loaded(a, 0),
-                Entry::new_loaded(b, 0),
-            ]),
+    let timeline = vec![Frame {
+        build: vec![Build::Advance { slot: 5 }],
+        run: vec![Run::Invoke {
+            slot: 5,
+            targets: vec![a, b],
+            served: vec![Entry::new_loaded(a, 0), Entry::new_loaded(b, 0)],
+        }],
+        assert: vec![
+            // `c` was never invoked, so it never reached the cache.
+            Entry::new_loaded(a, 0),
+            Entry::new_loaded(b, 0),
         ],
-    };
+    }];
 
     run(genesis, timeline);
 }
@@ -128,22 +128,70 @@ fn sanity_all_unloaded() {
         4,
     );
 
-    let timeline = Timeline {
-        steps: vec![
-            Step::Advance { slot: 5 },
-            Step::Invoke {
-                slot: 5,
-                targets: vec![a, b],
-                served: vec![Entry::new_loaded(a, 0), Entry::new_loaded(b, 0)],
-            },
-            Step::Assert(vec![
-                // `c` was never invoked, so its tombstone still stands.
-                Entry::new_loaded(a, 0),
-                Entry::new_loaded(b, 0),
-                Entry::new_unloaded(c, 0),
-            ]),
+    let timeline = vec![Frame {
+        build: vec![Build::Advance { slot: 5 }],
+        run: vec![Run::Invoke {
+            slot: 5,
+            targets: vec![a, b],
+            served: vec![Entry::new_loaded(a, 0), Entry::new_loaded(b, 0)],
+        }],
+        assert: vec![
+            // `c` was never invoked, so its tombstone still stands.
+            Entry::new_loaded(a, 0),
+            Entry::new_loaded(b, 0),
+            Entry::new_unloaded(c, 0),
         ],
-    };
+    }];
+
+    run(genesis, timeline);
+}
+
+/// Two batches racing each other on one bank, sharing a program.
+///
+/// ```text
+/// 0 ─ 1 ─ 2 ─ 3 ─ 4 ─ 5
+///     │           │   ├─ invoke: shared, a
+///     │           │   └─ invoke: shared, b   (at the same moment)
+///     │           └───── genesis tip
+///     └───────────────── root
+/// ```
+#[test]
+fn sanity_concurrent() {
+    let shared = Pubkey::new_unique();
+    let a = Pubkey::new_unique();
+    let b = Pubkey::new_unique();
+
+    let genesis = Genesis::new_with_features_all_enabled(
+        vec![
+            Entry::new_cold(shared, 0),
+            Entry::new_cold(a, 0),
+            Entry::new_cold(b, 0),
+        ],
+        4,
+    );
+
+    let timeline = vec![Frame {
+        build: vec![Build::Advance { slot: 5 }],
+        run: vec![
+            Run::Invoke {
+                slot: 5,
+                targets: vec![shared, a],
+                served: vec![Entry::new_loaded(shared, 0), Entry::new_loaded(a, 0)],
+            },
+            Run::Invoke {
+                slot: 5,
+                targets: vec![shared, b],
+                served: vec![Entry::new_loaded(shared, 0), Entry::new_loaded(b, 0)],
+            },
+        ],
+        assert: vec![
+            // Whichever batch loaded `shared` first, both were served it and
+            // only one entry for it exists.
+            Entry::new_loaded(shared, 0),
+            Entry::new_loaded(a, 0),
+            Entry::new_loaded(b, 0),
+        ],
+    }];
 
     run(genesis, timeline);
 }
@@ -151,11 +199,12 @@ fn sanity_all_unloaded() {
 /// A fresh deployment and an upgrade in one flow.
 ///
 /// ```text
-/// 0 ─ 1 ─ 2 ─ 3 ─ 4 ─ 5 ─ 6
-///     │           │   │   └─ invoke: fresh, then upgrade: existing
-///     │           │   └───── deploy: fresh
-///     │           └───────── genesis tip
-///     └───────────────────── root
+/// 0 ─ 1 ─ 2 ─ 3 ─ 4 ─ 5 ─ 6 ─ 7
+///     │           │   │   │   └─ invoke: existing
+///     │           │   │   └───── invoke: fresh, upgrade: existing (at once)
+///     │           │   └───────── deploy: fresh
+///     │           └───────────── genesis tip
+///     └───────────────────────── root
 /// ```
 #[test]
 fn sanity_deployments() {
@@ -164,50 +213,57 @@ fn sanity_deployments() {
 
     let genesis = Genesis::new_with_features_all_enabled(vec![Entry::new_loaded(existing, 0)], 4);
 
-    let timeline = Timeline {
-        steps: vec![
-            Step::Advance { slot: 5 },
-            Step::Deploy {
+    let timeline = vec![
+        Frame {
+            build: vec![Build::Advance { slot: 5 }],
+            run: vec![Run::Deploy {
                 slot: 5,
                 targets: vec![fresh],
-            },
+            }],
             // A fresh deployment lands unloaded: nothing has invoked it, and
             // delay visibility means nothing can until the next slot.
-            Step::Assert(vec![
+            assert: vec![
                 Entry::new_loaded(existing, 0),
                 Entry::new_unloaded(fresh, 5),
-            ]),
-            Step::Advance { slot: 6 },
-            Step::Invoke {
-                slot: 6,
-                targets: vec![fresh],
-                served: vec![Entry::new_loaded(fresh, 5)],
-            },
-            // Invoking it compiles the entry, still at its deployment slot.
-            Step::Assert(vec![
-                Entry::new_loaded(existing, 0),
-                Entry::new_loaded(fresh, 5),
-            ]),
-            Step::Deploy {
-                slot: 6,
-                targets: vec![existing],
-            },
-            // An upgrade leaves the old version in place and adds a second,
-            // ordered after it by deployment slot.
-            Step::Assert(vec![
+            ],
+        },
+        Frame {
+            build: vec![Build::Advance { slot: 6 }],
+            run: vec![
+                Run::Invoke {
+                    slot: 6,
+                    targets: vec![fresh],
+                    served: vec![Entry::new_loaded(fresh, 5)],
+                },
+                Run::Deploy {
+                    slot: 6,
+                    targets: vec![existing],
+                },
+            ],
+            // Invoking `fresh` compiles it, still at its deployment slot. The
+            // upgrade beside it leaves the old version of `existing` in place
+            // and adds a second, ordered after it by deployment slot.
+            assert: vec![
                 Entry::new_loaded(existing, 0),
                 Entry::new_unloaded(existing, 6),
                 Entry::new_loaded(fresh, 5),
-            ]),
-            Step::Advance { slot: 7 },
+            ],
+        },
+        Frame {
+            build: vec![Build::Advance { slot: 7 }],
             // With two versions to choose between, the newer one resolves.
-            Step::Invoke {
+            run: vec![Run::Invoke {
                 slot: 7,
                 targets: vec![existing],
                 served: vec![Entry::new_loaded(existing, 6)],
-            },
-        ],
-    };
+            }],
+            assert: vec![
+                Entry::new_loaded(existing, 0),
+                Entry::new_loaded(existing, 6),
+                Entry::new_loaded(fresh, 5),
+            ],
+        },
+    ];
 
     run(genesis, timeline);
 }
@@ -230,22 +286,20 @@ fn sanity_close() {
         4,
     );
 
-    let timeline = Timeline {
-        steps: vec![
-            Step::Advance { slot: 5 },
-            Step::Close {
-                slot: 5,
-                targets: vec![prog],
-            },
-            // The tombstone sits at the closing slot, and the version it
-            // replaced stays in the index beside it.
-            Step::Assert(vec![
-                Entry::new_loaded(prog, 0),
-                Entry::new_closed(prog, 5),
-                Entry::new_loaded(other, 0),
-            ]),
+    let timeline = vec![Frame {
+        build: vec![Build::Advance { slot: 5 }],
+        run: vec![Run::Close {
+            slot: 5,
+            targets: vec![prog],
+        }],
+        // The tombstone sits at the closing slot, and the version it replaced
+        // stays in the index beside it.
+        assert: vec![
+            Entry::new_loaded(prog, 0),
+            Entry::new_closed(prog, 5),
+            Entry::new_loaded(other, 0),
         ],
-    };
+    }];
 
     run(genesis, timeline);
 }

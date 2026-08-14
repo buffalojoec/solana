@@ -1,10 +1,24 @@
-//! Steps to run against the fork graph.
+//! Frames to run against the fork graph.
 
 use {crate::entry::Entry, solana_pubkey::Pubkey};
 
-/// A step in the fork graph.
+/// One moment in the timeline, starting from the initial test environment
+/// prepared by [`crate::genesis::Genesis`].
 #[derive(Clone, Debug)]
-pub enum Step {
+pub struct Frame {
+    /// Phase one, single-thread: lay out the fork graph.
+    pub build: Vec<Build>,
+    /// Phase two, concurrent: one thread per batch, against banks `build` has
+    /// already created. Each batch checks its own fork-scoped batch cache.
+    pub run: Vec<Run>,
+    /// Phase three, single-thread: assert the entire contents of the global
+    /// program cache.
+    pub assert: Vec<Entry>,
+}
+
+/// A node to add to the fork graph.
+#[derive(Clone, Copy, Debug)]
+pub enum Build {
     /// Extend the canonical fork to `slot`. Its parent is the current tip.
     Advance {
         /// This node's slot.
@@ -18,6 +32,11 @@ pub enum Step {
         /// This node's slot.
         slot: u64,
     },
+}
+
+/// A batch of transactions to run against one node in the fork graph.
+#[derive(Clone, Debug)]
+pub enum Run {
     /// Invoke each target in the `targets` list with its own transaction.
     /// Invoking a target runs the cache extraction workflow, causing the
     /// program to be loaded into the transaction processing pipeline.
@@ -44,15 +63,4 @@ pub enum Step {
         /// Targets to close. Single transaction per close, one batch.
         targets: Vec<Pubkey>,
     },
-    /// Assert the entire contents of the global program cache at this point.
-    /// Anything the list omits must be absent.
-    Assert(Vec<Entry>),
-}
-
-/// The timeline of events that takes place, starting from the initial test
-/// environment prepared by [`crate::genesis::Genesis`].
-#[derive(Clone, Debug)]
-pub struct Timeline {
-    /// Steps to run through in the timeline.
-    pub steps: Vec<Step>,
 }

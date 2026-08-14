@@ -1,7 +1,7 @@
 //! Multiple-fork happy path.
 
 use {
-    agave_program_cache_harness::{Entry, Genesis, Step, Timeline, run},
+    agave_program_cache_harness::{Build, Entry, Frame, Genesis, Run, run},
     solana_pubkey::Pubkey,
 };
 
@@ -32,10 +32,10 @@ fn sanity() {
         4,
     );
 
-    let timeline = Timeline {
-        steps: vec![
-            Step::Advance { slot: 5 },
-            Step::Invoke {
+    let timeline = vec![
+        Frame {
+            build: vec![Build::Advance { slot: 5 }],
+            run: vec![Run::Invoke {
                 slot: 5,
                 targets: vec![cold_a, warm, builtin],
                 served: vec![
@@ -43,17 +43,19 @@ fn sanity() {
                     Entry::new_loaded(warm, 0),
                     Entry::new_builtin(builtin),
                 ],
-            },
-            Step::Assert(vec![
+            }],
+            assert: vec![
                 // Only the fork that ran a transaction has warmed the cache.
                 Entry::new_loaded(cold_a, 0),
                 Entry::new_loaded(warm, 0),
                 Entry::new_builtin(builtin),
-            ]),
-            // Branching off the genesis tip rather than extending slot 5, and
-            // leaving the canonical tip where it is.
-            Step::NewSlotOn { parent: 4, slot: 6 },
-            Step::Invoke {
+            ],
+        },
+        // Branching off the genesis tip rather than extending slot 5, and
+        // leaving the canonical tip where it is.
+        Frame {
+            build: vec![Build::NewSlotOn { parent: 4, slot: 6 }],
+            run: vec![Run::Invoke {
                 slot: 6,
                 targets: vec![cold_b],
                 served: vec![
@@ -61,16 +63,16 @@ fn sanity() {
                     // Builtins are always served.
                     Entry::new_builtin(builtin),
                 ],
-            },
-            Step::Assert(vec![
+            }],
+            assert: vec![
                 // The cache is global, so both forks' programs are in it.
                 Entry::new_loaded(cold_a, 0),
                 Entry::new_loaded(cold_b, 0),
                 Entry::new_loaded(warm, 0),
                 Entry::new_builtin(builtin),
-            ]),
-        ],
-    };
+            ],
+        },
+    ];
 
     run(genesis, timeline);
 }
@@ -96,27 +98,30 @@ fn sanity_all_cold() {
         4,
     );
 
-    let timeline = Timeline {
-        steps: vec![
-            Step::Advance { slot: 5 },
-            Step::Invoke {
+    let timeline = vec![
+        Frame {
+            build: vec![Build::Advance { slot: 5 }],
+            run: vec![Run::Invoke {
                 slot: 5,
                 targets: vec![a],
                 served: vec![Entry::new_loaded(a, 0)],
-            },
-            Step::NewSlotOn { parent: 4, slot: 6 },
-            Step::Invoke {
+            }],
+            assert: vec![Entry::new_loaded(a, 0)],
+        },
+        Frame {
+            build: vec![Build::NewSlotOn { parent: 4, slot: 6 }],
+            run: vec![Run::Invoke {
                 slot: 6,
                 targets: vec![b],
                 served: vec![Entry::new_loaded(b, 0)],
-            },
-            Step::Assert(vec![
+            }],
+            assert: vec![
                 // `c` was never invoked, so it never reached the cache.
                 Entry::new_loaded(a, 0),
                 Entry::new_loaded(b, 0),
-            ]),
-        ],
-    };
+            ],
+        },
+    ];
 
     run(genesis, timeline);
 }
@@ -142,28 +147,87 @@ fn sanity_all_unloaded() {
         4,
     );
 
-    let timeline = Timeline {
-        steps: vec![
-            Step::Advance { slot: 5 },
-            Step::Invoke {
+    let timeline = vec![
+        Frame {
+            build: vec![Build::Advance { slot: 5 }],
+            run: vec![Run::Invoke {
                 slot: 5,
                 targets: vec![a],
                 served: vec![Entry::new_loaded(a, 0)],
-            },
-            Step::NewSlotOn { parent: 4, slot: 6 },
-            Step::Invoke {
+            }],
+            assert: vec![
+                Entry::new_loaded(a, 0),
+                Entry::new_unloaded(b, 0),
+                Entry::new_unloaded(c, 0),
+            ],
+        },
+        Frame {
+            build: vec![Build::NewSlotOn { parent: 4, slot: 6 }],
+            run: vec![Run::Invoke {
                 slot: 6,
                 targets: vec![b],
                 served: vec![Entry::new_loaded(b, 0)],
-            },
-            Step::Assert(vec![
+            }],
+            assert: vec![
                 // `c` was never invoked, so its tombstone still stands.
                 Entry::new_loaded(a, 0),
                 Entry::new_loaded(b, 0),
                 Entry::new_unloaded(c, 0),
-            ]),
+            ],
+        },
+    ];
+
+    run(genesis, timeline);
+}
+
+/// Both forks executing at the same moment, contending for one program.
+///
+/// ```text
+///                   ┌─ 5   invoke: shared, a
+/// 0 ─ 1 ─ 2 ─ 3 ─ 4 ┤      (one frame, both at once)
+///     ▲             └─ 6   invoke: shared, b
+///     └─ root
+/// ```
+#[test]
+fn sanity_concurrent() {
+    let shared = Pubkey::new_unique();
+    let a = Pubkey::new_unique();
+    let b = Pubkey::new_unique();
+
+    let genesis = Genesis::new_with_features_all_enabled(
+        vec![
+            Entry::new_cold(shared, 0),
+            Entry::new_cold(a, 0),
+            Entry::new_cold(b, 0),
         ],
-    };
+        4,
+    );
+
+    let timeline = vec![Frame {
+        build: vec![
+            Build::Advance { slot: 5 },
+            Build::NewSlotOn { parent: 4, slot: 6 },
+        ],
+        run: vec![
+            Run::Invoke {
+                slot: 5,
+                targets: vec![shared, a],
+                served: vec![Entry::new_loaded(shared, 0), Entry::new_loaded(a, 0)],
+            },
+            Run::Invoke {
+                slot: 6,
+                targets: vec![shared, b],
+                served: vec![Entry::new_loaded(shared, 0), Entry::new_loaded(b, 0)],
+            },
+        ],
+        assert: vec![
+            // Whichever fork loaded `shared` first, both were served it and
+            // only one entry for it exists.
+            Entry::new_loaded(shared, 0),
+            Entry::new_loaded(a, 0),
+            Entry::new_loaded(b, 0),
+        ],
+    }];
 
     run(genesis, timeline);
 }
@@ -183,31 +247,33 @@ fn sanity_deployments() {
 
     let genesis = Genesis::new_with_features_all_enabled(vec![Entry::new_loaded(existing, 0)], 4);
 
-    let timeline = Timeline {
-        steps: vec![
-            Step::Advance { slot: 5 },
-            Step::Deploy {
+    let timeline = vec![
+        Frame {
+            build: vec![Build::Advance { slot: 5 }],
+            run: vec![Run::Deploy {
                 slot: 5,
                 targets: vec![fresh],
-            },
-            Step::Assert(vec![
+            }],
+            assert: vec![
                 Entry::new_loaded(existing, 0),
                 Entry::new_unloaded(fresh, 5),
-            ]),
-            Step::NewSlotOn { parent: 4, slot: 6 },
-            Step::Deploy {
+            ],
+        },
+        Frame {
+            build: vec![Build::NewSlotOn { parent: 4, slot: 6 }],
+            run: vec![Run::Deploy {
                 slot: 6,
                 targets: vec![existing],
-            },
+            }],
             // Both forks feed the one cache: the fresh deployment from the
             // canonical fork, and the upgrade from the branch beside it.
-            Step::Assert(vec![
+            assert: vec![
                 Entry::new_loaded(existing, 0),
                 Entry::new_unloaded(existing, 6),
                 Entry::new_unloaded(fresh, 5),
-            ]),
-        ],
-    };
+            ],
+        },
+    ];
 
     run(genesis, timeline);
 }
@@ -226,31 +292,38 @@ fn sanity_extract() {
 
     let genesis = Genesis::new_with_features_all_enabled(vec![Entry::new_loaded(prog, 0)], 4);
 
-    let timeline = Timeline {
-        steps: vec![
-            Step::Advance { slot: 5 },
-            Step::NewSlotOn { parent: 4, slot: 6 },
-            Step::Deploy {
-                slot: 6,
-                targets: vec![prog],
-            },
-            // The canonical fork never saw slot 6, so it still resolves the
-            // original even though the index now holds both versions.
-            Step::Invoke {
-                slot: 5,
-                targets: vec![prog],
-                served: vec![Entry::new_loaded(prog, 0)],
-            },
-            Step::NewSlotOn { parent: 6, slot: 7 },
+    let timeline = vec![
+        Frame {
+            build: vec![
+                Build::Advance { slot: 5 },
+                Build::NewSlotOn { parent: 4, slot: 6 },
+            ],
+            // The upgrade races the invocation, deliberately. The canonical
+            // fork never saw slot 6, so it resolves the original either way.
+            run: vec![
+                Run::Deploy {
+                    slot: 6,
+                    targets: vec![prog],
+                },
+                Run::Invoke {
+                    slot: 5,
+                    targets: vec![prog],
+                    served: vec![Entry::new_loaded(prog, 0)],
+                },
+            ],
+            assert: vec![Entry::new_loaded(prog, 0), Entry::new_unloaded(prog, 6)],
+        },
+        Frame {
+            build: vec![Build::NewSlotOn { parent: 6, slot: 7 }],
             // This fork descends from the upgrade, so it resolves the new one.
-            Step::Invoke {
+            run: vec![Run::Invoke {
                 slot: 7,
                 targets: vec![prog],
                 served: vec![Entry::new_loaded(prog, 6)],
-            },
-            Step::Assert(vec![Entry::new_loaded(prog, 0), Entry::new_loaded(prog, 6)]),
-        ],
-    };
+            }],
+            assert: vec![Entry::new_loaded(prog, 0), Entry::new_loaded(prog, 6)],
+        },
+    ];
 
     run(genesis, timeline);
 }
@@ -270,23 +343,26 @@ fn sanity_close() {
 
     let genesis = Genesis::new_with_features_all_enabled(vec![Entry::new_loaded(prog, 0)], 4);
 
-    let timeline = Timeline {
-        steps: vec![
-            Step::NewSlotOn { parent: 4, slot: 6 },
-            Step::Close {
+    let timeline = vec![
+        Frame {
+            build: vec![Build::NewSlotOn { parent: 4, slot: 6 }],
+            run: vec![Run::Close {
                 slot: 6,
                 targets: vec![prog],
-            },
-            Step::Advance { slot: 5 },
+            }],
+            assert: vec![Entry::new_loaded(prog, 0), Entry::new_closed(prog, 6)],
+        },
+        Frame {
+            build: vec![Build::Advance { slot: 5 }],
             // The close is not on this fork, so the program still resolves.
-            Step::Invoke {
+            run: vec![Run::Invoke {
                 slot: 5,
                 targets: vec![prog],
                 served: vec![Entry::new_loaded(prog, 0)],
-            },
-            Step::Assert(vec![Entry::new_loaded(prog, 0), Entry::new_closed(prog, 6)]),
-        ],
-    };
+            }],
+            assert: vec![Entry::new_loaded(prog, 0), Entry::new_closed(prog, 6)],
+        },
+    ];
 
     run(genesis, timeline);
 }
