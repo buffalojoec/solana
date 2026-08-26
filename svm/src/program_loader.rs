@@ -227,9 +227,13 @@ fn get_program_deployment_slot<CB: TransactionProcessingCallback>(
             Err(TransactionError::ProgramAccountNotFound)
         }
         ProgramCacheEntryOwner::LoaderV4 => {
-            let state = loader_v4_get_state(program.data())
-                .map_err(|_| TransactionError::ProgramAccountNotFound)?;
-            Ok(state.slot)
+            let slot = loader_v4_get_state(program.data())
+                .ok()
+                .and_then(|state| {
+                    (!matches!(state.status, LoaderV4Status::Retracted)).then_some(state.slot)
+                })
+                .ok_or(TransactionError::ProgramAccountNotFound)?;
+            Ok(slot)
         }
         ProgramCacheEntryOwner::NativeLoader => unreachable!(),
     }
@@ -1179,13 +1183,10 @@ mod tests {
             Some(TransactionError::ProgramAccountNotFound)
         );
 
-        // TODO: We have a mismatch here in the Loader V4 valid state contract
-        // between `get_program_deployment_slot` and `load_program_accounts`:
-        //
-        // - `load_program_accounts`: Retracted Loader V4 programs result in
-        //   `Closed` tombstones (see `test_load_program_program_loader_v4`).
-        // - `get_program_deployment_slot`: Retracted Loader V4 programs are
-        //   accepted and their deployment slot is returned.
+        // Both readers of the account now agree on retracted Loader V4
+        // programs: `load_program_accounts` yields a `Closed` tombstone (see
+        // `test_load_program_program_loader_v4`) and `get_program_deployment_
+        // slot` rejects them rather than returning a deployment slot.
         //
         // Case: "gifted" state
         // Sized correctly, all-zeroes. Since `LoaderV4Status::Retracted` holds
@@ -1199,17 +1200,16 @@ mod tests {
                 &program_account,
                 ProgramCacheEntryOwner::LoaderV4
             )
-            .unwrap(),
-            0 // <-- Should be an error
+            .err(),
+            Some(TransactionError::ProgramAccountNotFound)
         );
 
-        // TODO: Same issue as the above case.
         // Case: status is Retracted
         let account = loader_v4_account(9, LoaderV4Status::Retracted);
         assert_eq!(
             get_program_deployment_slot(&mock_bank, &account, ProgramCacheEntryOwner::LoaderV4)
-                .unwrap(),
-            9 // <-- Should be an error
+                .err(),
+            Some(TransactionError::ProgramAccountNotFound)
         );
 
         // Success
