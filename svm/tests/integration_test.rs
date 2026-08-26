@@ -13,7 +13,7 @@ use {
     solana_compute_budget_interface::ComputeBudgetInstruction,
     solana_fee_structure::FeeDetails,
     solana_hash::Hash,
-    solana_instruction::{AccountMeta, Instruction},
+    solana_instruction::{AccountMeta, Instruction, error::InstructionError},
     solana_keypair::Keypair,
     solana_loader_v3_interface::{
         get_program_data_address, instruction as loaderv3_instruction,
@@ -30,7 +30,8 @@ use {
     },
     solana_pubkey::Pubkey,
     solana_sdk_ids::{
-        bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, compute_budget, native_loader,
+        bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, compute_budget, loader_v4,
+        native_loader,
     },
     solana_signer::Signer,
     solana_svm::{
@@ -3810,6 +3811,66 @@ fn svm_metrics_accumulation() {
             0
         );
     }
+}
+
+// A retracted LoaderV4 program is rejected by `load_program_accounts` but was
+// accepted by `get_program_deployment_slot`, so the two readers of one account
+// disagreed. This pins the transaction-level error either way, so the fix which
+// makes them agree can be shown not to change it.
+#[test]
+fn svm_retracted_loader_v4_program() {
+    let mut test_entry = SvmTestEntry::default();
+
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    let mut fee_payer_data = AccountSharedData::default();
+    fee_payer_data.set_lamports(LAMPORTS_PER_SOL);
+    test_entry.add_initial_account(fee_payer, &fee_payer_data);
+
+    // `LoaderV4State` is slot(8) + authority(32) + status(8). Status `0` is
+    // `Retracted`, so an all-zeroes state is a retracted program.
+    let program_id = Pubkey::new_unique();
+    let mut state = vec![0u8; 48];
+    state[0..8].copy_from_slice(&0u64.to_le_bytes());
+    state[8..40].copy_from_slice(Pubkey::new_unique().as_ref());
+    let mut program_data = AccountSharedData::default();
+    program_data.set_owner(loader_v4::id());
+    program_data.set_executable(true);
+    program_data.set_lamports(LAMPORTS_PER_SOL);
+    program_data.set_data_from_slice(&state);
+    test_entry.add_initial_account(program_id, &program_data);
+
+    let transaction = Transaction::new_signed_with_payer(
+        &[Instruction::new_with_bytes(program_id, &[], vec![])],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        Hash::default(),
+    );
+    test_entry.push_transaction_with_status(transaction, ExecutionStatus::ExecutedFailed);
+
+    let env = SvmTestEnvironment::create(test_entry);
+    let (transactions, check_results) = env.test_entry.prepare_transactions();
+    let result = env.batch_processor.load_and_execute_sanitized_transactions(
+        &env.mock_bank,
+        &transactions,
+        check_results,
+        &env.processing_environment,
+        &env.processing_config,
+    );
+
+    let Ok(ProcessedTransaction::Executed(executed)) = &result.processing_results[0] else {
+        panic!(
+            "transaction was not executed: {:?}",
+            result.processing_results[0]
+        );
+    };
+    assert_eq!(
+        executed.execution_details.status,
+        Err(TransactionError::InstructionError(
+            0,
+            InstructionError::UnsupportedProgramId
+        ))
+    );
 }
 
 // NOTE this could be moved to its own file in the future, but it requires a total refactor of the test runner
