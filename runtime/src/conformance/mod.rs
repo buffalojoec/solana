@@ -4,6 +4,8 @@
 pub mod block;
 pub mod txn;
 
+#[cfg(feature = "dev-context-only-utils")]
+use qualifier_attr::qualifiers;
 #[cfg(feature = "conformance")]
 use {
     protosol::protos::{
@@ -65,6 +67,7 @@ pub(crate) fn fee_rate_governor_from_proto(
     }
 }
 
+#[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
 pub(crate) fn new_accounts_for_tests_single_threaded() -> Accounts {
     Accounts::new(Arc::new(AccountsDb::new_for_tests_with_config(
         Vec::new(),
