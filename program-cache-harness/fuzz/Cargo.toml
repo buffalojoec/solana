@@ -1,0 +1,29 @@
+[package]
+name = "solana-program-cache-harness-fuzz"
+description = "Fuzz targets for the global program cache harness"
+publish = false
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+
+[package.metadata]
+cargo-fuzz = true
+
+[features]
+dev-context-only-utils = []
+
+[dependencies]
+arbitrary = { workspace = true, features = ["derive"] }
+libfuzzer-sys = { workspace = true }
+solana-program-cache-harness = { workspace = true }
+
+[[bin]]
+name = "v1"
+path = "fuzz_targets/v1.rs"
+test = false
+doc = false
+bench = false

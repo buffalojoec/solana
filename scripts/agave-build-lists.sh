@@ -48,5 +48,6 @@ DCOU_TAINTED_PACKAGES=(
   solana-accounts-cluster-bench
   solana-banking-bench
   solana-local-cluster
+  solana-program-cache-harness
   solana-svm-conformance
 )

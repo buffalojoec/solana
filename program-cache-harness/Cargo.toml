@@ -1,0 +1,38 @@
+[package]
+name = "solana-program-cache-harness"
+description = "Fork-based test and fuzz harness for the global program cache"
+publish = false
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+
+[[bin]]
+name = "decode-scenario"
+path = "src/bin/decode-scenario.rs"
+
+[[bench]]
+name = "throughput"
+harness = false
+
+[features]
+dev-context-only-utils = []
+dummy-for-ci-check = []
+
+[dependencies]
+arbitrary = { workspace = true, features = ["derive"] }
+solana-clock = { workspace = true }
+solana-program-runtime = { workspace = true, features = ["dev-context-only-utils"] }
+solana-pubkey = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+solana-leader-schedule = { workspace = true }
+solana-runtime = { workspace = true, features = ["dev-context-only-utils"] }
+test-case = { workspace = true }
+
+[lints]
+workspace = true
