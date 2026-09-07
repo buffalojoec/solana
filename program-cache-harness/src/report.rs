@@ -2,13 +2,14 @@
 
 use crate::{
     entry::Entry,
-    extraction::ExtractionRecord,
+    extraction::{EbppRecord, ExtractionRecord},
     invariants::{Severity, Violation},
 };
 
 pub struct Report {
     pub violations: Vec<Violation>,
     pub extractions: Vec<ExtractionRecord>,
+    pub ebpp_records: Vec<EbppRecord>,
     pub fingerprint: Vec<Entry>,
 }
 

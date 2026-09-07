@@ -47,6 +47,19 @@ pub struct ExtractionRecord {
     pub started_load: bool,
 }
 
+/// What the epoch boundary preparation phase (EBPP) did for one program.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EbppRecord {
+    pub program: u8,
+    pub fork_tip: Slot,
+    /// The environment the phase is building for.
+    pub env: u8,
+    /// Whether the cache already held an entry built for that environment.
+    pub already_built: bool,
+    /// Whether the phase was handed the load which builds it.
+    pub started_load: bool,
+}
+
 impl Extraction {
     pub fn record(&self) -> ExtractionRecord {
         ExtractionRecord {
@@ -58,6 +71,16 @@ impl Extraction {
                 .returned
                 .as_ref()
                 .map(|entry| EntryKind::of(&entry.program)),
+            started_load: self.started_load,
+        }
+    }
+
+    pub fn ebpp(&self, env: u8) -> EbppRecord {
+        EbppRecord {
+            program: self.program,
+            fork_tip: self.batch_slot,
+            env,
+            already_built: self.returned.is_some() && !self.started_load,
             started_load: self.started_load,
         }
     }

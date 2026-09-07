@@ -12,7 +12,7 @@ mod scenario;
 
 pub use {
     entry::{Entry, EntryKind},
-    extraction::ExtractionRecord,
+    extraction::{EbppRecord, ExtractionRecord},
     report::Report,
     runner::{
         Runner, run, run_twice,

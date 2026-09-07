@@ -643,6 +643,63 @@ fn an_orphan_is_kept_but_never_served<R: Runner>(_: PhantomData<R>) {
 }
 
 /// Fork graph created for the test
+///            1 - 2
+///
+/// The preparation phase builds an entry for the environment which is coming,
+/// alongside the one the cache already holds for the environment running now.
+/// It cannot reuse that one - it was compiled against the outgoing environment
+/// - so the program ends up held twice, once for each.
+#[test_case(PhantomData::<V1>; "v1")]
+fn a_recompile_builds_for_the_upcoming_environment<R: Runner>(_: PhantomData<R>) {
+    let finish_load = || Op::FinishLoad {
+        program: 0,
+        result: LoadResult::Loaded,
+    };
+    let scenario = Scenario {
+        tree: tree(&[&[1, 2]]),
+        seeds: vec![Seed {
+            program: 0,
+            owner: Owner::LoaderV4,
+            env: 0,
+            verifies: true,
+        }],
+        ops: vec![
+            Op::Extract {
+                programs: vec![0],
+                fork_tip: 2,
+            },
+            finish_load(),
+            Op::RecompileForEpoch {
+                program: 0,
+                fork_tip: 2,
+            },
+            finish_load(),
+        ],
+    };
+
+    let report = run_twice::<R>(&scenario);
+    report.assert_clean();
+
+    // The recompile is not a batch, so the only extraction is the one which
+    // ran before it.
+    let [_] = report.extractions.as_slice() else {
+        panic!("one extraction: {:?}", report.extractions);
+    };
+
+    let [first, second] = report.fingerprint.as_slice() else {
+        panic!("two entries, one per environment: {:?}", report.fingerprint);
+    };
+    for held in [first, second] {
+        assert_eq!(held.kind, EntryKind::Loaded, "{held}");
+        assert_eq!(held.owner, Owner::LoaderV4, "{held}");
+    }
+    assert_ne!(
+        first.env, second.env,
+        "one for the outgoing environment and one for the upcoming"
+    );
+}
+
+/// Fork graph created for the test
 ///            1 - 2 - 3
 ///            |   |   |
 ///            |   |   `-- and every batch here runs on the new one
@@ -690,20 +747,24 @@ fn crossing_an_epoch_boundary_sweeps_the_old_environment<R: Runner>(_: PhantomDa
     let report = run_twice::<R>(&scenario);
     report.assert_clean();
 
-    let [_, recompile, after] = report.extractions.as_slice() else {
-        panic!("three extractions: {:?}", report.extractions);
+    // The recompile is not a batch, so it leaves no extraction behind. What it
+    // did is visible in what the batch after the boundary is spared.
+    let [_, after] = report.extractions.as_slice() else {
+        panic!("two extractions: {:?}", report.extractions);
     };
-    assert!(
-        !recompile.hit,
-        "the entry in the cache is built for the outgoing environment"
-    );
-    assert!(recompile.started_load, "so the recompile loads its own");
     assert_eq!(
         after.kind,
         Some(EntryKind::Loaded),
-        "which is what runs after the boundary"
+        "the recompiled entry is what runs after the boundary"
     );
     assert!(!after.started_load, "with no reload to pay for");
+    let [held] = report.fingerprint.as_slice() else {
+        panic!(
+            "the outgoing environment was swept: {:?}",
+            report.fingerprint
+        );
+    };
+    assert_eq!(held.kind, EntryKind::Loaded);
 
     assert_eq!(
         report.fingerprint.len(),

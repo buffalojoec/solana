@@ -36,7 +36,7 @@ use {
     crate::{
         elf::NOOP_OK,
         entry::{Entry, EntryKind},
-        extraction::{Extraction, ExtractionRecord},
+        extraction::{EbppRecord, Extraction, ExtractionRecord},
         invariants::{self, Violation},
         ledger::{AccountState, Ledger},
         report::Report,
@@ -88,6 +88,7 @@ pub struct Harness {
     loaded_here: BTreeSet<(u8, Slot, u8, ProgramCacheEntryOwner)>,
 
     extractions: Vec<ExtractionRecord>,
+    ebpp_records: Vec<EbppRecord>,
     violations: Vec<Violation>,
 }
 
@@ -127,7 +128,7 @@ impl Harness {
         );
     }
 
-    fn extract(&mut self, programs: &[u8], fork_tip: Slot, env: u8) {
+    fn extract(&mut self, programs: &[u8], fork_tip: Slot, asking: Asking) {
         if !rules::can_extract(self.forks.contains(fork_tip)) {
             return;
         }
@@ -149,6 +150,13 @@ impl Harness {
             return;
         }
 
+        let env = match asking {
+            Asking::Batch => self.current_env,
+            Asking::Ebpp => self.upcoming_env,
+        };
+        let runtime_env = environment(env);
+        let is_batch = asking == Asking::Batch;
+
         let mut search_for: Vec<ProgramToLoad> = requested
             .iter()
             .map(|asked| ProgramToLoad {
@@ -157,11 +165,14 @@ impl Harness {
                 deployment_slot: asked.state.deployment_slot,
             })
             .collect();
-        let batch_env = environment(env);
         let mut extracted = ProgramCacheForTxBatch::new(fork_tip);
-        let task = self
-            .cache
-            .extract(&mut search_for, &mut extracted, &batch_env, true, true);
+        let task = self.cache.extract(
+            &mut search_for,
+            &mut extracted,
+            &runtime_env,
+            /* increment_usage_counter */ is_batch,
+            /* count_hits_and_misses */ is_batch,
+        );
 
         // At most one program per call is handed a loading task.
         if let Some(asked) = task.and_then(|task| requested.iter().find(|asked| asked.key == task))
@@ -188,7 +199,7 @@ impl Harness {
             let extraction = Extraction {
                 program,
                 batch_slot: fork_tip,
-                batch_env: batch_env.clone(),
+                batch_env: runtime_env.clone(),
                 ancestry: ancestry.clone(),
                 account_state: state,
                 candidates: self
@@ -205,7 +216,10 @@ impl Harness {
                     state.owner,
                 )),
             };
-            self.extractions.push(extraction.record());
+            match asking {
+                Asking::Batch => self.extractions.push(extraction.record()),
+                Asking::Ebpp => self.ebpp_records.push(extraction.ebpp(env)),
+            }
             self.check_invariants(&extraction);
         }
     }
@@ -263,8 +277,13 @@ impl Harness {
     }
 
     fn recompile_for_epoch(&mut self, program: u8, fork_tip: Slot) {
-        let upcoming = self.upcoming_env;
-        self.extract(&[program], fork_tip, upcoming);
+        // The phase drains a queue snapshotted from what the cache is holding,
+        // so a program the cache has nothing compiled for is not one it could
+        // have named.
+        if !self.cache_holds(program) {
+            return;
+        }
+        self.extract(&[program], fork_tip, Asking::Ebpp);
     }
 
     fn cross_epoch_boundary(&mut self, root: Slot) {
@@ -354,6 +373,14 @@ impl Harness {
         }
     }
 
+    fn cache_holds(&self, program: u8) -> bool {
+        let key = program_id(program);
+        self.cache
+            .get_flattened_entries()
+            .iter()
+            .any(|(at, _)| *at == key)
+    }
+
     fn forget_dropped_loads(&mut self) {
         let held: BTreeSet<(u8, Slot, u8, ProgramCacheEntryOwner)> = self
             .cache
@@ -415,6 +442,7 @@ impl super::Runner for Harness {
             pending: HashMap::new(),
             loaded_here: BTreeSet::new(),
             extractions: Vec::new(),
+            ebpp_records: Vec::new(),
             violations: Vec::new(),
         };
         for seed in &scenario.seeds {
@@ -427,9 +455,7 @@ impl super::Runner for Harness {
         match op {
             Op::Deploy { program, at, env } => self.deploy(*program, *at, *env),
             Op::Close { program, at } => self.close(*program, *at),
-            Op::Extract { programs, fork_tip } => {
-                self.extract(programs, *fork_tip, self.current_env)
-            }
+            Op::Extract { programs, fork_tip } => self.extract(programs, *fork_tip, Asking::Batch),
             Op::FinishLoad { program, result } => self.finish_load(*program, *result),
             Op::Prune { root } => {
                 self.prune(*root, None);
@@ -446,9 +472,16 @@ impl super::Runner for Harness {
         Report {
             fingerprint: self.fingerprint(),
             extractions: self.extractions,
+            ebpp_records: self.ebpp_records,
             violations: self.violations,
         }
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Asking {
+    Batch,
+    Ebpp,
 }
 
 struct Requested {
