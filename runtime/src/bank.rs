@@ -231,7 +231,7 @@ use {
     },
     solana_nonce as nonce,
     solana_nonce_account::{SystemAccountKind, get_system_account_kind},
-    solana_program_runtime::sysvar_cache::SysvarCache,
+    solana_program_runtime::{loaded_programs::ProgramCacheForTxBatch, sysvar_cache::SysvarCache},
     solana_svm::program_loader::load_program_with_pubkey,
 };
 
@@ -362,6 +362,9 @@ pub struct LoadAndExecuteTransactionsOutput {
     // Balances accumulated for TransactionStatusSender when transaction
     // balance recording is enabled.
     pub balance_collector: Option<BalanceCollector>,
+    /// The batch-local program cache, as it stood when the batch finished.
+    #[cfg(feature = "dev-context-only-utils")]
+    pub program_cache_for_tx_batch: ProgramCacheForTxBatch,
 }
 
 #[derive(Debug, PartialEq)]
@@ -4154,6 +4157,8 @@ impl Bank {
                 .collect(),
             processed_counts: ProcessedTransactionCounts::default(),
             balance_collector: None,
+            #[cfg(feature = "dev-context-only-utils")]
+            program_cache_for_tx_batch: ProgramCacheForTxBatch::default(),
         }
     }
 
@@ -4286,6 +4291,8 @@ impl Bank {
             processing_results: sanitized_output.processing_results,
             processed_counts,
             balance_collector: sanitized_output.balance_collector,
+            #[cfg(feature = "dev-context-only-utils")]
+            program_cache_for_tx_batch: sanitized_output.program_cache_for_tx_batch,
         }
     }
 
@@ -4761,6 +4768,7 @@ impl Bank {
             processing_results,
             processed_counts,
             balance_collector,
+            ..
         } = if let Some(execution_guard) = execution_guard.as_ref() {
             execution_guard.load_and_execute_transactions(
                 batch,

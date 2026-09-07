@@ -375,6 +375,7 @@ impl Consumer {
             processing_results,
             processed_counts,
             balance_collector,
+            ..
         } = load_and_execute_transactions_output;
 
         let transaction_counts = LeaderProcessedTransactionCounts {
