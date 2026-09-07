@@ -7365,6 +7365,10 @@ impl Bank {
     pub fn slot_time_reduction_active(&self) -> bool {
         self.ns_per_slot != self.slot_params.baseline_params().ns_per_slot()
     }
+
+    pub fn transaction_processor(&self) -> &TransactionBatchProcessor<BankForks> {
+        &self.transaction_processor
+    }
 }
 
 /// Returns a thread pool intended to be used for reward calculation. This
