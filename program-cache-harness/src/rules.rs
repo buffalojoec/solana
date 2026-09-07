@@ -46,7 +46,7 @@ pub fn can_root(live: bool, new_root: Slot, root: Slot) -> bool {
 /// Where an op leaves the root, so the generator tracks what the runner does.
 pub fn advance_root(tree: &ForkTree, root: Slot, op: &Op) -> Slot {
     match op {
-        Op::Prune { root: moved_to } | Op::CrossEpochBoundary { root: moved_to } => {
+        Op::Prune { root: moved_to } => {
             if can_root(is_live(tree, root, *moved_to), *moved_to, root) {
                 *moved_to
             } else {

@@ -41,7 +41,10 @@ use {
         ledger::{AccountState, Ledger},
         report::Report,
         rules,
-        scenario::{ForkTree, LoadResult, NUM_ENVIRONMENTS, NUM_PROGRAMS, Op, Scenario, Seed},
+        scenario::{
+            ForkTree, LoadResult, NUM_ENVIRONMENTS, NUM_PROGRAMS, Op, Scenario, Seed,
+            environment_of,
+        },
     },
     solana_clock::Slot,
     solana_program_runtime::{
@@ -70,11 +73,6 @@ pub struct Harness {
     forks: Forks,
     cache: ProgramCache<Graph>,
 
-    /// Current batch processor env.
-    current_env: u8,
-    /// Upcoming env for new epoch.
-    upcoming_env: u8,
-
     /// Every entry the scenario put in, keyed by the slot it landed at. A
     /// slot can hold several (one per environment).
     deployed: HashMap<(u8, Slot), Vec<Arc<ProgramCacheEntry>>>,
@@ -93,7 +91,7 @@ pub struct Harness {
 }
 
 impl Harness {
-    fn deploy(&mut self, program: u8, at: Slot, env: u8) {
+    fn deploy(&mut self, program: u8, at: Slot) {
         let existing = self
             .ledger
             .account_state(&self.tree, program, at)
@@ -105,7 +103,7 @@ impl Harness {
             program,
             at,
             ProgramCacheEntryOwner::LoaderV3,
-            env,
+            environment_of(at),
             EntryKind::Unloaded,
         );
     }
@@ -118,17 +116,16 @@ impl Harness {
         if !rules::can_close(existing) {
             return;
         }
-        let env = self.current_env;
         self.place(
             program,
             at,
             ProgramCacheEntryOwner::LoaderV3,
-            env,
+            environment_of(at),
             EntryKind::Closed,
         );
     }
 
-    fn extract(&mut self, programs: &[u8], fork_tip: Slot, asking: Asking) {
+    fn extract(&mut self, programs: &[u8], fork_tip: Slot, env: u8, asking: Asking) {
         if !rules::can_extract(self.forks.contains(fork_tip)) {
             return;
         }
@@ -150,10 +147,6 @@ impl Harness {
             return;
         }
 
-        let env = match asking {
-            Asking::Batch => self.current_env,
-            Asking::Ebpp => self.upcoming_env,
-        };
         let runtime_env = environment(env);
         let is_batch = asking == Asking::Batch;
 
@@ -217,7 +210,7 @@ impl Harness {
                 )),
             };
             match asking {
-                Asking::Batch => self.extractions.push(extraction.record()),
+                Asking::Batch => self.extractions.push(extraction.record(env)),
                 Asking::Ebpp => self.ebpp_records.push(extraction.ebpp(env)),
             }
             self.check_invariants(&extraction);
@@ -260,10 +253,12 @@ impl Harness {
             .finish_cooperative_loading_task(&environment(env), batch_slot, key, entry);
     }
 
-    fn prune(&mut self, root: Slot, new_env: Option<u8>) -> bool {
+    fn prune(&mut self, root: Slot) -> bool {
         if !rules::can_root(self.forks.contains(root), root, self.cache.latest_root_slot) {
             return false;
         }
+        let crossed = environment_of(root) != environment_of(self.cache.latest_root_slot);
+        let new_env = crossed.then(|| environment_of(root));
         // Prune the cache *before* moving the root, as is done in production
         // via `votor::root_utils`.
         let new_env = new_env.map(environment);
@@ -283,16 +278,15 @@ impl Harness {
         if !self.cache_holds(program) {
             return;
         }
-        self.extract(&[program], fork_tip, Asking::Ebpp);
-    }
-
-    fn cross_epoch_boundary(&mut self, root: Slot) {
-        let upcoming = self.upcoming_env;
-        if !self.prune(root, Some(upcoming)) {
-            return;
-        }
-        self.current_env = upcoming;
-        self.upcoming_env = upcoming.wrapping_add(1) % NUM_ENVIRONMENTS;
+        // The environment which is coming, which is the one the epoch above
+        // the root runs on. Once the run has crossed there is nothing left to
+        // prepare for, and the extraction below simply hits what is there.
+        let upcoming = environment_of(
+            self.cache
+                .latest_root_slot
+                .saturating_add(crate::scenario::SLOTS_PER_EPOCH),
+        );
+        self.extract(&[program], fork_tip, upcoming, Asking::Ebpp);
     }
 
     fn purge_slot(&mut self, slot: Slot) {
@@ -311,7 +305,7 @@ impl Harness {
         let state = AccountState {
             deployment_slot: 0,
             owner: seed.owner,
-            env: seed.env,
+            env: environment_of(0),
             kind: if seed.verifies {
                 EntryKind::Unloaded
             } else {
@@ -326,8 +320,12 @@ impl Harness {
             .entry((seed.program, 0))
             .or_default()
             .push(Arc::clone(&entry));
-        self.cache
-            .assign_program(&environment(seed.env), program_id(seed.program), 0, entry);
+        self.cache.assign_program(
+            &environment(environment_of(0)),
+            program_id(seed.program),
+            0,
+            entry,
+        );
     }
 
     fn place(
@@ -436,8 +434,6 @@ impl super::Runner for Harness {
             forks,
             tree: scenario.tree.clone(),
             ledger: Ledger::default(),
-            current_env: 0,
-            upcoming_env: 1,
             deployed: HashMap::new(),
             pending: HashMap::new(),
             loaded_here: BTreeSet::new(),
@@ -453,17 +449,21 @@ impl super::Runner for Harness {
 
     fn step(&mut self, op: &Op) {
         match op {
-            Op::Deploy { program, at, env } => self.deploy(*program, *at, *env),
+            Op::Deploy { program, at } => self.deploy(*program, *at),
             Op::Close { program, at } => self.close(*program, *at),
-            Op::Extract { programs, fork_tip } => self.extract(programs, *fork_tip, Asking::Batch),
+            Op::Extract { programs, fork_tip } => self.extract(
+                programs,
+                *fork_tip,
+                environment_of(*fork_tip),
+                Asking::Batch,
+            ),
             Op::FinishLoad { program, result } => self.finish_load(*program, *result),
             Op::Prune { root } => {
-                self.prune(*root, None);
+                self.prune(*root);
             }
             Op::RecompileForEpoch { program, fork_tip } => {
                 self.recompile_for_epoch(*program, *fork_tip)
             }
-            Op::CrossEpochBoundary { root } => self.cross_epoch_boundary(*root),
             Op::PurgeSlot { slot } => self.purge_slot(*slot),
         }
     }

@@ -42,6 +42,7 @@ pub struct ExtractionRecord {
     pub program: u8,
     pub batch_slot: Slot,
     pub asked_for: Slot,
+    pub env: u8,
     pub hit: bool,
     pub kind: Option<EntryKind>,
     pub started_load: bool,
@@ -61,11 +62,12 @@ pub struct EbppRecord {
 }
 
 impl Extraction {
-    pub fn record(&self) -> ExtractionRecord {
+    pub fn record(&self, env: u8) -> ExtractionRecord {
         ExtractionRecord {
             program: self.program,
             batch_slot: self.batch_slot,
             asked_for: self.account_state.deployment_slot,
+            env,
             hit: self.returned.is_some() && !self.started_load,
             kind: self
                 .returned

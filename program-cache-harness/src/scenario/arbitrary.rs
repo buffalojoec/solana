@@ -7,7 +7,7 @@
 #![allow(clippy::arithmetic_side_effects)]
 
 use {
-    super::{ForkTree, LoadResult, NUM_ENVIRONMENTS, NUM_PROGRAMS, Op, Scenario, Seed},
+    super::{ForkTree, LoadResult, MAX_SLOT, NUM_PROGRAMS, Op, SLOTS_PER_EPOCH, Scenario, Seed},
     crate::rules,
     arbitrary::{Arbitrary, Result, Unstructured},
     solana_clock::Slot,
@@ -61,18 +61,36 @@ fn tree(u: &mut Unstructured<'_>) -> Result<ForkTree> {
     // How many slots the tree holds.
     let count = u.int_in_range(3..=8)?;
 
+    // Where the tree sits relative to the epoch boundary.
+    //
+    //   0              one epoch, no boundary     1/4
+    //   1..=count - 1  straddling the boundary    3/4
+    //
+    let straddle = u.int_in_range(0..=3u8)? != 0;
+    let num_below = if straddle {
+        u.int_in_range(1..=count - 1)?
+    } else {
+        0
+    };
+
     // Generate slot topology arbitrarily.
     let mut placed: Vec<(Slot, Slot)> = Vec::new();
     let mut next: Slot = 1;
-    for _ in 0..count {
-        let slot = next;
+    for index in 0..count {
+        // The first `num_below` slots sit under the boundary.
+        let slot = if straddle && index == num_below {
+            next = next.max(SLOTS_PER_EPOCH);
+            next
+        } else {
+            next
+        };
         let anc = u.int_in_range(0..=placed.len())?;
         let parent = if anc == 0 { 0 } else { placed[anc - 1].0 };
         placed.push((slot, parent));
 
         // Skip one, maybe two slots.
         let gap = u.int_in_range(1..=2u8)?;
-        next += u64::from(gap);
+        next = slot.saturating_add(u64::from(gap)).min(MAX_SLOT);
     }
 
     let parent_of = |slot: Slot| {
@@ -127,14 +145,12 @@ fn seed_deployments(u: &mut Unstructured<'_>, live: &[Slot]) -> Result<SeededDep
             if rules::can_deploy_over(Some(owner)) {
                 deployable.push(program);
             }
-            let env = env(u)?;
             // Rarely, since a program which never loads takes the rest of the
             // scenario's ops out of play with it.
             let verifies = u.int_in_range(0..=7u8)? != 0;
             seeds.push(Seed {
                 program,
                 owner,
-                env,
                 verifies,
             });
             slots.push(0);
@@ -143,11 +159,7 @@ fn seed_deployments(u: &mut Unstructured<'_>, live: &[Slot]) -> Result<SeededDep
         deployable.push(program);
         let at = pick_low(u, live)?;
         slots.push(at);
-        ops.push(Op::Deploy {
-            program,
-            at,
-            env: env(u)?,
-        });
+        ops.push(Op::Deploy { program, at });
     }
     Ok(SeededDeployments {
         seeds,
@@ -197,7 +209,6 @@ fn cross_fork_load_race(
         victim,
     } = pick(u, &candidates)?;
     let program = pick(u, deployable)?;
-    let env = env(u)?;
     // Asked for by the preparation phase instead, so the entry it strands is
     // built for the environment which is coming rather than the one in use.
     let prepared: bool = u.arbitrary()?;
@@ -213,12 +224,10 @@ fn cross_fork_load_race(
             Op::Deploy {
                 program: other,
                 at: branch,
-                env,
             },
             Op::Deploy {
                 program: other,
                 at: doomed,
-                env,
             },
         ]);
     }
@@ -226,12 +235,10 @@ fn cross_fork_load_race(
         Op::Deploy {
             program,
             at: branch,
-            env,
         },
         Op::Deploy {
             program,
             at: doomed,
-            env,
         },
         if prepared {
             Op::RecompileForEpoch {
@@ -364,23 +371,14 @@ fn stacked_versions(
     let program = pick(u, deployable)?;
     let mut ops: Vec<Op> = lineage
         .iter()
-        .enumerate()
-        .map(|(index, at)| Op::Deploy {
-            program,
-            at: *at,
-            env: (index as u8) % NUM_ENVIRONMENTS,
-        })
+        .map(|at| Op::Deploy { program, at: *at })
         .collect();
 
     // Sometimes one more version of the same program on a fork the lineage
     // does not include.
     let sibling: bool = u.arbitrary()?;
     if sibling && let Some(at) = slots.iter().copied().find(|slot| !lineage.contains(slot)) {
-        ops.push(Op::Deploy {
-            program,
-            at,
-            env: (lineage.len() as u8) % NUM_ENVIRONMENTS,
-        });
+        ops.push(Op::Deploy { program, at });
     }
 
     // Sometimes root above the stack.
@@ -414,16 +412,14 @@ fn random_op(
     //   2     Close               1/10
     //   3, 4  Extract             2/10
     //   5     FinishLoad          1/10
-    //   6     Prune               1/10
-    //   7     RecompileForEpoch   1/10
-    //   8     CrossEpochBoundary  1/10
+    //   6, 7  Prune               2/10
+    //   8     RecompileForEpoch   1/10
     //   9     PurgeSlot           1/10
     //
     let op = match u.int_in_range(0..=9)? {
         0 | 1 => Op::Deploy {
             program: pick(u, deployable)?,
             at: pick(u, live)?,
-            env: env(u)?,
         },
         2 => Op::Close {
             program: pick(u, deployable)?,
@@ -453,15 +449,12 @@ fn random_op(
                 LoadResult::Loaded
             },
         },
-        6 => Op::Prune {
+        6 | 7 => Op::Prune {
             root: pick(u, live)?,
         },
-        7 => Op::RecompileForEpoch {
+        8 => Op::RecompileForEpoch {
             program: program(u)?,
             fork_tip: pick(u, or_live(searchable, live))?,
-        },
-        8 => Op::CrossEpochBoundary {
-            root: pick(u, live)?,
         },
         _ => Op::PurgeSlot {
             slot: pick(u, live)?,
@@ -501,10 +494,6 @@ fn pick_low(u: &mut Unstructured<'_>, from: &[Slot]) -> Result<Slot> {
 
 fn program(u: &mut Unstructured<'_>) -> Result<u8> {
     u.int_in_range(0..=NUM_PROGRAMS - 1)
-}
-
-fn env(u: &mut Unstructured<'_>) -> Result<u8> {
-    u.int_in_range(0..=NUM_ENVIRONMENTS - 1)
 }
 
 fn owner(u: &mut Unstructured<'_>) -> Result<ProgramCacheEntryOwner> {

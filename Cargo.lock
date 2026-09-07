@@ -9453,6 +9453,7 @@ dependencies = [
  "arbitrary",
  "criterion",
  "solana-clock",
+ "solana-epoch-schedule",
  "solana-leader-schedule",
  "solana-program-runtime",
  "solana-pubkey 4.3.0",

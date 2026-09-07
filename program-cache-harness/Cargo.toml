@@ -25,6 +25,7 @@ dummy-for-ci-check = []
 [dependencies]
 arbitrary = { workspace = true, features = ["derive"] }
 solana-clock = { workspace = true }
+solana-epoch-schedule = { workspace = true }
 solana-program-runtime = { workspace = true, features = ["dev-context-only-utils"] }
 solana-pubkey = { workspace = true }
 

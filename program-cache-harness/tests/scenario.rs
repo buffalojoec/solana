@@ -1,8 +1,11 @@
 //! Known edge cases, written as scenarios.
 
+#![allow(clippy::arithmetic_side_effects)]
+
 use {
     solana_program_cache_harness::{
-        EntryKind, LoadResult, Op, Owner, Runner, Scenario, Seed, V1, run_twice, tree,
+        EntryKind, LoadResult, Op, Owner, Runner, Scenario, Seed, V1, run_twice,
+        slots_in_new_epoch, tree,
     },
     std::marker::PhantomData,
     test_case::test_case,
@@ -23,11 +26,7 @@ fn sanity<R: Runner>(_: PhantomData<R>) {
         tree: tree(&[&[1, 2]]),
         seeds: Vec::new(),
         ops: vec![
-            Op::Deploy {
-                program: 0,
-                at: 1,
-                env: 0,
-            },
+            Op::Deploy { program: 0, at: 1 },
             extract(),
             Op::FinishLoad {
                 program: 0,
@@ -71,11 +70,7 @@ fn a_deployment_is_not_visible_in_its_own_slot<R: Runner>(_: PhantomData<R>) {
         tree: tree(&[&[1, 2]]),
         seeds: Vec::new(),
         ops: vec![
-            Op::Deploy {
-                program: 0,
-                at: 1,
-                env: 0,
-            },
+            Op::Deploy { program: 0, at: 1 },
             extract(1),
             extract(2),
             Op::FinishLoad {
@@ -121,11 +116,7 @@ fn a_deployment_is_not_visible_in_its_own_slot<R: Runner>(_: PhantomData<R>) {
 /// deployment cannot serve the second, and the redeployment costs one reload.
 #[test_case(PhantomData::<V1>; "v1")]
 fn a_redeployment_costs_one_reload<R: Runner>(_: PhantomData<R>) {
-    let deploy = |at| Op::Deploy {
-        program: 0,
-        at,
-        env: 0,
-    };
+    let deploy = |at| Op::Deploy { program: 0, at };
     let extract = |fork_tip| Op::Extract {
         programs: vec![0],
         fork_tip,
@@ -173,7 +164,6 @@ fn a_batch_is_handed_one_load_at_a_time<R: Runner>(_: PhantomData<R>) {
     let seed = |program, owner| Seed {
         program,
         owner,
-        env: 0,
         verifies: true,
     };
     let extract = || Op::Extract {
@@ -239,7 +229,6 @@ fn a_load_which_fails_verification_is_not_retried<R: Runner>(_: PhantomData<R>) 
         seeds: vec![Seed {
             program: 0,
             owner: Owner::LoaderV2,
-            env: 0,
             verifies: true,
         }],
         ops: vec![
@@ -296,7 +285,6 @@ fn one_version_serves_every_fork<R: Runner>(_: PhantomData<R>) {
         seeds: vec![Seed {
             program: 0,
             owner: Owner::LoaderV1,
-            env: 0,
             verifies: true,
         }],
         ops: vec![
@@ -348,11 +336,7 @@ fn one_version_serves_every_fork<R: Runner>(_: PhantomData<R>) {
 /// never saw that deployment - names the shared one and must be handed it.
 #[test_case(PhantomData::<V1>; "v1")]
 fn a_deployment_on_one_branch_does_not_reach_the_other<R: Runner>(_: PhantomData<R>) {
-    let deploy = |at| Op::Deploy {
-        program: 0,
-        at,
-        env: 0,
-    };
+    let deploy = |at| Op::Deploy { program: 0, at };
     let extract = |fork_tip| Op::Extract {
         programs: vec![0],
         fork_tip,
@@ -400,11 +384,7 @@ fn a_deployment_on_one_branch_does_not_reach_the_other<R: Runner>(_: PhantomData
 /// survivor is still served above the root without a reload.
 #[test_case(PhantomData::<V1>; "v1")]
 fn prune_keeps_only_the_newest_version_below_the_root<R: Runner>(_: PhantomData<R>) {
-    let deploy = |at| Op::Deploy {
-        program: 0,
-        at,
-        env: 0,
-    };
+    let deploy = |at| Op::Deploy { program: 0, at };
     let extract = |fork_tip| Op::Extract {
         programs: vec![0],
         fork_tip,
@@ -470,11 +450,7 @@ fn a_fork_the_root_left_behind_is_never_worked_on<R: Runner>(_: PhantomData<R>) 
         tree: tree(&[&[1, 2, 3], &[1, 4, 5]]),
         seeds: Vec::new(),
         ops: vec![
-            Op::Deploy {
-                program: 0,
-                at: 4,
-                env: 0,
-            },
+            Op::Deploy { program: 0, at: 4 },
             extract(5),
             Op::FinishLoad {
                 program: 0,
@@ -483,11 +459,7 @@ fn a_fork_the_root_left_behind_is_never_worked_on<R: Runner>(_: PhantomData<R>) 
             extract(5),
             Op::Prune { root: 2 },
             extract(5),
-            Op::Deploy {
-                program: 1,
-                at: 5,
-                env: 0,
-            },
+            Op::Deploy { program: 1, at: 5 },
             Op::PurgeSlot { slot: 5 },
             extract(5),
         ],
@@ -530,11 +502,7 @@ fn an_orphan_on_an_abandoned_fork_cannot_be_dumped<R: Runner>(_: PhantomData<R>)
         tree: tree(&[&[1, 2, 3], &[1, 4, 5]]),
         seeds: Vec::new(),
         ops: vec![
-            Op::Deploy {
-                program: 0,
-                at: 4,
-                env: 0,
-            },
+            Op::Deploy { program: 0, at: 4 },
             Op::Extract {
                 programs: vec![0],
                 fork_tip: 5,
@@ -592,11 +560,7 @@ fn an_orphan_on_an_abandoned_fork_cannot_be_dumped<R: Runner>(_: PhantomData<R>)
 /// the deployment its own account state holds, and slot 5 is not on its fork.
 #[test_case(PhantomData::<V1>; "v1")]
 fn an_orphan_is_kept_but_never_served<R: Runner>(_: PhantomData<R>) {
-    let deploy = |at| Op::Deploy {
-        program: 0,
-        at,
-        env: 0,
-    };
+    let deploy = |at| Op::Deploy { program: 0, at };
     let extract = |fork_tip| Op::Extract {
         programs: vec![0],
         fork_tip,
@@ -660,7 +624,6 @@ fn a_recompile_builds_for_the_upcoming_environment<R: Runner>(_: PhantomData<R>)
         seeds: vec![Seed {
             program: 0,
             owner: Owner::LoaderV4,
-            env: 0,
             verifies: true,
         }],
         ops: vec![
@@ -700,46 +663,47 @@ fn a_recompile_builds_for_the_upcoming_environment<R: Runner>(_: PhantomData<R>)
 }
 
 /// Fork graph created for the test
-///            1 - 2 - 3
-///            |   |   |
-///            |   |   `-- and every batch here runs on the new one
-///            |   `------ the epoch turns over here
-///            `---------- deployment, on the outgoing environment
+///           30 - 32 - 33
+///           |    |
+///           |    `-- the root moves here, into the next epoch
+///           `------- deployment, on the outgoing environment
 ///
-/// Ahead of an epoch boundary the preparation phase recompiles a program for
-/// the environment which is coming. It cannot reuse the entry already in the
-/// cache - that one was built for the outgoing environment - so it loads its
-/// own. Crossing the boundary then makes the upcoming environment the one
-/// every batch runs on, and sweeps what was built for the old one.
+/// Ahead of the boundary the preparation phase recompiles a program for the
+/// environment which is coming. It cannot reuse the entry already in the cache
+/// - that one was built for the outgoing environment - so it loads its own.
+/// Moving the root across the boundary then makes the upcoming environment the
+/// one every later batch runs on, and sweeps what was built for the old one.
 #[test_case(PhantomData::<V1>; "v1")]
 fn crossing_an_epoch_boundary_sweeps_the_old_environment<R: Runner>(_: PhantomData<R>) {
     let finish_load = || Op::FinishLoad {
         program: 0,
         result: LoadResult::Loaded,
     };
+    let before = slots_in_new_epoch(0) - 2;
+    let crossed = slots_in_new_epoch(0);
+    let after = slots_in_new_epoch(1);
     let scenario = Scenario {
-        tree: tree(&[&[1, 2, 3]]),
+        tree: tree(&[&[before, crossed, after]]),
         seeds: vec![Seed {
             program: 0,
             owner: Owner::LoaderV4,
-            env: 0,
             verifies: true,
         }],
         ops: vec![
             Op::Extract {
                 programs: vec![0],
-                fork_tip: 2,
+                fork_tip: before,
             },
             finish_load(),
             Op::RecompileForEpoch {
                 program: 0,
-                fork_tip: 2,
+                fork_tip: before,
             },
             finish_load(),
-            Op::CrossEpochBoundary { root: 2 },
+            Op::Prune { root: crossed },
             Op::Extract {
                 programs: vec![0],
-                fork_tip: 3,
+                fork_tip: after,
             },
         ],
     };
@@ -765,17 +729,10 @@ fn crossing_an_epoch_boundary_sweeps_the_old_environment<R: Runner>(_: PhantomDa
         );
     };
     assert_eq!(held.kind, EntryKind::Loaded);
-
     assert_eq!(
-        report.fingerprint.len(),
-        1,
-        "and the outgoing environment's entry is swept: {:?}",
-        report.fingerprint
-    );
-    assert!(
-        report.fingerprint[0].env == Some(1),
-        "leaving only the new one: {:?}",
-        report.fingerprint
+        held.env,
+        Some(1),
+        "leaving only the environment the boundary brought in"
     );
 }
 
@@ -797,11 +754,7 @@ fn crossing_an_epoch_boundary_sweeps_the_old_environment<R: Runner>(_: PhantomDa
 /// Found by the fuzzer.
 #[test_case(PhantomData::<V1>; "v1")]
 fn a_dumped_block_leaves_no_load_behind<R: Runner>(_: PhantomData<R>) {
-    let deploy = || Op::Deploy {
-        program: 0,
-        at: 1,
-        env: 0,
-    };
+    let deploy = || Op::Deploy { program: 0, at: 1 };
     let scenario = Scenario {
         tree: tree(&[&[1, 2]]),
         seeds: Vec::new(),
@@ -864,7 +817,6 @@ fn a_seed_which_does_not_verify_is_a_tombstone<R: Runner>(_: PhantomData<R>) {
         seeds: vec![Seed {
             program: 0,
             owner: Owner::LoaderV2,
-            env: 0,
             verifies: false,
         }],
         ops: vec![extract(), extract()],
@@ -911,15 +863,10 @@ fn a_seeded_program_keeps_its_own_loader<R: Runner>(_: PhantomData<R>) {
         seeds: vec![Seed {
             program: 0,
             owner: Owner::LoaderV1,
-            env: 0,
             verifies: true,
         }],
         ops: vec![
-            Op::Deploy {
-                program: 1,
-                at: 1,
-                env: 0,
-            },
+            Op::Deploy { program: 1, at: 1 },
             extract(),
             Op::FinishLoad {
                 program: 0,
@@ -973,15 +920,10 @@ fn a_deployment_cannot_take_another_loaders_account<R: Runner>(_: PhantomData<R>
         seeds: vec![Seed {
             program: 0,
             owner: Owner::LoaderV1,
-            env: 0,
             verifies: true,
         }],
         ops: vec![
-            Op::Deploy {
-                program: 0,
-                at: 1,
-                env: 0,
-            },
+            Op::Deploy { program: 0, at: 1 },
             Op::Extract {
                 programs: vec![0],
                 fork_tip: 2,
@@ -1026,15 +968,10 @@ fn a_close_cannot_take_another_loaders_account<R: Runner>(_: PhantomData<R>) {
         seeds: vec![Seed {
             program: 1,
             owner: Owner::LoaderV1,
-            env: 0,
             verifies: true,
         }],
         ops: vec![
-            Op::Deploy {
-                program: 0,
-                at: 1,
-                env: 0,
-            },
+            Op::Deploy { program: 0, at: 1 },
             Op::Close { program: 0, at: 2 },
             Op::Close { program: 1, at: 2 },
             Op::Extract {
@@ -1077,4 +1014,106 @@ fn a_close_cannot_take_another_loaders_account<R: Runner>(_: PhantomData<R>) {
     );
     assert_eq!(seeded[0].owner, Owner::LoaderV1);
     assert_eq!(seeded[0].deployment_slot, 0, "still the seed at genesis");
+}
+
+/// Fork graph created for the test
+///           25 - 26 -+- 32 - 33                    fork A
+///                    `- 27 -+- 34 - 35             fork B
+///                           `- 28 -+- 36 - 37      fork C
+///
+/// An epoch is thirty-two slots and a bank is in the epoch its own slot names,
+/// so the boundary falls at slot 32 exactly: 31 is the last slot of the first
+/// epoch and 32 is the first of the second. Nothing about a fork enters into
+/// it. So three forks off one deployment each cross at their own step, and at
+/// a different depth of their own lineage:
+///
+///     fork    last slot in the first epoch    first slot in the second
+///     A       26                              32
+///     B       27                              34
+///     C       28                              36
+///
+/// A batch runs on the environment its own slot's epoch names, so the three
+/// below the boundary all query with the first environment and the three above
+/// it all query with the second - whatever step each fork crossed at, and
+/// whichever fork crossed first.
+#[test_case(PhantomData::<V1>; "v1")]
+fn forks_cross_epoch_boundary_independently<R: Runner>(_: PhantomData<R>) {
+    let extract = |fork_tip| Op::Extract {
+        programs: vec![0],
+        fork_tip,
+    };
+    let finish_load = || Op::FinishLoad {
+        program: 0,
+        result: LoadResult::Loaded,
+    };
+
+    let deployed = slots_in_new_epoch(0) - 7;
+    let (below_a, below_b, below_c) = (
+        slots_in_new_epoch(0) - 6,
+        slots_in_new_epoch(0) - 5,
+        slots_in_new_epoch(0) - 4,
+    );
+    let (above_a, above_b, above_c) = (
+        slots_in_new_epoch(0),
+        slots_in_new_epoch(2),
+        slots_in_new_epoch(4),
+    );
+
+    let scenario = Scenario {
+        tree: tree(&[
+            &[deployed, below_a, above_a, slots_in_new_epoch(1)],
+            &[deployed, below_a, below_b, above_b, slots_in_new_epoch(3)],
+            &[
+                deployed,
+                below_a,
+                below_b,
+                below_c,
+                above_c,
+                slots_in_new_epoch(5),
+            ],
+        ]),
+        seeds: Vec::new(),
+        ops: vec![
+            Op::Deploy {
+                program: 0,
+                at: deployed,
+            },
+            // Each fork's last slot before it crosses.
+            extract(below_a),
+            finish_load(),
+            extract(below_b),
+            extract(below_c),
+            // And each fork's first slot after.
+            extract(above_a),
+            finish_load(),
+            extract(above_b),
+            extract(above_c),
+        ],
+    };
+
+    let report = run_twice::<R>(&scenario);
+    report.assert_clean();
+
+    let [first_epoch, second_epoch] = [[below_a, below_b, below_c], [above_a, above_b, above_c]];
+    let queried: Vec<(u64, u8)> = report
+        .extractions
+        .iter()
+        .map(|served| (served.batch_slot, served.env))
+        .collect();
+    assert_eq!(
+        queried,
+        first_epoch
+            .iter()
+            .map(|slot| (*slot, 0))
+            .chain(second_epoch.iter().map(|slot| (*slot, 1)))
+            .collect::<Vec<_>>(),
+        "each fork queries with the environment its own slot's epoch names"
+    );
+
+    for served in &report.extractions {
+        assert_eq!(
+            served.asked_for, deployed,
+            "one deployment, named by every fork"
+        );
+    }
 }

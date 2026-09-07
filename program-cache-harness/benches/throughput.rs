@@ -26,11 +26,7 @@ fn scenario_of(slots: u64, rounds: usize) -> Scenario {
     let mut ops = Vec::new();
     for _ in 0..rounds {
         for program in 0..3 {
-            ops.push(Op::Deploy {
-                program,
-                at: 1,
-                env: 0,
-            });
+            ops.push(Op::Deploy { program, at: 1 });
         }
         ops.push(Op::Extract {
             programs: vec![0, 1, 2],
@@ -55,19 +51,16 @@ fn scenario_of(slots: u64, rounds: usize) -> Scenario {
             Seed {
                 program: 0,
                 owner: Owner::LoaderV3,
-                env: 0,
                 verifies: true,
             },
             Seed {
                 program: 1,
                 owner: Owner::LoaderV3,
-                env: 0,
                 verifies: true,
             },
             Seed {
                 program: 2,
                 owner: Owner::LoaderV3,
-                env: 0,
                 verifies: true,
             },
         ],

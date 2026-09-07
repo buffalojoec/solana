@@ -9,6 +9,10 @@ pub struct ForkTree {
 
 impl ForkTree {
     pub fn insert_fork(&mut self, fork: &[Slot]) {
+        debug_assert!(
+            fork.iter().all(|slot| *slot <= super::MAX_SLOT),
+            "a scenario crosses one epoch boundary: {fork:?}"
+        );
         let mut fork = fork.to_vec();
         fork.sort_unstable();
         fork.dedup();
