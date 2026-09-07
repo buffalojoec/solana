@@ -1681,6 +1681,7 @@ impl Bank {
             .set_fork_graph(fork_graph);
     }
 
+    #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
     fn prepare_program_cache_for_upcoming_feature_set(&self) {
         let (_epoch, slot_index) = self.epoch_schedule.get_epoch_and_slot_index(self.slot);
         let slots_in_epoch = self.epoch_schedule.get_slots_in_epoch(self.epoch);
@@ -5161,6 +5162,7 @@ impl Bank {
         self.add_active_builtin_programs();
     }
 
+    #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
     fn create_program_runtime_environment(
         &self,
         feature_set: &FeatureSet,
@@ -6550,6 +6552,7 @@ impl Bank {
 
     /// Compute the active feature set based on the current bank state,
     /// and return it together with the set of newly activated features.
+    #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
     fn compute_active_feature_set(&self, include_pending: bool) -> (FeatureSet, AHashSet<Pubkey>) {
         let mut active = self.feature_set.active().clone();
         let mut inactive = AHashSet::new();
