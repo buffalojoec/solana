@@ -1,7 +1,7 @@
 # Program Cache Harness
 
 ```
-./cargo nightly fuzz run v1 --fuzz-dir program-cache-harness/fuzz -- -max_len=128
+./cargo nightly fuzz run <v1|v2> --fuzz-dir program-cache-harness/fuzz -- -max_len=128
 ```
 
 > `-max_len=128` is important. Below ~64 bytes the generator cannot emit longer
@@ -12,14 +12,14 @@ Corpus lives in `program-cache-harness/fuzz/corpus/v1`.
 ## Coverage
 
 ```
-./cargo nightly fuzz coverage v1 --fuzz-dir program-cache-harness/fuzz
+./cargo nightly fuzz coverage <v1|v2> --fuzz-dir program-cache-harness/fuzz
 ```
 
 The instrumented binary lands in the *workspace* target directory, not under
 `fuzz/target`:
 
 ```
-target/x86_64-unknown-linux-gnu/coverage/x86_64-unknown-linux-gnu/release/v1
+target/x86_64-unknown-linux-gnu/coverage/x86_64-unknown-linux-gnu/release/<v1|v2>
 ```
 
 Report against `program-runtime/src/loaded_programs.rs` with `llvm-cov`. The
@@ -36,7 +36,7 @@ Read the report with `--show-functions -Xdemangler=rustfilt`, and ignore the
 
 ```
 cargo run -p solana-program-cache-harness --bin decode-scenario \
-    -- program-cache-harness/fuzz/artifacts/v1/<artifact>
+    -- program-cache-harness/fuzz/artifacts/<v1|v2>/<artifact>
 ```
 
 Transcribe the decoded scenario into `tests/scenario.rs`.

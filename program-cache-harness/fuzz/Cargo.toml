@@ -27,3 +27,17 @@ path = "fuzz_targets/v1.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "v2"
+path = "fuzz_targets/v2.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "differential"
+path = "fuzz_targets/differential.rs"
+test = false
+doc = false
+bench = false

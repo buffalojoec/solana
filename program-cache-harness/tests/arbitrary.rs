@@ -4,7 +4,8 @@
 
 use {
     arbitrary::{Arbitrary, Unstructured},
-    solana_program_cache_harness::{Scenario, V1, run},
+    solana_program_cache_harness::{Op, Scenario, V1, run},
+    std::collections::BTreeSet,
 };
 
 const ACCEPTABLE_RATIO: f64 = 0.8;
@@ -44,5 +45,55 @@ fn most_generated_scenarios_check_something() {
     assert!(
         share >= ACCEPTABLE_RATIO,
         "only {checked} of {generated} scenarios extracted anything ({extractions} extractions)"
+    );
+}
+
+// Building a bank freezes every bank before it, so a block which has been
+// built on takes no more transactions.
+#[test]
+fn no_generated_write_lands_on_a_block_already_built_on() {
+    let mut seed: u64 = 0x2545_F491_4F6C_DD1D;
+    let mut next_byte = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed >> 24) as u8
+    };
+
+    let mut bytes = [0u8; INPUT_LEN];
+    let (mut writes, mut onto_sealed) = (0usize, 0usize);
+    for _ in 0..SCENARIOS {
+        bytes.fill_with(&mut next_byte);
+        let Ok(scenario) = Scenario::arbitrary(&mut Unstructured::new(&bytes)) else {
+            continue;
+        };
+
+        let mut sealed: BTreeSet<u64> = BTreeSet::new();
+        for op in &scenario.ops {
+            let named = match op {
+                Op::Deploy { at, .. } | Op::Close { at, .. } => {
+                    writes += 1;
+                    if sealed.contains(at) {
+                        onto_sealed += 1;
+                    }
+                    Some(*at)
+                }
+                Op::Extract { fork_tip, .. } | Op::RecompileForEpoch { fork_tip, .. } => {
+                    Some(*fork_tip)
+                }
+                Op::Prune { root } => Some(*root),
+                Op::PurgeSlot { slot } => Some(*slot),
+                Op::FinishLoad { .. } => None,
+            };
+            if let Some(at) = named {
+                sealed.extend(scenario.tree.ancestry(at).into_iter().filter(|s| *s != at));
+            }
+        }
+    }
+
+    assert!(writes > 0, "the generator still deploys");
+    assert_eq!(
+        onto_sealed, 0,
+        "{onto_sealed} of {writes} writes landed on a block already built on"
     );
 }

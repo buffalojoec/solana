@@ -12,6 +12,7 @@ use {
     arbitrary::{Arbitrary, Result, Unstructured},
     solana_clock::Slot,
     solana_program_runtime::program_cache_entry::ProgramCacheEntryOwner,
+    std::collections::BTreeSet,
 };
 
 const MAX_OPS: usize = 24;
@@ -22,27 +23,47 @@ impl<'a> Arbitrary<'a> for Scenario {
         let mut root: Slot = 0;
         let mut live = tree.slots();
 
+        // Slots which have been built on, and so take no more transactions.
+        let mut sealed: BTreeSet<Slot> = BTreeSet::new();
+
         let seeded = seed_deployments(u, &live)?;
         let mut searchable = reachable_from(&tree, &seeded.slots);
         let mut ops = seeded.ops;
+        for op in &ops {
+            sealed.extend(rules::sealed_by(&tree, op));
+        }
 
         while ops.len() < MAX_OPS && !u.is_empty() {
             let emitted = ops.len();
             let set_piece = match u.int_in_range(0..=3)? {
                 // One in four: cross-fork race conditions.
-                0 => cross_fork_load_race(u, &tree, root, &seeded.deployable)?,
+                0 => cross_fork_load_race(u, &tree, root, &seeded.deployable, &sealed)?,
                 // One in four: stacked deployments.
-                1 => stacked_versions(u, &tree, root, &seeded.deployable)?,
+                1 => stacked_versions(u, &tree, root, &seeded.deployable, &sealed)?,
                 _ => None,
             };
             match set_piece {
                 Some(piece) => ops.extend(piece),
                 // Otherwise, and whenever the tree admits no set piece, a
                 // random op.
-                None => ops.push(random_op(u, &live, &searchable, &seeded.deployable)?),
+                None => {
+                    let writable: Vec<Slot> = live
+                        .iter()
+                        .copied()
+                        .filter(|slot| rules::can_write(&sealed, *slot))
+                        .collect();
+                    ops.push(random_op(
+                        u,
+                        &live,
+                        &searchable,
+                        &seeded.deployable,
+                        &writable,
+                    )?);
+                }
             }
             for op in ops.iter().skip(emitted) {
                 root = rules::advance_root(&tree, root, op);
+                sealed.extend(rules::sealed_by(&tree, op));
             }
             live.retain(|slot| rules::is_live(&tree, root, *slot));
             searchable.retain(|slot| rules::is_live(&tree, root, *slot));
@@ -161,6 +182,10 @@ fn seed_deployments(u: &mut Unstructured<'_>, live: &[Slot]) -> Result<SeededDep
         slots.push(at);
         ops.push(Op::Deploy { program, at });
     }
+    ops.sort_by_key(|op| match op {
+        Op::Deploy { at, .. } => *at,
+        _ => 0,
+    });
     Ok(SeededDeployments {
         seeds,
         ops,
@@ -195,8 +220,14 @@ fn cross_fork_load_race(
     tree: &ForkTree,
     root: Slot,
     deployable: &[u8],
+    sealed: &BTreeSet<Slot>,
 ) -> Result<Option<Vec<Op>>> {
-    let candidates = race_candidates(tree, root);
+    let candidates: Vec<Race> = race_candidates(tree, root)
+        .into_iter()
+        .filter(|race| {
+            rules::can_write(sealed, race.branch) && rules::can_write(sealed, race.doomed)
+        })
+        .collect();
     if candidates.is_empty() {
         return Ok(None);
     }
@@ -218,40 +249,37 @@ fn cross_fork_load_race(
         .then(|| deployable.iter().copied().find(|other| *other != program))
         .flatten();
 
-    let mut ops = Vec::new();
+    let mut ops = vec![Op::Deploy {
+        program,
+        at: branch,
+    }];
     if let Some(other) = second {
-        ops.extend([
-            Op::Deploy {
-                program: other,
-                at: branch,
-            },
-            Op::Deploy {
-                program: other,
-                at: doomed,
-            },
-        ]);
-    }
-    ops.extend([
-        Op::Deploy {
-            program,
+        ops.push(Op::Deploy {
+            program: other,
             at: branch,
-        },
-        Op::Deploy {
-            program,
+        });
+    }
+    ops.push(Op::Deploy {
+        program,
+        at: doomed,
+    });
+    if let Some(other) = second {
+        ops.push(Op::Deploy {
+            program: other,
             at: doomed,
-        },
-        if prepared {
-            Op::RecompileForEpoch {
-                program,
-                fork_tip: doomed_tip,
-            }
-        } else {
-            Op::Extract {
-                programs: vec![program],
-                fork_tip: doomed_tip,
-            }
-        },
-    ]);
+        });
+    }
+    ops.extend([if prepared {
+        Op::RecompileForEpoch {
+            program,
+            fork_tip: doomed_tip,
+        }
+    } else {
+        Op::Extract {
+            programs: vec![program],
+            fork_tip: doomed_tip,
+        }
+    }]);
     if let Some(other) = second {
         ops.push(Op::Extract {
             programs: vec![other],
@@ -321,7 +349,7 @@ fn race_candidates(tree: &ForkTree, root: Slot) -> Vec<Race> {
             else {
                 continue;
             };
-            // The batch which asks for the load has to sit *below* the
+            // The batch which asks for the load has to come *after* the
             // deployment, or it lands in the delay visibility window and is
             // handed a tombstone instead of missing.
             let Some(&doomed_tip) = slots
@@ -351,6 +379,7 @@ fn stacked_versions(
     tree: &ForkTree,
     root: Slot,
     deployable: &[u8],
+    sealed: &BTreeSet<Slot>,
 ) -> Result<Option<Vec<Op>>> {
     let slots = live_slots(tree, root);
     if slots.len() < 3 {
@@ -358,15 +387,25 @@ fn stacked_versions(
     }
     // One fork, so every deployment is on the same lineage and prune has to
     // choose between them rather than discard them as orphans.
-    let tip = pick(u, &slots)?;
-    let lineage: Vec<Slot> = tree
-        .ancestry(tip)
-        .into_iter()
-        .filter(|slot| *slot != 0)
+    let lineage_of = |tip: Slot| -> Vec<Slot> {
+        tree.ancestry(tip)
+            .into_iter()
+            .filter(|slot| *slot != 0)
+            .collect()
+    };
+    let tips: Vec<Slot> = slots
+        .iter()
+        .copied()
+        .filter(|tip| {
+            let lineage = lineage_of(*tip);
+            lineage.len() >= 3 && lineage.iter().all(|at| rules::can_write(sealed, *at))
+        })
         .collect();
-    if lineage.len() < 3 {
+    if tips.is_empty() {
         return Ok(None);
     }
+    let tip = pick(u, &tips)?;
+    let lineage = lineage_of(tip);
 
     let program = pick(u, deployable)?;
     let mut ops: Vec<Op> = lineage
@@ -377,7 +416,12 @@ fn stacked_versions(
     // Sometimes one more version of the same program on a fork the lineage
     // does not include.
     let sibling: bool = u.arbitrary()?;
-    if sibling && let Some(at) = slots.iter().copied().find(|slot| !lineage.contains(slot)) {
+    if sibling
+        && let Some(at) = slots
+            .iter()
+            .copied()
+            .find(|slot| !lineage.contains(slot) && rules::can_write(sealed, *slot))
+    {
         ops.push(Op::Deploy { program, at });
     }
 
@@ -405,6 +449,7 @@ fn random_op(
     live: &[Slot],
     searchable: &[Slot],
     deployable: &[u8],
+    writable: &[Slot],
 ) -> Result<Op> {
     // Weights:
     //
@@ -417,13 +462,13 @@ fn random_op(
     //   9     PurgeSlot           1/10
     //
     let op = match u.int_in_range(0..=9)? {
-        0 | 1 => Op::Deploy {
+        0 | 1 if !writable.is_empty() => Op::Deploy {
             program: pick(u, deployable)?,
-            at: pick(u, live)?,
+            at: pick(u, writable)?,
         },
-        2 => Op::Close {
+        2 if !writable.is_empty() => Op::Close {
             program: pick(u, deployable)?,
-            at: pick(u, live)?,
+            at: pick(u, writable)?,
         },
         3 | 4 => Op::Extract {
             programs: {

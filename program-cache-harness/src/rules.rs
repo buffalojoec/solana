@@ -4,6 +4,7 @@ use {
     crate::scenario::{ForkTree, Op},
     solana_clock::Slot,
     solana_program_runtime::program_cache_entry::ProgramCacheEntryOwner,
+    std::collections::BTreeSet,
 };
 
 /// Whether a slot still has a bank, determined from the tree and the root.
@@ -55,4 +56,26 @@ pub fn advance_root(tree: &ForkTree, root: Slot, op: &Op) -> Slot {
         }
         _ => root,
     }
+}
+
+/// The slots an op seals by naming one.
+///
+/// Building a bank freezes its parent, so naming a slot completes every block
+/// before it.
+pub fn sealed_by(tree: &ForkTree, op: &Op) -> Vec<Slot> {
+    let at = match op {
+        Op::Deploy { at, .. } | Op::Close { at, .. } => *at,
+        Op::Extract { fork_tip, .. } | Op::RecompileForEpoch { fork_tip, .. } => *fork_tip,
+        Op::Prune { root } => *root,
+        Op::PurgeSlot { slot } => *slot,
+        Op::FinishLoad { .. } => return Vec::new(),
+    };
+    let mut sealed = tree.ancestry(at);
+    sealed.retain(|slot| *slot != at);
+    sealed
+}
+
+/// Whether a slot can still take a transaction.
+pub fn can_write(sealed: &BTreeSet<Slot>, at: Slot) -> bool {
+    !sealed.contains(&at)
 }

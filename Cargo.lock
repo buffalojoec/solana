@@ -9450,15 +9450,34 @@ dependencies = [
 name = "solana-program-cache-harness"
 version = "4.4.0-alpha.3"
 dependencies = [
+ "agave-feature-set",
  "arbitrary",
+ "bincode",
  "criterion",
+ "solana-account 4.7.0",
+ "solana-accounts-db",
  "solana-clock",
  "solana-epoch-schedule",
+ "solana-feature-gate-interface",
+ "solana-fee-calculator",
+ "solana-hash 4.6.0",
+ "solana-instruction",
+ "solana-keypair",
  "solana-leader-schedule",
+ "solana-loader-v3-interface",
+ "solana-loader-v4-interface",
  "solana-program-runtime",
  "solana-pubkey 4.3.0",
+ "solana-rent",
  "solana-runtime",
+ "solana-sdk-ids",
+ "solana-signer",
+ "solana-svm",
+ "solana-svm-timings",
+ "solana-system-transaction",
+ "solana-transaction",
  "test-case",
+ "wincode",
 ]
 
 [[package]]

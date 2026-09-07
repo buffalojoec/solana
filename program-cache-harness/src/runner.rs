@@ -3,11 +3,14 @@
 pub mod v1;
 pub mod v2;
 
-use crate::{
-    entry::Entry,
-    invariants::{Severity, Violation},
-    report::Report,
-    scenario::{Op, Scenario},
+use {
+    crate::{
+        entry::Entry,
+        invariants::{Severity, Violation},
+        report::Report,
+        scenario::{Op, Scenario},
+    },
+    solana_clock::Slot,
 };
 
 pub trait Runner: Sized {
@@ -41,6 +44,42 @@ pub fn run_twice<R: Runner>(scenario: &Scenario) -> Report {
         });
     }
     report
+}
+
+// Run a scenario against both runners.
+pub fn run_both(scenario: &Scenario) -> Report {
+    let mut report = run::<v1::Harness>(scenario);
+    let second = run::<v2::Harness>(scenario);
+    let (modelled, driven) = (asked(&report), asked(&second));
+    if modelled != driven {
+        report.violations.push(Violation {
+            invariant: "runners-agree",
+            severity: Severity::Critical,
+            detail: format!("the runners asked differently:\n{modelled:#?}\n---\n{driven:#?}"),
+        });
+    }
+    // Whatever the second runner found is a finding either way.
+    report.violations.extend(second.violations);
+    report
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Asked {
+    program: u8,
+    batch_slot: Slot,
+    deployment_slot: Slot,
+}
+
+fn asked(report: &Report) -> Vec<Asked> {
+    report
+        .extractions
+        .iter()
+        .map(|extraction| Asked {
+            program: extraction.program,
+            batch_slot: extraction.batch_slot,
+            deployment_slot: extraction.asked_for,
+        })
+        .collect()
 }
 
 fn render(fingerprint: &[Entry]) -> String {

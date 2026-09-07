@@ -23,16 +23,35 @@ dev-context-only-utils = []
 dummy-for-ci-check = []
 
 [dependencies]
+agave-feature-set = { workspace = true }
 arbitrary = { workspace = true, features = ["derive"] }
+bincode = { workspace = true }
+solana-account = { workspace = true }
+solana-accounts-db = { workspace = true }
 solana-clock = { workspace = true }
 solana-epoch-schedule = { workspace = true }
+solana-feature-gate-interface = { workspace = true, features = ["bincode"] }
+solana-fee-calculator = { workspace = true }
+solana-hash = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-leader-schedule = { workspace = true }
+solana-loader-v3-interface = { workspace = true, features = ["bincode"] }
+solana-loader-v4-interface = { workspace = true }
 solana-program-runtime = { workspace = true, features = ["dev-context-only-utils"] }
 solana-pubkey = { workspace = true }
+solana-rent = { workspace = true }
+solana-runtime = { workspace = true, features = ["dev-context-only-utils"] }
+solana-sdk-ids = { workspace = true }
+solana-signer = { workspace = true }
+solana-svm = { workspace = true, features = ["dev-context-only-utils"] }
+solana-svm-timings = { workspace = true }
+solana-transaction = { workspace = true }
+wincode = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-solana-leader-schedule = { workspace = true }
-solana-runtime = { workspace = true, features = ["dev-context-only-utils"] }
+solana-system-transaction = { workspace = true }
 test-case = { workspace = true }
 
 [lints]

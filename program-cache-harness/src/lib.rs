@@ -15,7 +15,7 @@ pub use {
     extraction::{EbppRecord, ExtractionRecord},
     report::Report,
     runner::{
-        Runner, run, run_twice,
+        Runner, run, run_both, run_twice,
         v1::{Harness as V1, forks::Forks},
         v2::Harness as V2,
     },
