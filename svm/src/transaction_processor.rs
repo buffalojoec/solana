@@ -970,6 +970,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
             if let Some((key, program)) = program_to_store {
                 program_cache_for_tx_batch.loaded_missing = true;
+                #[cfg(feature = "dev-context-only-utils")]
+                program_cache_for_tx_batch.loaded_keys.push(key);
                 let mut global_program_cache = self.global_program_cache.write().unwrap();
                 // Submit our last completed loading task.
                 if global_program_cache.finish_cooperative_loading_task(

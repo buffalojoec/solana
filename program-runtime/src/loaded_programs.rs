@@ -287,6 +287,9 @@ pub struct ProgramCacheForTxBatch {
     pub hit_max_limit: bool,
     pub loaded_missing: bool,
     pub merged_modified: bool,
+    /// Every program this batch had to load, in the order it loaded them.
+    #[cfg(feature = "dev-context-only-utils")]
+    pub loaded_keys: Vec<Pubkey>,
 }
 
 impl ProgramCacheForTxBatch {
@@ -298,6 +301,8 @@ impl ProgramCacheForTxBatch {
             hit_max_limit: false,
             loaded_missing: false,
             merged_modified: false,
+            #[cfg(feature = "dev-context-only-utils")]
+            loaded_keys: Vec::new(),
         }
     }
 
