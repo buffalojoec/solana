@@ -41,7 +41,7 @@ use {
         ledger::{AccountState, Ledger},
         report::Report,
         rules,
-        scenario::{ForkTree, LoadResult, NUM_ENVIRONMENTS, NUM_PROGRAMS, Op, Scenario},
+        scenario::{ForkTree, LoadResult, NUM_ENVIRONMENTS, NUM_PROGRAMS, Op, Scenario, Seed},
     },
     solana_clock::Slot,
     solana_program_runtime::{
@@ -92,18 +92,39 @@ pub struct Harness {
 }
 
 impl Harness {
-    fn deploy(&mut self, program: u8, at: Slot, owner: ProgramCacheEntryOwner, env: u8) {
-        self.place(program, at, owner, env, EntryKind::Unloaded);
+    fn deploy(&mut self, program: u8, at: Slot, env: u8) {
+        let existing = self
+            .ledger
+            .account_state(&self.tree, program, at)
+            .map(|state| state.owner);
+        if !rules::can_deploy_over(existing) {
+            return;
+        }
+        self.place(
+            program,
+            at,
+            ProgramCacheEntryOwner::LoaderV3,
+            env,
+            EntryKind::Unloaded,
+        );
     }
 
     fn close(&mut self, program: u8, at: Slot) {
-        let owner = self
+        let existing = self
             .ledger
             .account_state(&self.tree, program, at)
-            .map(|state| state.owner)
-            .unwrap_or(ProgramCacheEntryOwner::LoaderV3);
+            .map(|state| state.owner);
+        if !rules::can_close(existing) {
+            return;
+        }
         let env = self.current_env;
-        self.place(program, at, owner, env, EntryKind::Closed);
+        self.place(
+            program,
+            at,
+            ProgramCacheEntryOwner::LoaderV3,
+            env,
+            EntryKind::Closed,
+        );
     }
 
     fn extract(&mut self, programs: &[u8], fork_tip: Slot, env: u8) {
@@ -267,6 +288,25 @@ impl Harness {
         self.forget_dropped_loads();
     }
 
+    fn seed(&mut self, seed: Seed) {
+        let state = AccountState {
+            deployment_slot: 0,
+            owner: seed.owner,
+            env: seed.env,
+            kind: EntryKind::Unloaded,
+        };
+        if !self.ledger.deploy(seed.program, 0, state) {
+            return;
+        }
+        let entry = build_entry(state);
+        self.deployed
+            .entry((seed.program, 0))
+            .or_default()
+            .push(Arc::clone(&entry));
+        self.cache
+            .assign_program(&environment(seed.env), program_id(seed.program), 0, entry);
+    }
+
     fn place(
         &mut self,
         program: u8,
@@ -360,7 +400,7 @@ impl super::Runner for Harness {
         let forks = Forks::new(&scenario.tree);
         let mut cache = ProgramCache::<Graph>::new(forks.root());
         cache.set_fork_graph(forks.weak());
-        Self {
+        let mut harness = Self {
             cache,
             forks,
             tree: scenario.tree.clone(),
@@ -372,17 +412,16 @@ impl super::Runner for Harness {
             loaded_here: BTreeSet::new(),
             extractions: Vec::new(),
             violations: Vec::new(),
+        };
+        for seed in &scenario.seeds {
+            harness.seed(*seed);
         }
+        harness
     }
 
     fn step(&mut self, op: &Op) {
         match op {
-            Op::Deploy {
-                program,
-                at,
-                owner,
-                env,
-            } => self.deploy(*program, *at, *owner, *env),
+            Op::Deploy { program, at, env } => self.deploy(*program, *at, *env),
             Op::Close { program, at } => self.close(*program, *at),
             Op::Extract { programs, fork_tip } => {
                 self.extract(programs, *fork_tip, self.current_env)

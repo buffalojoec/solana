@@ -3,6 +3,7 @@
 use {
     crate::scenario::{ForkTree, Op},
     solana_clock::Slot,
+    solana_program_runtime::program_cache_entry::ProgramCacheEntryOwner,
 };
 
 /// Whether a slot still has a bank, determined from the tree and the root.
@@ -14,6 +15,16 @@ pub fn is_live(tree: &ForkTree, root: Slot, slot: Slot) -> bool {
 /// already replayed, and an abandoned branch has no bank to deploy on.
 pub fn can_deploy(live: bool, at: Slot, root: Slot) -> bool {
     live && at > root
+}
+
+/// Only Loader V3 programs can upgrade.
+pub fn can_deploy_over(existing: Option<ProgramCacheEntryOwner>) -> bool {
+    matches!(existing, None | Some(ProgramCacheEntryOwner::LoaderV3))
+}
+
+/// Only Loader V3 programs can close.
+pub fn can_close(existing: Option<ProgramCacheEntryOwner>) -> bool {
+    matches!(existing, Some(ProgramCacheEntryOwner::LoaderV3))
 }
 
 /// No bank, no batch. Replay abandons a branch the root left behind, so

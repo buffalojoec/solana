@@ -3,7 +3,9 @@
 #![allow(clippy::arithmetic_side_effects)]
 use {
     criterion::{Criterion, criterion_group, criterion_main},
-    solana_program_cache_harness::{ForkTree, Forks, LoadResult, Op, Owner, Scenario, V1, run},
+    solana_program_cache_harness::{
+        ForkTree, Forks, LoadResult, Op, Owner, Scenario, Seed, V1, run,
+    },
     std::hint::black_box,
 };
 
@@ -27,7 +29,6 @@ fn scenario_of(slots: u64, rounds: usize) -> Scenario {
             ops.push(Op::Deploy {
                 program,
                 at: 1,
-                owner: Owner::LoaderV3,
                 env: 0,
             });
         }
@@ -50,6 +51,23 @@ fn scenario_of(slots: u64, rounds: usize) -> Scenario {
     assert_eq!(ops.len(), rounds * OPS_PER_ROUND);
     Scenario {
         tree: tree_of(slots),
+        seeds: vec![
+            Seed {
+                program: 0,
+                owner: Owner::LoaderV3,
+                env: 0,
+            },
+            Seed {
+                program: 1,
+                owner: Owner::LoaderV3,
+                env: 0,
+            },
+            Seed {
+                program: 2,
+                owner: Owner::LoaderV3,
+                env: 0,
+            },
+        ],
         ops,
     }
 }

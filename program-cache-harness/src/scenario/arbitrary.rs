@@ -7,7 +7,7 @@
 #![allow(clippy::arithmetic_side_effects)]
 
 use {
-    super::{ForkTree, LoadResult, NUM_ENVIRONMENTS, NUM_PROGRAMS, Op, Scenario},
+    super::{ForkTree, LoadResult, NUM_ENVIRONMENTS, NUM_PROGRAMS, Op, Scenario, Seed},
     crate::rules,
     arbitrary::{Arbitrary, Result, Unstructured},
     solana_clock::Slot,
@@ -30,16 +30,16 @@ impl<'a> Arbitrary<'a> for Scenario {
             let emitted = ops.len();
             let set_piece = match u.int_in_range(0..=3)? {
                 // One in four: cross-fork race conditions.
-                0 => cross_fork_load_race(u, &tree, root)?,
+                0 => cross_fork_load_race(u, &tree, root, &seeded.deployable)?,
                 // One in four: stacked deployments.
-                1 => stacked_versions(u, &tree, root)?,
+                1 => stacked_versions(u, &tree, root, &seeded.deployable)?,
                 _ => None,
             };
             match set_piece {
                 Some(piece) => ops.extend(piece),
                 // Otherwise, and whenever the tree admits no set piece, a
                 // random op.
-                None => ops.push(random_op(u, &live, &searchable)?),
+                None => ops.push(random_op(u, &live, &searchable, &seeded.deployable)?),
             }
             for op in ops.iter().skip(emitted) {
                 root = rules::advance_root(&tree, root, op);
@@ -48,7 +48,11 @@ impl<'a> Arbitrary<'a> for Scenario {
             searchable.retain(|slot| rules::is_live(&tree, root, *slot));
         }
 
-        Ok(Scenario { tree, ops })
+        Ok(Scenario {
+            tree,
+            seeds: seeded.seeds,
+            ops,
+        })
     }
 }
 
@@ -94,25 +98,58 @@ fn tree(u: &mut Unstructured<'_>) -> Result<ForkTree> {
 }
 
 struct SeededDeployments {
+    seeds: Vec<Seed>,
     ops: Vec<Op>,
     slots: Vec<Slot>,
+    deployable: Vec<u8>,
 }
 
 // Seed the scenario with a deployment per program before generating ops.
 fn seed_deployments(u: &mut Unstructured<'_>, live: &[Slot]) -> Result<SeededDeployments> {
+    let mut seeds = Vec::new();
     let mut ops = Vec::new();
     let mut slots = Vec::new();
+    // How many programs arrive with the snapshot instead of being deployed.
+    //
+    //   0      two seeds    1/16
+    //   1, 2   one seed     2/16
+    //   3..16  none        13/16
+    //
+    let seeded = match u.int_in_range(0..=15u8)? {
+        0 => 2,
+        1 | 2 => 1,
+        _ => 0,
+    };
+    let mut deployable = Vec::new();
     for program in 0..NUM_PROGRAMS {
+        if program < seeded {
+            let owner = owner(u)?;
+            if rules::can_deploy_over(Some(owner)) {
+                deployable.push(program);
+            }
+            seeds.push(Seed {
+                program,
+                owner,
+                env: env(u)?,
+            });
+            slots.push(0);
+            continue;
+        }
+        deployable.push(program);
         let at = pick_low(u, live)?;
         slots.push(at);
         ops.push(Op::Deploy {
             program,
             at,
-            owner: owner(u)?,
             env: env(u)?,
         });
     }
-    Ok(SeededDeployments { ops, slots })
+    Ok(SeededDeployments {
+        seeds,
+        ops,
+        slots,
+        deployable,
+    })
 }
 
 // Slots which can see one of the seeded deployments.
@@ -140,6 +177,7 @@ fn cross_fork_load_race(
     u: &mut Unstructured<'_>,
     tree: &ForkTree,
     root: Slot,
+    deployable: &[u8],
 ) -> Result<Option<Vec<Op>>> {
     let candidates = race_candidates(tree, root);
     if candidates.is_empty() {
@@ -153,8 +191,7 @@ fn cross_fork_load_race(
         root,
         victim,
     } = pick(u, &candidates)?;
-    let program = program(u)?;
-    let owner = owner(u)?;
+    let program = pick(u, deployable)?;
     let env = env(u)?;
     // Asked for by the preparation phase instead, so the entry it strands is
     // built for the environment which is coming rather than the one in use.
@@ -162,7 +199,7 @@ fn cross_fork_load_race(
     // One in three strands a second program on the same doomed fork, so two
     // orphans land from one prune.
     let second: Option<u8> = (u.int_in_range(0..=2u8)? == 0)
-        .then(|| (0..NUM_PROGRAMS).find(|candidate| *candidate != program))
+        .then(|| deployable.iter().copied().find(|other| *other != program))
         .flatten();
 
     let mut ops = Vec::new();
@@ -171,13 +208,11 @@ fn cross_fork_load_race(
             Op::Deploy {
                 program: other,
                 at: branch,
-                owner,
                 env,
             },
             Op::Deploy {
                 program: other,
                 at: doomed,
-                owner,
                 env,
             },
         ]);
@@ -186,13 +221,11 @@ fn cross_fork_load_race(
         Op::Deploy {
             program,
             at: branch,
-            owner,
             env,
         },
         Op::Deploy {
             program,
             at: doomed,
-            owner,
             env,
         },
         if prepared {
@@ -305,6 +338,7 @@ fn stacked_versions(
     u: &mut Unstructured<'_>,
     tree: &ForkTree,
     root: Slot,
+    deployable: &[u8],
 ) -> Result<Option<Vec<Op>>> {
     let slots = live_slots(tree, root);
     if slots.len() < 3 {
@@ -322,15 +356,13 @@ fn stacked_versions(
         return Ok(None);
     }
 
-    let program = program(u)?;
-    let owner = owner(u)?;
+    let program = pick(u, deployable)?;
     let mut ops: Vec<Op> = lineage
         .iter()
         .enumerate()
         .map(|(index, at)| Op::Deploy {
             program,
             at: *at,
-            owner,
             env: (index as u8) % NUM_ENVIRONMENTS,
         })
         .collect();
@@ -342,7 +374,6 @@ fn stacked_versions(
         ops.push(Op::Deploy {
             program,
             at,
-            owner,
             env: (lineage.len() as u8) % NUM_ENVIRONMENTS,
         });
     }
@@ -366,7 +397,12 @@ fn stacked_versions(
     Ok(Some(ops))
 }
 
-fn random_op(u: &mut Unstructured<'_>, live: &[Slot], searchable: &[Slot]) -> Result<Op> {
+fn random_op(
+    u: &mut Unstructured<'_>,
+    live: &[Slot],
+    searchable: &[Slot],
+    deployable: &[u8],
+) -> Result<Op> {
     // Weights:
     //
     //   0, 1  Deploy              2/10
@@ -380,13 +416,12 @@ fn random_op(u: &mut Unstructured<'_>, live: &[Slot], searchable: &[Slot]) -> Re
     //
     let op = match u.int_in_range(0..=9)? {
         0 | 1 => Op::Deploy {
-            program: program(u)?,
+            program: pick(u, deployable)?,
             at: pick(u, live)?,
-            owner: owner(u)?,
             env: env(u)?,
         },
         2 => Op::Close {
-            program: program(u)?,
+            program: pick(u, deployable)?,
             at: pick(u, live)?,
         },
         3 | 4 => Op::Extract {

@@ -19,6 +19,6 @@ pub use {
         v1::{Harness as V1, forks::Forks},
         v2::Harness as V2,
     },
-    scenario::{ForkTree, LoadResult, Op, Scenario, tree},
+    scenario::{ForkTree, LoadResult, Op, Scenario, Seed, tree},
     solana_program_runtime::program_cache_entry::ProgramCacheEntryOwner as Owner,
 };

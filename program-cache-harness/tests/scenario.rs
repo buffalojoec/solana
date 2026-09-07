@@ -2,7 +2,7 @@
 
 use {
     solana_program_cache_harness::{
-        EntryKind, LoadResult, Op, Owner, Runner, Scenario, V1, run_twice, tree,
+        EntryKind, LoadResult, Op, Owner, Runner, Scenario, Seed, V1, run_twice, tree,
     },
     std::marker::PhantomData,
     test_case::test_case,
@@ -21,11 +21,11 @@ fn sanity<R: Runner>(_: PhantomData<R>) {
     };
     let scenario = Scenario {
         tree: tree(&[&[1, 2]]),
+        seeds: Vec::new(),
         ops: vec![
             Op::Deploy {
                 program: 0,
                 at: 1,
-                owner: Owner::LoaderV3,
                 env: 0,
             },
             extract(),
@@ -69,11 +69,11 @@ fn a_deployment_is_not_visible_in_its_own_slot<R: Runner>(_: PhantomData<R>) {
     };
     let scenario = Scenario {
         tree: tree(&[&[1, 2]]),
+        seeds: Vec::new(),
         ops: vec![
             Op::Deploy {
                 program: 0,
                 at: 1,
-                owner: Owner::LoaderV3,
                 env: 0,
             },
             extract(1),
@@ -124,7 +124,6 @@ fn a_redeployment_costs_one_reload<R: Runner>(_: PhantomData<R>) {
     let deploy = |at| Op::Deploy {
         program: 0,
         at,
-        owner: Owner::LoaderV3,
         env: 0,
     };
     let extract = |fork_tip| Op::Extract {
@@ -137,6 +136,7 @@ fn a_redeployment_costs_one_reload<R: Runner>(_: PhantomData<R>) {
     };
     let scenario = Scenario {
         tree: tree(&[&[1, 2, 3, 4]]),
+        seeds: Vec::new(),
         ops: vec![
             deploy(1),
             extract(2),
@@ -170,10 +170,9 @@ fn a_redeployment_costs_one_reload<R: Runner>(_: PhantomData<R>) {
 /// more and the batch takes three of them to see all three programs.
 #[test_case(PhantomData::<V1>; "v1")]
 fn a_batch_is_handed_one_load_at_a_time<R: Runner>(_: PhantomData<R>) {
-    let deploy = |program| Op::Deploy {
+    let seed = |program, owner| Seed {
         program,
-        at: 1,
-        owner: Owner::LoaderV3,
+        owner,
         env: 0,
     };
     let extract = || Op::Extract {
@@ -186,10 +185,12 @@ fn a_batch_is_handed_one_load_at_a_time<R: Runner>(_: PhantomData<R>) {
     };
     let scenario = Scenario {
         tree: tree(&[&[1, 2]]),
+        seeds: vec![
+            seed(0, Owner::LoaderV1),
+            seed(1, Owner::LoaderV2),
+            seed(2, Owner::LoaderV3),
+        ],
         ops: vec![
-            deploy(0),
-            deploy(1),
-            deploy(2),
             extract(),
             finish_load(0),
             extract(),
@@ -234,13 +235,12 @@ fn a_load_which_fails_verification_is_not_retried<R: Runner>(_: PhantomData<R>) 
     };
     let scenario = Scenario {
         tree: tree(&[&[1, 2, 3]]),
+        seeds: vec![Seed {
+            program: 0,
+            owner: Owner::LoaderV2,
+            env: 0,
+        }],
         ops: vec![
-            Op::Deploy {
-                program: 0,
-                at: 1,
-                owner: Owner::LoaderV3,
-                env: 0,
-            },
             extract(2),
             Op::FinishLoad {
                 program: 0,
@@ -291,13 +291,12 @@ fn one_version_serves_every_fork<R: Runner>(_: PhantomData<R>) {
     };
     let scenario = Scenario {
         tree: tree(&[&[1, 2, 6], &[1, 3, 7], &[1, 4, 8], &[1, 5, 9]]),
+        seeds: vec![Seed {
+            program: 0,
+            owner: Owner::LoaderV1,
+            env: 0,
+        }],
         ops: vec![
-            Op::Deploy {
-                program: 0,
-                at: 1,
-                owner: Owner::LoaderV3,
-                env: 0,
-            },
             extract(6),
             Op::FinishLoad {
                 program: 0,
@@ -316,12 +315,12 @@ fn one_version_serves_every_fork<R: Runner>(_: PhantomData<R>) {
     let [first, rest @ ..] = report.extractions.as_slice() else {
         panic!("five extractions: {:?}", report.extractions);
     };
-    assert_eq!(first.asked_for, 1);
+    assert_eq!(first.asked_for, 0, "the seed sits at genesis");
     assert!(!first.hit, "the first fork to name it finds it unloaded");
     assert!(first.started_load, "and pays for the load");
     assert_eq!(rest.len(), 4);
     for served in rest {
-        assert_eq!(served.asked_for, 1);
+        assert_eq!(served.asked_for, 0);
         assert!(served.hit, "every fork is served the same entry");
         assert!(!served.started_load, "and none of them reloads it");
     }
@@ -349,7 +348,6 @@ fn a_deployment_on_one_branch_does_not_reach_the_other<R: Runner>(_: PhantomData
     let deploy = |at| Op::Deploy {
         program: 0,
         at,
-        owner: Owner::LoaderV3,
         env: 0,
     };
     let extract = |fork_tip| Op::Extract {
@@ -362,6 +360,7 @@ fn a_deployment_on_one_branch_does_not_reach_the_other<R: Runner>(_: PhantomData
     };
     let scenario = Scenario {
         tree: tree(&[&[1, 2, 4], &[1, 3, 5]]),
+        seeds: Vec::new(),
         ops: vec![
             deploy(1),
             extract(4),
@@ -401,7 +400,6 @@ fn prune_keeps_only_the_newest_version_below_the_root<R: Runner>(_: PhantomData<
     let deploy = |at| Op::Deploy {
         program: 0,
         at,
-        owner: Owner::LoaderV3,
         env: 0,
     };
     let extract = |fork_tip| Op::Extract {
@@ -414,6 +412,7 @@ fn prune_keeps_only_the_newest_version_below_the_root<R: Runner>(_: PhantomData<
     };
     let scenario = Scenario {
         tree: tree(&[&[1, 2, 3, 4, 5]]),
+        seeds: Vec::new(),
         ops: vec![
             deploy(1),
             extract(2),
@@ -466,11 +465,11 @@ fn a_fork_the_root_left_behind_is_never_worked_on<R: Runner>(_: PhantomData<R>) 
     };
     let scenario = Scenario {
         tree: tree(&[&[1, 2, 3], &[1, 4, 5]]),
+        seeds: Vec::new(),
         ops: vec![
             Op::Deploy {
                 program: 0,
                 at: 4,
-                owner: Owner::LoaderV3,
                 env: 0,
             },
             extract(5),
@@ -484,7 +483,6 @@ fn a_fork_the_root_left_behind_is_never_worked_on<R: Runner>(_: PhantomData<R>) 
             Op::Deploy {
                 program: 1,
                 at: 5,
-                owner: Owner::LoaderV3,
                 env: 0,
             },
             Op::PurgeSlot { slot: 5 },
@@ -527,11 +525,11 @@ fn a_fork_the_root_left_behind_is_never_worked_on<R: Runner>(_: PhantomData<R>) 
 fn an_orphan_on_an_abandoned_fork_cannot_be_dumped<R: Runner>(_: PhantomData<R>) {
     let scenario = Scenario {
         tree: tree(&[&[1, 2, 3], &[1, 4, 5]]),
+        seeds: Vec::new(),
         ops: vec![
             Op::Deploy {
                 program: 0,
                 at: 4,
-                owner: Owner::LoaderV3,
                 env: 0,
             },
             Op::Extract {
@@ -594,7 +592,6 @@ fn an_orphan_is_kept_but_never_served<R: Runner>(_: PhantomData<R>) {
     let deploy = |at| Op::Deploy {
         program: 0,
         at,
-        owner: Owner::LoaderV3,
         env: 0,
     };
     let extract = |fork_tip| Op::Extract {
@@ -607,6 +604,7 @@ fn an_orphan_is_kept_but_never_served<R: Runner>(_: PhantomData<R>) {
     };
     let scenario = Scenario {
         tree: tree(&[&[4, 6, 8, 9], &[4, 5, 7]]),
+        seeds: Vec::new(),
         ops: vec![
             deploy(4),
             extract(6),
@@ -661,13 +659,12 @@ fn crossing_an_epoch_boundary_sweeps_the_old_environment<R: Runner>(_: PhantomDa
     };
     let scenario = Scenario {
         tree: tree(&[&[1, 2, 3]]),
+        seeds: vec![Seed {
+            program: 0,
+            owner: Owner::LoaderV4,
+            env: 0,
+        }],
         ops: vec![
-            Op::Deploy {
-                program: 0,
-                at: 1,
-                owner: Owner::LoaderV3,
-                env: 0,
-            },
             Op::Extract {
                 programs: vec![0],
                 fork_tip: 2,
@@ -738,11 +735,11 @@ fn a_dumped_block_leaves_no_load_behind<R: Runner>(_: PhantomData<R>) {
     let deploy = || Op::Deploy {
         program: 0,
         at: 1,
-        owner: Owner::LoaderV3,
         env: 0,
     };
     let scenario = Scenario {
         tree: tree(&[&[1, 2]]),
+        seeds: Vec::new(),
         ops: vec![
             deploy(),
             Op::Extract {
@@ -781,4 +778,187 @@ fn a_dumped_block_leaves_no_load_behind<R: Runner>(_: PhantomData<R>) {
         "the replayed deployment, with nothing left behind: {:?}",
         report.fingerprint
     );
+}
+
+/// Fork graph created for the test
+///            1 - 2
+///
+/// A program which arrived with the snapshot keeps the loader it arrived
+/// under. Loader V3 is the only one which still accepts a deployment, so a
+/// seed is the only route any other owner has into the cache - and it must not
+/// be defaulted to V3 on the way in.
+#[test_case(PhantomData::<V1>; "v1")]
+fn a_seeded_program_keeps_its_own_loader<R: Runner>(_: PhantomData<R>) {
+    let extract = || Op::Extract {
+        programs: vec![0, 1],
+        fork_tip: 2,
+    };
+    let scenario = Scenario {
+        tree: tree(&[&[1, 2]]),
+        seeds: vec![Seed {
+            program: 0,
+            owner: Owner::LoaderV1,
+            env: 0,
+        }],
+        ops: vec![
+            Op::Deploy {
+                program: 1,
+                at: 1,
+                env: 0,
+            },
+            extract(),
+            Op::FinishLoad {
+                program: 0,
+                result: LoadResult::Loaded,
+            },
+            extract(),
+            Op::FinishLoad {
+                program: 1,
+                result: LoadResult::Loaded,
+            },
+            extract(),
+        ],
+    };
+
+    let report = run_twice::<R>(&scenario);
+    report.assert_clean();
+
+    let seeded = report
+        .extractions
+        .iter()
+        .find(|extraction| extraction.program == 0)
+        .expect("the seeded program is named");
+    assert_eq!(seeded.asked_for, 0, "a seed is deployed at genesis");
+
+    let deployed = report
+        .extractions
+        .iter()
+        .find(|extraction| extraction.program == 1)
+        .expect("the deployed program is named");
+    assert_eq!(deployed.asked_for, 1, "the deployment names its own slot");
+
+    for owner in [Owner::LoaderV1, Owner::LoaderV3] {
+        assert!(
+            report.fingerprint.iter().any(|held| held.owner == owner),
+            "the cache holds an entry under {owner:?}: {:?}",
+            report.fingerprint
+        );
+    }
+}
+
+/// Fork graph created for the test
+///            1 - 2
+///
+/// Only Loader V3 accepts a deployment, and no loader acts on an account
+/// another one owns. A deployment naming a program which arrived under some
+/// other loader is dropped, and the program keeps what it had.
+#[test_case(PhantomData::<V1>; "v1")]
+fn a_deployment_cannot_take_another_loaders_account<R: Runner>(_: PhantomData<R>) {
+    let scenario = Scenario {
+        tree: tree(&[&[1, 2]]),
+        seeds: vec![Seed {
+            program: 0,
+            owner: Owner::LoaderV1,
+            env: 0,
+        }],
+        ops: vec![
+            Op::Deploy {
+                program: 0,
+                at: 1,
+                env: 0,
+            },
+            Op::Extract {
+                programs: vec![0],
+                fork_tip: 2,
+            },
+        ],
+    };
+
+    let report = run_twice::<R>(&scenario);
+    report.assert_clean();
+
+    let served = report.extractions.last().expect("an extraction");
+    assert_eq!(served.asked_for, 0, "the deployment never happened");
+
+    assert_eq!(
+        report.fingerprint.len(),
+        1,
+        "the deployment left nothing behind: {:?}",
+        report.fingerprint
+    );
+    assert_eq!(
+        report.fingerprint[0].owner,
+        Owner::LoaderV1,
+        "and the program keeps its own loader: {:?}",
+        report.fingerprint
+    );
+}
+
+/// Fork graph created for the test
+///            1 - 2 - 3
+///            |   |
+///            |   `-- both programs closed here
+///            `-- program (0) deployed here
+///
+/// A close writes the program account, so the same loader-ownership rule
+/// applies as a deployment. Loader V3 closes its own program and leaves a
+/// tombstone; the program which arrived under another loader keeps what it
+/// had.
+#[test_case(PhantomData::<V1>; "v1")]
+fn a_close_cannot_take_another_loaders_account<R: Runner>(_: PhantomData<R>) {
+    let scenario = Scenario {
+        tree: tree(&[&[1, 2, 3]]),
+        seeds: vec![Seed {
+            program: 1,
+            owner: Owner::LoaderV1,
+            env: 0,
+        }],
+        ops: vec![
+            Op::Deploy {
+                program: 0,
+                at: 1,
+                env: 0,
+            },
+            Op::Close { program: 0, at: 2 },
+            Op::Close { program: 1, at: 2 },
+            Op::Extract {
+                programs: vec![0, 1],
+                fork_tip: 3,
+            },
+        ],
+    };
+
+    let report = run_twice::<R>(&scenario);
+    report.assert_clean();
+
+    let closed: Vec<_> = report
+        .fingerprint
+        .iter()
+        .filter(|held| held.kind == EntryKind::Closed)
+        .collect();
+    assert_eq!(
+        closed.len(),
+        1,
+        "only Loader V3's own program is closed: {:?}",
+        report.fingerprint
+    );
+    assert_eq!(closed[0].program, 0);
+    assert_eq!(
+        closed[0].deployment_slot, 2,
+        "the tombstone names the close"
+    );
+
+    let seeded: Vec<_> = report
+        .fingerprint
+        .iter()
+        .filter(|held| held.program == 1)
+        .collect();
+    assert_eq!(
+        seeded.len(),
+        1,
+        "the close left nothing behind: {:?}",
+        report.fingerprint
+    );
+    assert_eq!(seeded[0].owner, Owner::LoaderV1);
+    assert_eq!(seeded[0].deployment_slot, 0, "still the seed at genesis");
 }

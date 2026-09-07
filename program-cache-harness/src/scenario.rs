@@ -16,7 +16,16 @@ pub(crate) const NUM_ENVIRONMENTS: u8 = 3;
 #[derive(Clone, Debug, Default)]
 pub struct Scenario {
     pub tree: ForkTree,
+    pub seeds: Vec<Seed>,
     pub ops: Vec<Op>,
+}
+
+/// Seeded deployment.
+#[derive(Clone, Copy, Debug)]
+pub struct Seed {
+    pub program: u8,
+    pub owner: Owner,
+    pub env: u8,
 }
 
 /// One step of a scenario.
@@ -24,12 +33,7 @@ pub struct Scenario {
 pub enum Op {
     /// A program account is written in slot `at`, and the resulting entry is
     /// assigned into the cache.
-    Deploy {
-        program: u8,
-        at: Slot,
-        owner: Owner,
-        env: u8,
-    },
+    Deploy { program: u8, at: Slot, env: u8 },
     /// A program account is closed in slot `at`.
     Close { program: u8, at: Slot },
     /// A batch on `fork_tip` searches for several programs at once, naming
