@@ -174,6 +174,7 @@ fn a_batch_is_handed_one_load_at_a_time<R: Runner>(_: PhantomData<R>) {
         program,
         owner,
         env: 0,
+        verifies: true,
     };
     let extract = || Op::Extract {
         programs: vec![0, 1, 2],
@@ -239,6 +240,7 @@ fn a_load_which_fails_verification_is_not_retried<R: Runner>(_: PhantomData<R>) 
             program: 0,
             owner: Owner::LoaderV2,
             env: 0,
+            verifies: true,
         }],
         ops: vec![
             extract(2),
@@ -295,6 +297,7 @@ fn one_version_serves_every_fork<R: Runner>(_: PhantomData<R>) {
             program: 0,
             owner: Owner::LoaderV1,
             env: 0,
+            verifies: true,
         }],
         ops: vec![
             extract(6),
@@ -663,6 +666,7 @@ fn crossing_an_epoch_boundary_sweeps_the_old_environment<R: Runner>(_: PhantomDa
             program: 0,
             owner: Owner::LoaderV4,
             env: 0,
+            verifies: true,
         }],
         ops: vec![
             Op::Extract {
@@ -783,6 +787,54 @@ fn a_dumped_block_leaves_no_load_behind<R: Runner>(_: PhantomData<R>) {
 /// Fork graph created for the test
 ///            1 - 2
 ///
+/// A seed is written into the account rather than deployed through a loader,
+/// so it can hold bytecode no loader would ever have accepted - which is how a
+/// snapshot delivers a program deployed under an environment that has since
+/// moved on. The cache holds what it cannot load as a tombstone, and serves
+/// that to every batch which names it.
+#[test_case(PhantomData::<V1>; "v1")]
+fn a_seed_which_does_not_verify_is_a_tombstone<R: Runner>(_: PhantomData<R>) {
+    let extract = || Op::Extract {
+        programs: vec![0],
+        fork_tip: 2,
+    };
+    let scenario = Scenario {
+        tree: tree(&[&[1, 2]]),
+        seeds: vec![Seed {
+            program: 0,
+            owner: Owner::LoaderV2,
+            env: 0,
+            verifies: false,
+        }],
+        ops: vec![extract(), extract()],
+    };
+
+    let report = run_twice::<R>(&scenario);
+    report.assert_clean();
+
+    // The first batch is where the runners differ - v1 seeds the tombstone
+    // into the cache up front, v2 loads it on demand - so the second is what
+    // both can be held to.
+    let served = report.extractions.last().expect("an extraction");
+    assert_eq!(served.asked_for, 0, "a seed is deployed at genesis");
+    assert_eq!(
+        served.kind,
+        Some(EntryKind::FailedVerification),
+        "the batch is served the tombstone"
+    );
+    assert!(!served.started_load, "and is not handed the load again");
+
+    let [held] = report.fingerprint.as_slice() else {
+        panic!("one entry: {:?}", report.fingerprint);
+    };
+    assert_eq!(held.kind, EntryKind::FailedVerification);
+    assert_eq!(held.owner, Owner::LoaderV2, "under its own loader");
+    assert_eq!(held.deployment_slot, 0);
+}
+
+/// Fork graph created for the test
+///            1 - 2
+///
 /// A program which arrived with the snapshot keeps the loader it arrived
 /// under. Loader V3 is the only one which still accepts a deployment, so a
 /// seed is the only route any other owner has into the cache - and it must not
@@ -799,6 +851,7 @@ fn a_seeded_program_keeps_its_own_loader<R: Runner>(_: PhantomData<R>) {
             program: 0,
             owner: Owner::LoaderV1,
             env: 0,
+            verifies: true,
         }],
         ops: vec![
             Op::Deploy {
@@ -860,6 +913,7 @@ fn a_deployment_cannot_take_another_loaders_account<R: Runner>(_: PhantomData<R>
             program: 0,
             owner: Owner::LoaderV1,
             env: 0,
+            verifies: true,
         }],
         ops: vec![
             Op::Deploy {
@@ -912,6 +966,7 @@ fn a_close_cannot_take_another_loaders_account<R: Runner>(_: PhantomData<R>) {
             program: 1,
             owner: Owner::LoaderV1,
             env: 0,
+            verifies: true,
         }],
         ops: vec![
             Op::Deploy {

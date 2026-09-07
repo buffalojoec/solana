@@ -127,10 +127,15 @@ fn seed_deployments(u: &mut Unstructured<'_>, live: &[Slot]) -> Result<SeededDep
             if rules::can_deploy_over(Some(owner)) {
                 deployable.push(program);
             }
+            let env = env(u)?;
+            // Rarely, since a program which never loads takes the rest of the
+            // scenario's ops out of play with it.
+            let verifies = u.int_in_range(0..=7u8)? != 0;
             seeds.push(Seed {
                 program,
                 owner,
-                env: env(u)?,
+                env,
+                verifies,
             });
             slots.push(0);
             continue;

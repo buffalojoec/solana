@@ -26,6 +26,8 @@ pub struct Seed {
     pub program: u8,
     pub owner: Owner,
     pub env: u8,
+    /// Whether the bytecode the seed writes verifies (`FailedVerification`).
+    pub verifies: bool,
 }
 
 /// One step of a scenario.

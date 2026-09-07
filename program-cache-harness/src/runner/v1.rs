@@ -293,7 +293,11 @@ impl Harness {
             deployment_slot: 0,
             owner: seed.owner,
             env: seed.env,
-            kind: EntryKind::Unloaded,
+            kind: if seed.verifies {
+                EntryKind::Unloaded
+            } else {
+                EntryKind::FailedVerification
+            },
         };
         if !self.ledger.deploy(seed.program, 0, state) {
             return;
