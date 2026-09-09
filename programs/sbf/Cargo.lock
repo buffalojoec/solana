@@ -8292,6 +8292,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-sbf-rust-cpi-depth"
+version = "4.4.0-alpha.3"
+dependencies = [
+ "solana-account-info",
+ "solana-instruction",
+ "solana-program",
+ "solana-program-entrypoint",
+ "solana-program-error",
+ "solana-pubkey 4.3.0",
+]
+
+[[package]]
 name = "solana-sbf-rust-curve25519"
 version = "4.4.0-alpha.3"
 dependencies = [

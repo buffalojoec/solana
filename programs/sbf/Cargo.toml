@@ -23,6 +23,7 @@ members = [
     "rust/big_mod_exp",
     "rust/call_args",
     "rust/call_depth",
+    "rust/cpi_depth",
     "rust/caller_access",
     "rust/curve25519",
     "rust/custom_heap",
