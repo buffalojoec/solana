@@ -1,6 +1,11 @@
 use {
-    crate::invoke_context::BpfAllocator, solana_instruction::error::InstructionError,
+    crate::invoke_context::BpfAllocator,
+    solana_instruction::error::InstructionError,
     solana_sbpf::memory_region::MemoryMapping,
+    std::{
+        collections::HashSet,
+        sync::atomic::{AtomicBool, Ordering},
+    },
 };
 
 enum MemoryContextType {
@@ -10,12 +15,22 @@ enum MemoryContextType {
 
 pub struct MemoryContexts {
     contexts: Vec<MemoryContextType>,
+    /// Peak host memory every VM on the stack has mapped at once.
+    peak_mapped_bytes: u64,
+}
+
+// Make the peak tracking configurable, so wall clock benches don't gain the
+// additional overhead.
+static PEAK_TRACKING: AtomicBool = AtomicBool::new(false);
+pub fn set_peak_tracking(enabled: bool) {
+    PEAK_TRACKING.store(enabled, Ordering::Relaxed);
 }
 
 impl MemoryContexts {
     pub(crate) fn new() -> Self {
         Self {
             contexts: Vec::new(),
+            peak_mapped_bytes: 0,
         }
     }
 
@@ -28,6 +43,7 @@ impl MemoryContexts {
             .contexts
             .last_mut()
             .ok_or(InstructionError::CallDepth)? = MemoryContextType::ABIv1(memory_context);
+        self.record_peak();
         Ok(())
     }
 
@@ -78,7 +94,6 @@ impl MemoryContexts {
         Ok(mapping)
     }
 
-    #[cfg(feature = "dev-context-only-utils")]
     pub fn mock_set_mapping_abi_v1(&mut self, memory_mapping: MemoryMapping) {
         self.contexts = vec![MemoryContextType::ABIv1(MemoryContext {
             allocator: BpfAllocator::new(0),
@@ -93,7 +108,31 @@ impl MemoryContexts {
     }
 
     pub fn pop(&mut self) {
+        self.record_peak();
         self.contexts.pop();
+    }
+
+    pub fn peak_mapped_bytes(&self) -> u64 {
+        self.peak_mapped_bytes
+    }
+
+    fn record_peak(&mut self) {
+        if !PEAK_TRACKING.load(Ordering::Relaxed) {
+            return;
+        }
+        let mut seen = HashSet::new();
+        let mut mapped = 0u64;
+        for context in self.contexts.iter() {
+            let MemoryContextType::ABIv1(context) = context else {
+                continue;
+            };
+            for region in context.memory_mapping.get_regions() {
+                if seen.insert(region.host_buffer().ptr().cast::<u8>()) {
+                    mapped = mapped.saturating_add(region.len() as u64);
+                }
+            }
+        }
+        self.peak_mapped_bytes = self.peak_mapped_bytes.max(mapped);
     }
 }
 
