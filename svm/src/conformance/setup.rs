@@ -152,8 +152,12 @@ pub(crate) fn compile_transaction_context(
     compute_budget: &ComputeBudget,
     rent: Rent,
 ) -> (SanitizedMessage, TransactionContext<'static>) {
-    let (sanitized_message, transaction_accounts) =
-        mock_compile_message(instruction, accounts, program_id, loader_key);
+    let (sanitized_message, transaction_accounts) = mock_compile_message(
+        std::slice::from_ref(instruction),
+        accounts,
+        program_id,
+        loader_key,
+    );
     let transaction_context = TransactionContext::new(
         transaction_accounts,
         rent,

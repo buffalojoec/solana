@@ -980,7 +980,7 @@ macro_rules! with_mock_invoke_context {
 
 #[cfg(feature = "dev-context-only-utils")]
 pub fn mock_compile_message<A>(
-    instruction: &Instruction,
+    instructions: &[Instruction],
     accounts: &[(Pubkey, A)],
     program_id: &Pubkey,
     loader_key: &Pubkey,
@@ -989,7 +989,7 @@ where
     AccountSharedData: From<A>,
     A: Clone,
 {
-    let message = Message::new(std::slice::from_ref(instruction), None);
+    let message = Message::new(instructions, None);
     let transaction_accounts: Vec<_> = message
         .account_keys
         .iter()
@@ -1043,8 +1043,12 @@ pub fn mock_process_instruction_with_feature_set<
 
     let instruction =
         Instruction::new_with_bytes(*program_id, instruction_data, instruction_account_metas);
-    let (sanitized_message, transaction_accounts) =
-        mock_compile_message(&instruction, &accounts, program_id, &native_loader::id());
+    let (sanitized_message, transaction_accounts) = mock_compile_message(
+        std::slice::from_ref(&instruction),
+        &accounts,
+        program_id,
+        &native_loader::id(),
+    );
 
     let program_owner = accounts
         .iter()
@@ -2056,8 +2060,12 @@ mod tests {
             },
         )];
 
-        let (message, tx_accounts) =
-            mock_compile_message(&instruction, &accounts, &program_id, &loader_key);
+        let (message, tx_accounts) = mock_compile_message(
+            std::slice::from_ref(&instruction),
+            &accounts,
+            &program_id,
+            &loader_key,
+        );
 
         assert_eq!(message.instructions().len(), 1);
         assert_eq!(tx_accounts.len(), 2);
