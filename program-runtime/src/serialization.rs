@@ -149,6 +149,7 @@ impl Serializer {
     ) -> Result<u64, InstructionError> {
         if !self.virtual_address_space_adjustments {
             let vm_data_addr = self.vaddr.saturating_add(self.buffer.len() as u64);
+            crate::cpi::copied_bytes::record(account.get_data().len());
             self.write_all(account.get_data());
             if !self.is_loader_v1 {
                 let align_offset =
@@ -161,6 +162,7 @@ impl Serializer {
             self.push_region();
             let vm_data_addr = self.vaddr;
             if !self.account_data_direct_mapping {
+                crate::cpi::copied_bytes::record(account.get_data().len());
                 self.write_all(account.get_data());
                 if !self.is_loader_v1 {
                     self.fill_write(MAX_PERMITTED_DATA_INCREASE, 0)

@@ -24,6 +24,24 @@ use {
     thiserror::Error,
 };
 
+/// Account data copied into or out of VM memory.
+pub mod copied_bytes {
+    use std::cell::Cell;
+
+    thread_local! {
+        static COPIED: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(crate) fn record(bytes: usize) {
+        COPIED.with(|copied| copied.set(copied.get().saturating_add(bytes as u64)));
+    }
+
+    /// Bytes copied since the last call.
+    pub fn take() -> u64 {
+        COPIED.with(|copied| copied.replace(0))
+    }
+}
+
 /// CPI-specific error types
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum CpiError {
@@ -1124,6 +1142,7 @@ fn update_callee_account(
             must_update_caller = true;
         }
         if !account_data_direct_mapping && callee_account.can_data_be_changed().is_ok() {
+            copied_bytes::record(caller_account.serialized_data.len());
             callee_account.set_data_from_slice(caller_account.serialized_data)?;
         }
     } else {
@@ -1276,6 +1295,7 @@ fn update_caller_account(
         if to_slice.len() != from_slice.len() {
             return Err(Box::new(InstructionError::AccountDataTooSmall));
         }
+        copied_bytes::record(from_slice.len());
         to_slice.copy_from_slice(from_slice);
     }
 
