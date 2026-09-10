@@ -1,0 +1,32 @@
+[package]
+name = "cpi-increase-bencher"
+publish = false
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+solana-account = { workspace = true }
+solana-instruction = { workspace = true }
+solana-program-runtime = { workspace = true, features = ["dev-context-only-utils"] }
+solana-pubkey = { workspace = true, features = ["rand"] }
+solana-rent = { workspace = true }
+solana-sdk-ids = { workspace = true }
+solana-svm = { workspace = true, features = ["dev-context-only-utils"] }
+solana-svm-callback = { workspace = true }
+solana-svm-feature-set = { workspace = true }
+solana-svm-timings = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "wall_clock"
+harness = false
+
+[lints]
+workspace = true

@@ -27,6 +27,7 @@ members = [
     "connection-cache",
     "core",
     "cost-model",
+    "cpi-increase-bencher",
     "cpu-utils",
     "download-utils",
     "entry",

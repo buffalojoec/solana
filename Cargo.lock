@@ -1972,6 +1972,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "cpi-increase-bencher"
+version = "4.4.0-alpha.3"
+dependencies = [
+ "criterion",
+ "solana-account 4.7.0",
+ "solana-instruction",
+ "solana-program-runtime",
+ "solana-pubkey 4.3.0",
+ "solana-rent",
+ "solana-sdk-ids",
+ "solana-svm",
+ "solana-svm-callback",
+ "solana-svm-feature-set",
+ "solana-svm-timings",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
