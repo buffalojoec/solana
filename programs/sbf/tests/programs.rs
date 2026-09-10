@@ -8,7 +8,9 @@
 #![allow(clippy::uninlined_format_args)]
 
 #[cfg(not(feature = "sbf_sanity_list"))]
-use solana_program_runtime::execution_budget::MAX_COMPUTE_UNIT_LIMIT;
+use solana_program_runtime::execution_budget::{
+    MAX_COMPUTE_UNIT_LIMIT, MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES,
+};
 #[cfg(all(feature = "sbf_rust", feature = "sbpf-v3"))]
 use solana_runtime::loader_utils::{
     load_upgradeable_program_and_advance_slot, set_upgrade_authority, upgrade_program,
@@ -32,9 +34,13 @@ use {
     solana_instruction::{AccountMeta, Instruction, error::InstructionError},
     solana_keypair::Keypair,
     solana_loader_v3_interface::{
-        instruction as loader_v3_instruction, state::UpgradeableLoaderState,
+        instruction::{self as loader_v3_instruction, MINIMUM_EXTEND_PROGRAM_BYTES},
+        state::UpgradeableLoaderState,
     },
-    solana_message::{Message, SanitizedMessage, inner_instruction::InnerInstruction},
+    solana_message::{
+        Message, SanitizedMessage, VersionedMessage, inner_instruction::InnerInstruction,
+    },
+    solana_packet::PACKET_DATA_SIZE,
     solana_pubkey::Pubkey,
     solana_rent::Rent,
     solana_runtime::{
@@ -50,6 +56,10 @@ use {
     solana_sbf_rust_invoke_dep::*,
     solana_sbf_rust_realloc_dep::*,
     solana_sbf_rust_realloc_invoke_dep::*,
+    solana_sbf_rust_squads_dep::{
+        AUTHORITY as SQUADS_AUTHORITY, AUTHORITY_BUMP as SQUADS_AUTHORITY_BUMP,
+        AUTHORITY_SEED as SQUADS_AUTHORITY_SEED, ID as SQUADS_ID,
+    },
     solana_sdk_ids::sysvar::{self as sysvar, clock},
     solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable},
     solana_signer::Signer,
@@ -62,7 +72,7 @@ use {
     solana_svm_transaction::svm_message::SVMStaticMessage,
     solana_svm_type_overrides::rand,
     solana_system_interface::{MAX_PERMITTED_DATA_LENGTH, program as system_program},
-    solana_transaction::Transaction,
+    solana_transaction::{Transaction, versioned::VersionedTransaction},
     solana_transaction_error::TransactionError,
     std::{
         assert_eq,
@@ -5492,4 +5502,331 @@ fn test_program_sbf_rust_direct_account_pointers(num_accounts: usize, input_data
         (num_accounts * 2).to_le_bytes().to_vec(),
         effects.return_data
     );
+}
+
+/// Profiles how many bytes a Loader V3 program can be extended by in a single
+/// transaction when its upgrade authority is a PDA, so that every loader
+/// instruction has to be CPI'd through a proxy (`squads`).
+///
+/// The proxy is what makes this interesting: a CPI can only grow an account by
+/// [`MAX_PERMITTED_DATA_INCREASE`] past the length it had when the *caller's*
+/// input region was serialized, so each top-level proxy instruction is worth at
+/// most 10 KiB of extension no matter how many times it CPIs. The transaction
+/// therefore has to spend one top-level instruction per 10 KiB, and the answer
+/// is set by whichever runs out first: the format's transaction size limit or
+/// `MAX_INSTRUCTION_TRACE_LENGTH`, which counts CPIs as well as top-level
+/// instructions.
+///
+/// Requires three restrictions to be patched out, all of which stop a single
+/// transaction from extending at all:
+///
+/// - the two "extended/deployed in this block already" guards in
+///   `programs/bpf_loader/src/lib.rs`, which cap a program at one extend per
+///   slot and stop an extend from being paired with an upgrade;
+/// - the loader v3 CPI whitelist in `check_authorized_program`
+///   (`program-runtime/src/cpi.rs`), which authorizes `Upgrade`, `SetAuthority`
+///   and `Close` for CPI but not `ExtendProgram`.
+///
+/// Run with `make -C programs/sbf extend-profile`.
+#[test]
+#[cfg(feature = "sbf_rust")]
+fn test_loader_v3_max_extend_bytes_with_pda_authority() {
+    let versions = [
+        ("legacy", PACKET_DATA_SIZE),
+        ("v0", PACKET_DATA_SIZE),
+        ("v1", solana_message::v1::MAX_TRANSACTION_SIZE),
+    ];
+
+    let mut account_keys = None;
+    let mut rows = Vec::new();
+
+    for (version, size_limit) in versions {
+        let GenesisConfigInfo {
+            genesis_config,
+            mint_keypair,
+            ..
+        } = create_genesis_config(100_000_000_000);
+        let (bank, bank_forks) = Bank::new_with_bank_forks_for_tests(&genesis_config);
+        let mut bank_client = BankClient::new_shared(bank.clone());
+
+        assert_eq!(
+            Pubkey::find_program_address(&[SQUADS_AUTHORITY_SEED], &SQUADS_ID),
+            (SQUADS_AUTHORITY, SQUADS_AUTHORITY_BUMP),
+            "stale squads authority constants",
+        );
+        for (address, account) in solana_program_binaries::bpf_loader_upgradeable_program_accounts(
+            &SQUADS_ID,
+            &load_program_elf("solana_sbf_rust_squads"),
+            &Rent::default(),
+        ) {
+            bank.store_account(&address, &AccountSharedData::from(account));
+        }
+
+        // The program to extend, and the buffer to upgrade it from. Both exist
+        // before the transaction; the buffer holds a program small enough that
+        // the upgrade is never what forces the extension.
+        let elf = load_program_elf("solana_sbf_rust_noop");
+        let program_id = Pubkey::new_unique();
+        let programdata_id = solana_loader_v3_interface::get_program_data_address(&program_id);
+        let buffer_id = Pubkey::new_unique();
+        let reset_accounts = |bank: &Bank| {
+            let [(_, program_account), (_, mut programdata_account)] =
+                solana_program_binaries::bpf_loader_upgradeable_program_accounts(
+                    &program_id,
+                    &elf,
+                    &Rent::default(),
+                );
+            let mut programdata_data = bincode::serialize(&UpgradeableLoaderState::ProgramData {
+                slot: 0,
+                upgrade_authority_address: Some(SQUADS_AUTHORITY),
+            })
+            .unwrap();
+            programdata_data.extend_from_slice(&elf);
+            programdata_account.data = programdata_data;
+            // Fund for the largest programdata this profile can reach, so that
+            // an extend never has to CPI a payer transfer of its own.
+            programdata_account.lamports =
+                Rent::default().minimum_balance(MAX_PERMITTED_DATA_LENGTH as usize);
+
+            let mut buffer_data = bincode::serialize(&UpgradeableLoaderState::Buffer {
+                authority_address: Some(SQUADS_AUTHORITY),
+            })
+            .unwrap();
+            buffer_data.extend_from_slice(&elf);
+            let buffer_account = Account {
+                lamports: Rent::default().minimum_balance(buffer_data.len()),
+                data: buffer_data,
+                owner: bpf_loader_upgradeable::id(),
+                executable: false,
+                rent_epoch: u64::MAX,
+            };
+
+            bank.store_account(&program_id, &AccountSharedData::from(program_account));
+            bank.store_account(
+                &programdata_id,
+                &AccountSharedData::from(programdata_account),
+            );
+            bank.store_account(&buffer_id, &AccountSharedData::from(buffer_account));
+        };
+        reset_accounts(&bank);
+
+        // The proxy is deployed in this slot, so it isn't callable until the next one.
+        let bank = bank_client
+            .advance_slot(1, &bank_forks, SlotLeader::default())
+            .expect("Failed to advance the slot");
+
+        // Wrap a loader instruction so that it is CPI'd by the proxy: the loader
+        // leads the account list, and the data passes straight through.
+        let via_squads = |instruction: Instruction| {
+            let mut account_metas = vec![AccountMeta::new_readonly(
+                bpf_loader_upgradeable::id(),
+                false,
+            )];
+            account_metas.extend(instruction.accounts.into_iter().map(|mut meta| {
+                // The PDA signs inside the proxy, not at the top level.
+                meta.is_signer &= meta.pubkey != SQUADS_AUTHORITY;
+                meta
+            }));
+            Instruction::new_with_bytes(SQUADS_ID, &instruction.data, account_metas)
+        };
+
+        let payer = mint_keypair.pubkey();
+        let blockhash = bank.last_blockhash();
+        // `extends` extensions of 10 KiB each, then the upgrade.
+        let build_transaction = |extends: usize| {
+            let mut instructions: Vec<_> = std::iter::repeat_with(|| {
+                via_squads(loader_v3_instruction::extend_program(
+                    &program_id,
+                    None,
+                    MINIMUM_EXTEND_PROGRAM_BYTES,
+                ))
+            })
+            .take(extends)
+            .collect();
+            instructions.push(via_squads(loader_v3_instruction::upgrade(
+                &program_id,
+                &buffer_id,
+                &SQUADS_AUTHORITY,
+                &payer,
+            )));
+
+            let message = match version {
+                "legacy" => VersionedMessage::Legacy(Message::new_with_blockhash(
+                    &instructions,
+                    Some(&payer),
+                    &blockhash,
+                )),
+                "v0" => VersionedMessage::V0(
+                    solana_message::v0::Message::try_compile(&payer, &instructions, &[], blockhash)
+                        .unwrap(),
+                ),
+                _ => VersionedMessage::V1(
+                    solana_message::v1::Message::try_compile_with_config(
+                        &payer,
+                        &instructions,
+                        blockhash,
+                        // V1 carries its budget in the message, and every unset
+                        // field defaults to zero rather than to the allowance
+                        // legacy and v0 get for free.
+                        solana_message::v1::TransactionConfig::empty()
+                            .with_compute_unit_limit(MAX_COMPUTE_UNIT_LIMIT)
+                            .with_loaded_accounts_data_size_limit(
+                                MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES.get(),
+                            ),
+                    )
+                    .unwrap(),
+                ),
+            };
+            VersionedTransaction::try_new(message, &[&mint_keypair]).unwrap()
+        };
+
+        // Walk up until the transaction either no longer fits the format's size
+        // limit or no longer executes.
+        let mut best = None;
+        let mut stopped_by = "transaction size limit".to_string();
+        for extends in 1.. {
+            let transaction = build_transaction(extends);
+            let size = wincode::serialized_size(&transaction).unwrap() as usize;
+            if size > size_limit {
+                break;
+            }
+            reset_accounts(&bank);
+            if let Err(error) = bank
+                .try_process_entry_transactions(vec![transaction.clone()])
+                .unwrap()
+                .remove(0)
+            {
+                stopped_by = format!("{error:?}");
+                break;
+            }
+            best = Some((extends, size, transaction));
+        }
+
+        let (extends, size, transaction) =
+            best.unwrap_or_else(|| panic!("{version}: no extension fit at all ({stopped_by})"));
+        account_keys.get_or_insert_with(|| {
+            describe_account_keys(
+                &transaction,
+                &[
+                    (payer, "fee payer, spill"),
+                    (SQUADS_ID, "squads (proxy authority program)"),
+                    (SQUADS_AUTHORITY, "squads authority PDA"),
+                    (bpf_loader_upgradeable::id(), "loader v3"),
+                    (program_id, "program"),
+                    (programdata_id, "program data"),
+                    (buffer_id, "buffer"),
+                ],
+            )
+        });
+        rows.push((version, size_limit, size, extends, extends + 1, stopped_by));
+    }
+
+    let account_keys = account_keys.unwrap();
+    println!("\nLoader V3: maximum bytes extended in a single transaction");
+    println!("Upgrade authority is a PDA, so every loader instruction is CPI'd by `squads`.\n");
+
+    println!("  account keys ({})", account_keys.len());
+    for (index, flags, address, role) in &account_keys {
+        println!("    {index:>2}  {flags:<3}  {address:<44}  {role}");
+    }
+
+    println!(
+        "\n  {:<8}  {:>9}  {:>9}  {:>12}  {:>7}  {:>14}  {:>10}   {}",
+        "version",
+        "tx limit",
+        "tx bytes",
+        "instructions",
+        "extends",
+        "bytes extended",
+        "",
+        "stopped by"
+    );
+    for (version, size_limit, size, extends, instructions, stopped_by) in &rows {
+        let extended = *extends as u64 * MINIMUM_EXTEND_PROGRAM_BYTES as u64;
+        println!(
+            "  {:<8}  {:>9}  {:>9}  {:>12}  {:>7}  {:>14}  {:>10}   {}",
+            version,
+            with_thousands(*size_limit as u64),
+            with_thousands(*size as u64),
+            instructions,
+            extends,
+            with_thousands(extended),
+            format!("({})", in_binary_units(extended)),
+            stopped_by,
+        );
+    }
+    println!();
+}
+
+/// Renders a transaction's static account keys as `(index, flags, address, role)`.
+#[cfg(feature = "sbf_rust")]
+fn describe_account_keys(
+    transaction: &VersionedTransaction,
+    roles: &[(Pubkey, &str)],
+) -> Vec<(usize, String, String, String)> {
+    let header = transaction.message.header();
+    let keys = transaction.message.static_account_keys();
+    let signers = header.num_required_signatures as usize;
+    let readonly_signed = header.num_readonly_signed_accounts as usize;
+    let readonly_unsigned = header.num_readonly_unsigned_accounts as usize;
+
+    keys.iter()
+        .enumerate()
+        .map(|(index, key)| {
+            let is_signer = index < signers;
+            let is_writable = if is_signer {
+                index < signers.saturating_sub(readonly_signed)
+            } else {
+                index < keys.len().saturating_sub(readonly_unsigned)
+            };
+            let flags = format!(
+                "{}{}",
+                if is_writable { "w" } else { "-" },
+                if is_signer { "s" } else { "-" },
+            );
+            let role = roles
+                .iter()
+                .find(|(candidate, _)| candidate == key)
+                .map(|(_, role)| (*role).to_string())
+                .unwrap_or_else(|| {
+                    if *key == sysvar::rent::id() {
+                        "rent sysvar".to_string()
+                    } else if *key == clock::id() {
+                        "clock sysvar".to_string()
+                    } else {
+                        "?".to_string()
+                    }
+                });
+            (index, flags, key.to_string(), role)
+        })
+        .collect()
+}
+
+/// Formats an integer with thousands separators.
+#[cfg(feature = "sbf_rust")]
+fn with_thousands(value: u64) -> String {
+    let digits = value.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (count, digit) in digits.chars().rev().enumerate() {
+        if count > 0 && count % 3 == 0 {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out.chars().rev().collect()
+}
+
+/// Formats a byte count in KiB or MiB, dropping any trailing zeroes.
+#[cfg(feature = "sbf_rust")]
+fn in_binary_units(bytes: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = 1024 * KIB;
+    let (scale, unit) = if bytes >= MIB {
+        (MIB, "MiB")
+    } else {
+        (KIB, "KiB")
+    };
+    let scaled = format!("{:.2}", bytes as f64 / scale as f64);
+    let trimmed = scaled.trim_end_matches('0').trim_end_matches('.');
+    format!("{trimmed} {unit}")
 }

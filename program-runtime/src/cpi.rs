@@ -229,7 +229,11 @@ fn check_authorized_program(
                     && bpf_loader_upgradeable::is_set_authority_checked_instruction(
                         instruction_data,
                     ))
-                || bpf_loader_upgradeable::is_close_instruction(instruction_data)))
+                || bpf_loader_upgradeable::is_close_instruction(instruction_data)
+                // PROFILING PATCH -- DO NOT COMMIT. Authorizes ExtendProgram
+                // (discriminant 6) for CPI, so that a PDA authority can extend
+                // through a proxy.
+                || instruction_data.first() == Some(&6)))
         || invoke_context.is_precompile(program_id)
     {
         return Err(Box::new(CpiError::ProgramNotSupported(*program_id)));

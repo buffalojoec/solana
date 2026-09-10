@@ -67,6 +67,7 @@ members = [
     "rust/simulation",
     "rust/spoof1",
     "rust/spoof1_system",
+    "rust/squads",
     "rust/syscall-get-epoch-stake",
     "rust/sysvar",
     "rust/upgradeable",
@@ -153,6 +154,7 @@ solana-sbf-rust-mem-dep = { path = "rust/mem_dep", version = "=4.4.0-alpha.3" }
 solana-sbf-rust-param-passing-dep = { path = "rust/param_passing_dep", version = "=4.4.0-alpha.3" }
 solana-sbf-rust-realloc-dep = { path = "rust/realloc_dep", version = "=4.4.0-alpha.3" }
 solana-sbf-rust-realloc-invoke-dep = { path = "rust/realloc_invoke_dep", version = "=4.4.0-alpha.3" }
+solana-sbf-rust-squads-dep = { path = "rust/squads_dep", version = "=4.4.0-alpha.3" }
 solana-sdk-ids = "=3.1.0"
 solana-secp256k1-recover = "=3.3.0"
 solana-sha256-hasher = { version = "=3.1.0", features = ["sha2"] }
@@ -205,6 +207,7 @@ solana-instruction = { workspace = true }
 solana-keypair = "3.1.2"
 solana-loader-v3-interface = "7.0.0"
 solana-message = "4.1.0"
+solana-packet = "4.3.0"
 solana-program-binaries = { workspace = true, features = ["agave-unstable-api"] }
 solana-program-runtime = { workspace = true, features = ["dev-context-only-utils"] }
 solana-pubkey = "4.2.0"
@@ -214,6 +217,7 @@ solana-runtime-transaction = { workspace = true, features = ["dev-context-only-u
 solana-sbf-rust-invoke-dep = { workspace = true }
 solana-sbf-rust-realloc-dep = { workspace = true }
 solana-sbf-rust-realloc-invoke-dep = { workspace = true }
+solana-sbf-rust-squads-dep = { workspace = true }
 solana-sdk-ids = "3.1.0"
 solana-signer = "3.0.0"
 solana-stake-history = { workspace = true }
@@ -227,6 +231,7 @@ solana-sysvar = "4.3.0"
 solana-test-validator = { workspace = true, features = ["agave-unstable-api", "dev-context-only-utils"] }
 solana-transaction = "4.1.0"
 solana-transaction-error = "3.3.0"
+wincode = { workspace = true }
 solana-vote = { workspace = true }
 solana-vote-interface = { workspace = true }
 solana-vote-program = { workspace = true }

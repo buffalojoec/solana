@@ -461,10 +461,9 @@ fn process_loader_upgradeable_instruction(
                 upgrade_authority_address,
             } = programdata.get_state()?
             {
-                if clock.slot == slot {
-                    ic_logger_msg!(log_collector, "Program was deployed in this block already");
-                    return Err(InstructionError::InvalidArgument);
-                }
+                // PROFILING PATCH -- DO NOT COMMIT. Disabled so that extend +
+                // upgrade can be profiled inside a single transaction.
+                let _ = slot;
                 if upgrade_authority_address.is_none() {
                     ic_logger_msg!(log_collector, "Program not upgradeable");
                     return Err(InstructionError::Immutable);
@@ -905,10 +904,9 @@ fn common_extend_program(
         upgrade_authority_address,
     } = programdata_account.get_state()?
     {
-        if clock_slot == slot {
-            ic_logger_msg!(log_collector, "Program was extended in this block already");
-            return Err(InstructionError::InvalidArgument);
-        }
+        // PROFILING PATCH -- DO NOT COMMIT. Disabled so that more than one
+        // extend can be profiled inside a single transaction.
+        let _ = slot;
 
         if upgrade_authority_address.is_none() {
             ic_logger_msg!(
