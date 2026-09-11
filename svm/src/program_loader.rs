@@ -287,7 +287,7 @@ fn loader_v4_get_state(data: &[u8]) -> Result<&LoaderV4State, InstructionError> 
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "dev-context-only-utils"))]
 pub mod test_utils {
     use {
         super::*,
@@ -317,17 +317,22 @@ pub mod test_utils {
             })
             .unwrap(),
         );
+        account.set_executable(true);
         account
     }
 
-    pub fn loader_v3_programdata_account(slot: Slot, elf: &[u8]) -> AccountSharedData {
+    pub fn loader_v3_programdata_account(
+        slot: Slot,
+        upgrade_authority_address: Option<Pubkey>,
+        elf: &[u8],
+    ) -> AccountSharedData {
         let offset = UpgradeableLoaderState::size_of_programdata_metadata();
         let mut data = vec![0u8; offset];
         bincode::serialize_into(
             &mut data[..offset],
             &UpgradeableLoaderState::ProgramData {
                 slot,
-                upgrade_authority_address: None,
+                upgrade_authority_address,
             },
         )
         .unwrap();
@@ -336,6 +341,7 @@ pub mod test_utils {
         let mut account = AccountSharedData::default();
         account.set_owner(bpf_loader_upgradeable::id());
         account.set_data_from_slice(&data);
+        account.set_executable(false);
         account
     }
 
@@ -349,6 +355,7 @@ pub mod test_utils {
         let mut account = AccountSharedData::default();
         account.set_owner(loader_v4::id());
         account.set_data_from_slice(&data);
+        account.set_executable(true);
         account
     }
 }
@@ -503,7 +510,7 @@ mod tests {
         assert_eq!(owner, ProgramCacheEntryOwner::LoaderV3);
 
         // Fail: programdata wrong owner
-        let mut programdata_account = loader_v3_programdata_account(7, &[]);
+        let mut programdata_account = loader_v3_programdata_account(7, None, &[]);
         programdata_account.set_owner(Pubkey::new_unique());
         mock_bank
             .account_shared_data
@@ -527,7 +534,7 @@ mod tests {
         assert_eq!(owner, ProgramCacheEntryOwner::LoaderV3);
 
         // Success
-        let programdata_account = loader_v3_programdata_account(7, &[]);
+        let programdata_account = loader_v3_programdata_account(7, None, &[]);
         mock_bank
             .account_shared_data
             .borrow_mut()
@@ -716,7 +723,7 @@ mod tests {
 
         // Create a valid programdata account, but with invalid ELF bytes after
         // the metadata.
-        let mut programdata_account = loader_v3_programdata_account(7, &[]);
+        let mut programdata_account = loader_v3_programdata_account(7, None, &[]);
         let mut data = programdata_account.data().to_vec();
         data.resize(UpgradeableLoaderState::size_of_programdata_metadata(), 0);
         data.extend_from_slice(&[0xff; 64]);
@@ -1074,7 +1081,7 @@ mod tests {
         );
 
         // Fail: programdata account not owned by the loader
-        let mut programdata_account = loader_v3_programdata_account(7, &[]);
+        let mut programdata_account = loader_v3_programdata_account(7, None, &[]);
         programdata_account.set_owner(Pubkey::new_unique());
         mock_bank
             .account_shared_data
@@ -1112,7 +1119,7 @@ mod tests {
         mock_bank
             .account_shared_data
             .borrow_mut()
-            .insert(programdata_key, loader_v3_programdata_account(7, &[]));
+            .insert(programdata_key, loader_v3_programdata_account(7, None, &[]));
         assert_eq!(
             get_program_deployment_slot(
                 &mock_bank,
@@ -1413,7 +1420,7 @@ mod tests {
 
         // Case: programdata account exists, but wrong owner.
         // Can't read deployment slot, nothing is queued.
-        let mut programdata_account = loader_v3_programdata_account(7, &[]);
+        let mut programdata_account = loader_v3_programdata_account(7, None, &[]);
         programdata_account.set_owner(Pubkey::new_unique());
         mock_bank
             .account_shared_data
@@ -1436,7 +1443,7 @@ mod tests {
         mock_bank
             .account_shared_data
             .borrow_mut()
-            .insert(programdata_key, loader_v3_programdata_account(7, &[]));
+            .insert(programdata_key, loader_v3_programdata_account(7, None, &[]));
         let result = filter_executable_program_accounts(&mock_bank, &batch, keys.iter());
         assert_eq!(result.len(), 1);
         let program_to_load = result.first().unwrap();

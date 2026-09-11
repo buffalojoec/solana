@@ -3197,7 +3197,7 @@ mod tests {
                     .insert(program_id, loader_v3_program_account(programdata_id));
                 mock_bank.account_shared_data.write().unwrap().insert(
                     programdata_id,
-                    loader_v3_programdata_account(DEPLOYMENT_SLOT, &load_test_program()),
+                    loader_v3_programdata_account(DEPLOYMENT_SLOT, None, &load_test_program()),
                 );
                 DEPLOYMENT_SLOT
             }
