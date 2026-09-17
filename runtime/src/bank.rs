@@ -4212,6 +4212,16 @@ impl Bank {
             self.epoch_schedule().get_epoch(self.slot.saturating_add(
                 solana_program_runtime::program_cache_entry::DELAY_VISIBILITY_SLOT_OFFSET,
             ));
+        let execution_env = self
+            .transaction_processor
+            .program_runtime_environment
+            .clone();
+        let deployment_env = if self.epoch() != effective_epoch_of_deployments {
+            let (upcoming_feature_set, _) = self.compute_active_feature_set(true);
+            self.create_program_runtime_environment(&upcoming_feature_set)
+        } else {
+            execution_env.clone()
+        };
         let processing_environment = TransactionProcessingEnvironment {
             blockhash,
             blockhash_lamports_per_signature,
@@ -4219,11 +4229,8 @@ impl Bank {
             epoch_total_stake: self.get_current_epoch_total_stake(),
             feature_set: self.feature_set.runtime_features(),
             program_runtime_environments: ProgramRuntimeEnvironments::new(
-                self.transaction_processor
-                    .program_runtime_environment
-                    .clone(),
-                self.transaction_processor
-                    .program_runtime_environment_for_epoch(effective_epoch_of_deployments),
+                execution_env,
+                deployment_env,
             ),
             rent: self.rent_collector.rent.clone(),
         };

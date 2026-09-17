@@ -11642,6 +11642,154 @@ fn test_feature_activation_loaded_programs_epoch_transition() {
 }
 
 #[test]
+fn test_epoch_boundary_preparation_predicts_realized_feature_set() {
+    agave_logger::setup();
+
+    // Bank Setup
+    let (mut genesis_config, mint_keypair) = create_genesis_config(1_000_000 * LAMPORTS_PER_SOL);
+    genesis_config
+        .accounts
+        .remove(&feature_set::disable_sbpf_v0_execution::id());
+    let (root_bank, bank_forks) = Bank::new_with_bank_forks_for_tests(&genesis_config);
+
+    // Program Setup
+    let program_keypair = Keypair::new();
+    let program_data =
+        include_bytes!("../../../programs/bpf_loader/test_elfs/out/sbpfv3_return_ok.so");
+    let program_account = AccountSharedData::from(Account {
+        lamports: Rent::default().minimum_balance(program_data.len()).min(1),
+        data: program_data.to_vec(),
+        owner: bpf_loader::id(),
+        executable: true,
+        rent_epoch: 0,
+    });
+    root_bank.store_account(&program_keypair.pubkey(), &program_account);
+
+    // Compose a message which invokes the program.
+    let instruction = Instruction::new_with_bytes(program_keypair.pubkey(), &[], Vec::new());
+    let message = Message::new(&[instruction], Some(&mint_keypair.pubkey()));
+    let binding = mint_keypair.insecure_clone();
+    let signers = vec![&binding];
+
+    // Advance the bank so that the program becomes effective, then load it
+    // with the current environment.
+    goto_end_of_slot(root_bank.clone());
+    let bank = new_from_parent_with_fork_next_slot(root_bank, bank_forks.as_ref());
+    let transaction = Transaction::new(&signers, message.clone(), bank.last_blockhash());
+    assert_eq!(bank.process_transaction(&transaction), Ok(()));
+
+    // Schedule a feature activation.
+    let feature_account_balance =
+        std::cmp::max(genesis_config.rent.minimum_balance(Feature::size_of()), 1);
+    bank.store_account(
+        &feature_set::disable_sbpf_v0_execution::id(),
+        &feature::create_account(&Feature { activated_at: None }, feature_account_balance),
+    );
+
+    // The environment of every cached version of the program, oldest first.
+    let cache_envs = |bank: &Bank| {
+        let program_cache = bank
+            .transaction_processor
+            .global_program_cache
+            .read()
+            .unwrap();
+        program_cache
+            .get_slot_versions_for_tests(&program_keypair.pubkey())
+            .iter()
+            .map(|entry| entry.program.get_environment().cloned())
+            .collect::<Vec<_>>()
+    };
+
+    // Advance to the middle of the epoch to start the recompilation phase.
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 16);
+    let ebpp = || {
+        bank.transaction_processor
+            .epoch_boundary_preparation
+            .read()
+            .unwrap()
+    };
+    assert_eq!(bank.epoch(), 0);
+    assert_eq!(ebpp().upcoming_epoch, 1);
+
+    // Now grab some environment info.
+    let current_env = bank
+        .transaction_processor
+        .program_runtime_environment
+        .clone();
+    let ebpp_env = ebpp().upcoming_environment.clone().unwrap();
+    assert!(*current_env != *ebpp_env);
+    assert_eq!(
+        current_env,
+        bank.transaction_processor
+            .program_runtime_environment_for_epoch(bank.epoch()),
+    );
+    assert_eq!(
+        ebpp_env,
+        bank.transaction_processor
+            .program_runtime_environment_for_epoch(bank.epoch() + 1),
+    );
+
+    // Names each cached version by the environment it was compiled against.
+    // Compared by pointer, which is how the cache itself matches an entry
+    // against the environment in use.
+    let env_labels = |bank: &Bank| {
+        cache_envs(bank)
+            .into_iter()
+            .map(|env| match env {
+                Some(env) if env == current_env => "current",
+                Some(env) if env == ebpp_env => "predicted",
+                Some(_) => "other",
+                None => "none",
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(env_labels(&bank), ["current"]);
+
+    // Advance one slot so the recompilation phase takes a job.
+    goto_end_of_slot(bank.clone());
+    let bank = new_from_parent_with_fork_next_slot(bank, bank_forks.as_ref());
+    assert_eq!(env_labels(&bank), ["current", "predicted"]);
+
+    // Cross the epoch boundary to activate the feature.
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 32);
+    assert_eq!(bank.epoch(), 1);
+    assert_eq!(env_labels(&bank), ["current", "predicted"]);
+
+    // Again, grab a bunch of environment info.
+    let new_env = bank
+        .transaction_processor
+        .program_runtime_environment
+        .clone();
+    assert!(*new_env != *current_env);
+    assert!(*new_env == *ebpp_env);
+    assert_eq!(
+        new_env,
+        bank.transaction_processor
+            .program_runtime_environment_for_epoch(bank.epoch()),
+    );
+    // The boundary adopts the prediction itself, not just its value, so the
+    // entry recompiled during the phase still matches the environment in use.
+    assert_eq!(new_env, ebpp_env);
+
+    // Computing the environment instead allocates a new one. It is equal to
+    // the prediction by value, but `ProgramRuntimeEnvironment` compares by
+    // pointer, so it would not match any entry already in the cache.
+    let computed_env = bank.create_program_runtime_environment(&bank.feature_set);
+    assert!(*computed_env != *current_env);
+    assert!(*computed_env == *ebpp_env);
+    assert_ne!(computed_env, ebpp_env);
+
+    // Invoke the program in the new epoch.
+    let transaction = Transaction::new(&signers, message, bank.last_blockhash());
+    assert_eq!(bank.process_transaction(&transaction), Ok(()));
+
+    // The recompiled entry was reused: no new version was added.
+    assert_eq!(env_labels(&bank), ["current", "predicted"]);
+}
+
+#[test]
 fn test_verify_accounts() {
     let GenesisConfigInfo {
         mut genesis_config,
