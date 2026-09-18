@@ -11646,6 +11646,15 @@ fn test_feature_activation_loaded_programs_epoch_transition() {
     assert!(*upcoming_env == *ebpp_env);
     assert_eq!(upcoming_env, ebpp_env); // `Arc::ptr_eq`
 
+    // Here we see our guard kick in, for the final slot only.
+    let guard_env = bank
+        .transaction_processor
+        .deployment_env_override()
+        .unwrap()
+        .clone();
+    assert!(*guard_env == *ebpp_env);
+    assert_eq!(guard_env, ebpp_env);
+
     // Advance the bank to cross the epoch boundary and activate the feature.
     goto_end_of_slot(bank.clone());
     let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 32);
@@ -11659,6 +11668,14 @@ fn test_feature_activation_loaded_programs_epoch_transition() {
     assert!(*computed_env == *new_processor_env);
     assert_ne!(computed_env, new_processor_env);
     assert_ne!(computed_env, upcoming_env);
+
+    // The guard is lifted now that the epoch has rolled over.
+    assert!(
+        bank.transaction_processor
+            .deployment_env_override()
+            .is_none()
+    );
+    assert!(*bank.transaction_processor.program_runtime_environment == *guard_env);
 
     // Load the program with the new environment.
     let transaction = Transaction::new(&signers, message.clone(), bank.last_blockhash());
@@ -12188,6 +12205,27 @@ fn test_sbpf_v0_deploy_in_last_slot_before_feature_activation(proper_ebpp: bool)
         last_slot_in_epoch,
     );
 
+    // Here we see our guard kick in, for the final slot only.
+    let deployment_env = bank
+        .transaction_processor
+        .deployment_env_override()
+        .unwrap()
+        .clone();
+    assert!(*deployment_env != *current_env);
+    if proper_ebpp {
+        // EBPP predicted correctly, so the guard holds the same `Arc`.
+        assert!(*deployment_env == *ebpp_env);
+        assert_eq!(deployment_env, ebpp_env);
+    } else {
+        // EBPP was wrong, so we have a fresh `Arc` in here, but for the
+        // upcoming feature set.
+        let mut upcoming_feature_set = (*bank.feature_set).clone();
+        upcoming_feature_set.activate(&feature_set::disable_sbpf_v0_execution::id(), bank.slot());
+        let computed_env = bank.create_program_runtime_environment(&upcoming_feature_set);
+        assert!(*deployment_env == *computed_env);
+        assert!(*deployment_env != *ebpp_env);
+    }
+
     // Regardless of EBPP, new deployments in the final slot are always
     // verified against the upcoming environment. Therefore, deployment of
     // SBPFv0 should be blocked.
@@ -12203,6 +12241,15 @@ fn test_sbpf_v0_deploy_in_last_slot_before_feature_activation(proper_ebpp: bool)
     goto_end_of_slot(bank.clone());
     let bank = new_from_parent_with_fork_next_slot(bank, bank_forks.as_ref());
     assert_eq!(bank.epoch(), 1);
+
+    // The guard is lifted now that the epoch has rolled over.
+    assert!(
+        bank.transaction_processor
+            .deployment_env_override()
+            .is_none()
+    );
+    assert!(*bank.transaction_processor.program_runtime_environment == *deployment_env);
+
     assert_eq!(
         upgrade_with_sbpf_v0_elf(&bank),
         Err(TransactionError::InstructionError(
