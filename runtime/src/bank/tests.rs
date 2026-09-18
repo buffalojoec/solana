@@ -17,6 +17,7 @@ use {
             create_lockup_stake_account, genesis_sysvar_and_builtin_program_lamports,
             minimum_vote_account_balance_for_vat,
         },
+        loader_utils::{create_buffer_with_elf, create_program_with_elf},
         runtime_config::RuntimeConfig,
         serde_snapshot::fields_from_stream,
         slot_params::{
@@ -12057,6 +12058,160 @@ fn test_feature_activation_loaded_programs_fork_without_activation() {
     assert_ne!(new_processor_env, upcoming_env,);
 }
 
+#[test_case(true)]
+#[test_case(false)]
+fn test_sbpf_v0_deploy_in_last_slot_before_feature_activation(proper_ebpp: bool) {
+    // TODO: This test is only required while we continue to maintain two
+    // program runtime environments at the end of a feature activation window.
+    // Once these are consolidated, programs in the final slot of the epoch
+    // will be verified against the *current* slot's environment, and we'll
+    // have no need for this test anymore.
+    //
+    // This test asserts that in the final slot of an epoch where a program
+    // runtime feature was activated, deployments are verified against the
+    // *upcoming* feature set.
+    let (mut genesis_config, mint_keypair) =
+        create_genesis_config_no_tx_fee(1_000_000 * LAMPORTS_PER_SOL);
+    for feature_id in [
+        feature_set::disable_sbpf_v0_execution::id(),
+        feature_set::reenable_sbpf_v0_execution::id(),
+        feature_set::disable_sbpf_v0_v1_v2_deployment::id(),
+    ] {
+        genesis_config.accounts.remove(&feature_id);
+    }
+    let (root_bank, bank_forks) = Bank::new_with_bank_forks_for_tests(&genesis_config);
+
+    let elf = include_bytes!("../../../programs/bpf_loader/test_elfs/out/noop_aligned.so");
+    let authority_keypair = Keypair::new();
+    let payer = mint_keypair.insecure_clone();
+
+    // Stand the SBPFv0 program up before the feature is submitted.
+    let program_id = create_program_with_elf(
+        &root_bank,
+        &bpf_loader_upgradeable::id(),
+        &authority_keypair.pubkey(),
+        elf,
+    );
+
+    // Advance the bank so that the program becomes effective, then load it
+    // with the old environment.
+    goto_end_of_slot(root_bank.clone());
+    let bank = new_from_parent_with_fork_next_slot(root_bank, bank_forks.as_ref());
+    let instruction = Instruction::new_with_bytes(program_id, &[], Vec::new());
+    let message = Message::new(&[instruction], Some(&mint_keypair.pubkey()));
+    let transaction = Transaction::new(&[&mint_keypair], message, bank.last_blockhash());
+    assert_eq!(bank.process_transaction(&transaction), Ok(()));
+
+    let upgrade_with_sbpf_v0_elf = |bank: &Arc<Bank>| {
+        let buffer_address = create_buffer_with_elf(bank, &authority_keypair.pubkey(), elf);
+        let message = Message::new(
+            &[solana_loader_v3_interface::instruction::upgrade(
+                &program_id,
+                &buffer_address,
+                &authority_keypair.pubkey(),
+                &payer.pubkey(),
+            )],
+            Some(&payer.pubkey()),
+        );
+        bank.process_transaction(&Transaction::new(
+            &[&payer, &authority_keypair],
+            message,
+            bank.last_blockhash(),
+        ))
+    };
+
+    goto_end_of_slot(bank.clone());
+    let bank = if proper_ebpp {
+        // We want a proper EBPP setup, so activate the feature before the EBPP
+        // window opens.
+        Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 12)
+    } else {
+        // We want to intentionally sabotage EBPP, mimicking one of the
+        // scenarios in the previous tests, so activate the feature after the
+        // EBPP window opens.
+        Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 20)
+    };
+
+    // Submit `disable_sbpf_v0_execution` for activation at the next epoch boundary.
+    let feature_account_balance =
+        std::cmp::max(genesis_config.rent.minimum_balance(Feature::size_of()), 1);
+    bank.store_account(
+        &feature_set::disable_sbpf_v0_execution::id(),
+        &feature::create_account(&Feature { activated_at: None }, feature_account_balance),
+    );
+
+    // Check on our environments.
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(&bank_forks, bank, SlotLeader::default(), 24);
+    let current_env = bank
+        .transaction_processor
+        .program_runtime_environment_for_epoch(0);
+    let upcoming_env = bank
+        .transaction_processor
+        .program_runtime_environment_for_epoch(1);
+    let (ebpp_env, queued) = {
+        let epoch_boundary_preparation = bank
+            .transaction_processor
+            .epoch_boundary_preparation
+            .read()
+            .unwrap();
+        (
+            epoch_boundary_preparation
+                .upcoming_environment
+                .clone()
+                .unwrap(),
+            epoch_boundary_preparation.programs_to_recompile.len(),
+        )
+    };
+    if proper_ebpp {
+        // We should see a proper EBPP preparing for the upcoming environment.
+        assert!(*current_env != *upcoming_env);
+        assert!(*upcoming_env == *ebpp_env);
+        assert_eq!(upcoming_env, ebpp_env);
+        assert_eq!(queued, 1);
+    } else {
+        // We should see no EBPP in operation.
+        assert!(*current_env == *upcoming_env);
+        assert_eq!(current_env, upcoming_env);
+        assert!(*current_env == *ebpp_env);
+        assert_eq!(current_env, ebpp_env);
+        assert_eq!(queued, 0);
+    }
+
+    // Advance to the last slot of the epoch.
+    let last_slot_in_epoch = bank.epoch_schedule().get_last_slot_in_epoch(bank.epoch());
+    goto_end_of_slot(bank.clone());
+    let bank = Bank::new_from_parent_with_bank_forks(
+        &bank_forks,
+        bank,
+        SlotLeader::default(),
+        last_slot_in_epoch,
+    );
+
+    // Regardless of EBPP, new deployments in the final slot are always
+    // verified against the upcoming environment. Therefore, deployment of
+    // SBPFv0 should be blocked.
+    assert_eq!(
+        upgrade_with_sbpf_v0_elf(&bank),
+        Err(TransactionError::InstructionError(
+            0,
+            InstructionError::InvalidAccountData
+        ))
+    );
+
+    // Cross the epoch boundary; same deal.
+    goto_end_of_slot(bank.clone());
+    let bank = new_from_parent_with_fork_next_slot(bank, bank_forks.as_ref());
+    assert_eq!(bank.epoch(), 1);
+    assert_eq!(
+        upgrade_with_sbpf_v0_elf(&bank),
+        Err(TransactionError::InstructionError(
+            0,
+            InstructionError::InvalidAccountData
+        ))
+    );
+}
+
 #[test]
 fn test_verify_accounts() {
     let GenesisConfigInfo {
@@ -12580,122 +12735,6 @@ fn test_filter_program_errors_and_collect_fee_details() {
         initial_payer_balance,
         bank.get_balance(&mint_keypair.pubkey())
     );
-}
-
-#[test]
-fn test_deploy_last_epoch_slot() {
-    agave_logger::setup();
-
-    // Bank Setup
-    let (genesis_config, mint_keypair) = create_genesis_config(1_000_000 * LAMPORTS_PER_SOL);
-    let bank = Bank::new_for_tests(&genesis_config);
-
-    // go to the last slot in the epoch
-    let (bank, bank_forks) = bank.wrap_with_bank_forks_for_tests();
-    let slots_in_epoch = bank.epoch_schedule().get_slots_in_epoch(0);
-    let bank = Bank::new_from_parent_with_bank_forks(
-        &bank_forks,
-        bank,
-        SlotLeader::default(),
-        slots_in_epoch - 1,
-    );
-    eprintln!("now at slot {} epoch {}", bank.slot(), bank.epoch());
-
-    // deploy a program
-    let payer_keypair = Keypair::new();
-    let program_keypair = Keypair::new();
-    let buffer_address = Pubkey::new_unique();
-    let upgrade_authority_keypair = Keypair::new();
-    let mut file = File::open("../programs/bpf_loader/test_elfs/out/noop_aligned.so").unwrap();
-    let mut elf = Vec::new();
-    file.read_to_end(&mut elf).unwrap();
-
-    let program_len = elf.len();
-    let min_program_balance =
-        bank.get_minimum_balance_for_rent_exemption(UpgradeableLoaderState::size_of_program());
-    let min_buffer_balance = bank.get_minimum_balance_for_rent_exemption(
-        UpgradeableLoaderState::size_of_buffer(program_len),
-    );
-    let min_programdata_balance = bank.get_minimum_balance_for_rent_exemption(
-        UpgradeableLoaderState::size_of_programdata(program_len),
-    );
-
-    // Setup buffer account with ELF.
-    let buffer_account = {
-        let mut account = AccountSharedData::new(
-            min_buffer_balance,
-            UpgradeableLoaderState::size_of_buffer(program_len),
-            &bpf_loader_upgradeable::id(),
-        );
-        bincode::serialize_into(
-            account.data_as_mut_slice(),
-            &UpgradeableLoaderState::Buffer {
-                authority_address: Some(upgrade_authority_keypair.pubkey()),
-            },
-        )
-        .unwrap();
-        account
-            .data_as_mut_slice()
-            .get_mut(UpgradeableLoaderState::size_of_buffer_metadata()..)
-            .unwrap()
-            .copy_from_slice(&elf);
-        account
-    };
-
-    let payer_base_balance = LAMPORTS_PER_SOL;
-    let deploy_fees = {
-        let fee_calculator = genesis_config.fee_rate_governor.create_fee_calculator();
-        3 * fee_calculator.lamports_per_signature
-    };
-    let min_payer_balance = min_program_balance
-        .saturating_add(min_programdata_balance)
-        .saturating_sub(min_buffer_balance)
-        .saturating_add(deploy_fees);
-    bank.store_account(
-        &payer_keypair.pubkey(),
-        &AccountSharedData::new(
-            payer_base_balance.saturating_add(min_payer_balance),
-            0,
-            &system_program::id(),
-        ),
-    );
-    bank.store_account(&buffer_address, &buffer_account);
-
-    #[allow(deprecated)]
-    let message = Message::new(
-        &solana_loader_v3_interface::instruction::deploy_with_max_program_len(
-            &payer_keypair.pubkey(),
-            &program_keypair.pubkey(),
-            &buffer_address,
-            &upgrade_authority_keypair.pubkey(),
-            min_program_balance,
-            program_len,
-        )
-        .unwrap(),
-        Some(&payer_keypair.pubkey()),
-    );
-    let signers = &[&payer_keypair, &program_keypair, &upgrade_authority_keypair];
-    let transaction = Transaction::new(signers, message, bank.last_blockhash());
-    let ret = bank.process_transaction(&transaction);
-    assert!(ret.is_ok(), "ret: {ret:?}");
-    goto_end_of_slot(bank.clone());
-
-    // go to the first slot in the new epoch
-    let bank = Bank::new_from_parent_with_bank_forks(
-        &bank_forks,
-        bank,
-        SlotLeader::default(),
-        slots_in_epoch,
-    );
-    eprintln!("now at slot {} epoch {}", bank.slot(), bank.epoch());
-
-    let instruction = Instruction::new_with_bytes(program_keypair.pubkey(), &[], Vec::new());
-    let message = Message::new(&[instruction], Some(&mint_keypair.pubkey()));
-    let binding = mint_keypair.insecure_clone();
-    let signers = vec![&binding];
-    let transaction = Transaction::new(&signers, message, bank.last_blockhash());
-    let result_with_feature_enabled = bank.process_transaction(&transaction);
-    assert_eq!(result_with_feature_enabled, Ok(()));
 }
 
 #[test]
