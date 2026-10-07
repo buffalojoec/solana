@@ -9,15 +9,20 @@ use {
     solana_loader_v3_interface::state::UpgradeableLoaderState,
     solana_loader_v4_interface::state::{LoaderV4State, LoaderV4Status},
     solana_program_runtime::{
-        loaded_programs::{ProgramCacheForTxBatch, ProgramRuntimeEnvironment, ProgramToLoad},
+        callback::ProgramCacheCallback,
+        loaded_programs::{
+            ForkGraph, ProgramCache, ProgramCacheForTxBatch, ProgramRuntimeEnvironment,
+            ProgramToLoad,
+        },
         program_cache_entry::{ProgramCacheEntry, ProgramCacheEntryOwner},
+        program_metrics::ProgramStatistics,
     },
     solana_pubkey::Pubkey,
     solana_sbpf::elf_parser::consts::ELFMAG,
     solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, loader_v4},
     solana_svm_callback::TransactionProcessingCallback,
     solana_svm_timings::ExecuteTimings,
-    solana_svm_type_overrides::sync::Arc,
+    solana_svm_type_overrides::sync::{Arc, RwLock},
     solana_transaction_error::{TransactionError, TransactionResult},
     std::sync::atomic::Ordering,
 };
@@ -29,6 +34,51 @@ pub(crate) enum ProgramAccountLoadResult {
     ProgramOfLoaderV2(AccountSharedData),
     ProgramOfLoaderV3(AccountSharedData, AccountSharedData, Slot),
     ProgramOfLoaderV4(AccountSharedData, Slot),
+}
+
+/// A [ProgramCacheCallback] that reads from the global program cache on
+/// behalf of a single transaction.
+pub(crate) struct ProgramLoader<'a, CB: TransactionProcessingCallback, FG: ForkGraph> {
+    global_program_cache: &'a RwLock<ProgramCache<FG>>,
+    callbacks: &'a CB,
+    slot: Slot,
+    program_runtime_environment_for_execution: &'a ProgramRuntimeEnvironment,
+}
+
+impl<'a, CB: TransactionProcessingCallback, FG: ForkGraph> ProgramLoader<'a, CB, FG> {
+    pub(crate) fn new(
+        global_program_cache: &'a RwLock<ProgramCache<FG>>,
+        callbacks: &'a CB,
+        slot: Slot,
+        program_runtime_environment_for_execution: &'a ProgramRuntimeEnvironment,
+    ) -> Self {
+        Self {
+            global_program_cache,
+            callbacks,
+            slot,
+            program_runtime_environment_for_execution,
+        }
+    }
+}
+
+impl<CB: TransactionProcessingCallback, FG: ForkGraph> ProgramCacheCallback
+    for ProgramLoader<'_, CB, FG>
+{
+    fn get_program_stats(&self, program_id: &Pubkey) -> Option<Arc<ProgramStatistics>> {
+        // Resolve the loader and deployment slot from the program account as
+        // it stood before this transaction, which is what the cache keys on.
+        let program_to_load = filter_executable_program_accounts(
+            self.callbacks,
+            &ProgramCacheForTxBatch::new(self.slot),
+            std::iter::once(program_id),
+        )
+        .pop()?;
+        self.global_program_cache.read().unwrap().get_entry_stats(
+            &program_to_load,
+            self.slot,
+            self.program_runtime_environment_for_execution,
+        )
+    }
 }
 
 pub(crate) fn load_program_accounts<CB: TransactionProcessingCallback>(
@@ -1551,5 +1601,56 @@ mod tests {
             assert_eq!(state.slot, 42);
             assert!(matches!(state.status, LoaderV4Status::Deployed));
         }
+    }
+
+    #[test]
+    fn test_program_loader_get_program_stats() {
+        let mock_bank = MockBankCallback::default();
+        let env = get_mock_program_runtime_environment();
+        let program_id = Pubkey::new_unique();
+        let programdata_key = Pubkey::new_unique();
+
+        // Deployed in slot 7, below the root, so visible from slot 20.
+        let mut cache = ProgramCache::<TestForkGraph>::new(10);
+        let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
+        cache.set_fork_graph(Arc::downgrade(&fork_graph));
+        let entry = Arc::new(ProgramCacheEntry::new_unloaded(
+            7,
+            ProgramCacheEntryOwner::LoaderV3,
+            env.clone(),
+        ));
+        entry.stats.uses.store(4, Ordering::Relaxed);
+        cache.assign_program(&env, program_id, 7, Arc::clone(&entry));
+        let global_program_cache = RwLock::new(cache);
+
+        let program_loader = ProgramLoader::new(&global_program_cache, &mock_bank, 20, &env);
+
+        // Case: program account does not exist.
+        assert!(program_loader.get_program_stats(&program_id).is_none());
+
+        // Case: program account reports a different deployment slot.
+        mock_bank
+            .account_shared_data
+            .borrow_mut()
+            .insert(program_id, loader_v3_program_account(programdata_key));
+        mock_bank
+            .account_shared_data
+            .borrow_mut()
+            .insert(programdata_key, loader_v3_programdata_account(8, &[]));
+        assert!(program_loader.get_program_stats(&program_id).is_none());
+
+        // Case: program account matches the unloaded entry.
+        mock_bank
+            .account_shared_data
+            .borrow_mut()
+            .insert(programdata_key, loader_v3_programdata_account(7, &[]));
+        let stats = program_loader.get_program_stats(&program_id).unwrap();
+        assert!(Arc::ptr_eq(&stats, &entry.stats));
+        assert_eq!(stats.uses.load(Ordering::Relaxed), 4);
+
+        // Reading stats never touches the cache's own counters.
+        let cache = global_program_cache.read().unwrap();
+        assert_eq!(cache.stats.hits.load(Ordering::Relaxed), 0);
+        assert_eq!(cache.stats.misses.load(Ordering::Relaxed), 0);
     }
 }

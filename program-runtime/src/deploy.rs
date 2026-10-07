@@ -7,6 +7,7 @@ use {
         invoke_context::InvokeContext,
         loaded_programs::{ProgramCacheForTxBatch, ProgramRuntimeEnvironment},
         program_cache_entry::{ProgramCacheEntry, ProgramCacheEntryOwner},
+        program_metrics::ProgramStatistics,
     },
     solana_clock::Slot,
     solana_instruction_error::InstructionError,
@@ -50,6 +51,7 @@ fn morph_into_deployment_environment(
 pub fn deploy_program(
     log_collector: Option<Rc<RefCell<LogCollector>>>,
     #[cfg(feature = "metrics")] load_program_metrics: &mut LoadProgramMetrics,
+    old_stats: Option<Arc<ProgramStatistics>>,
     program_cache_for_tx_batch: &mut ProgramCacheForTxBatch,
     program_runtime_environment: ProgramRuntimeEnvironment,
     disable_sbpf_v0_v1_v2_deployment: bool,
@@ -107,8 +109,8 @@ pub fn deploy_program(
             .map_err(|_| InstructionError::InvalidAccountData)?,
         program_runtime_environment,
     );
-    if let Some(old_entry) = program_cache_for_tx_batch.find(program_id) {
-        program_cache_entry.stats.merge_from(&old_entry.stats);
+    if let Some(old_stats) = old_stats {
+        program_cache_entry.stats.merge_from(&old_stats);
     }
     #[cfg(feature = "metrics")]
     {
@@ -132,10 +134,13 @@ macro_rules! deploy_program {
         );
         #[cfg(feature = "metrics")]
         let mut load_program_metrics = $crate::program_metrics::LoadProgramMetrics::default();
+        // Carry the outgoing program's usage stats over to the redeployed one.
+        let old_stats = $invoke_context.get_program_stats($program_id);
         $crate::deploy::deploy_program(
             $invoke_context.get_log_collector(),
             #[cfg(feature = "metrics")]
             &mut load_program_metrics,
+            old_stats,
             $invoke_context.program_cache_for_tx_batch,
             $invoke_context
                 .get_program_runtime_environment_for_deployment()
