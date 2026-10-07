@@ -1,15 +1,3 @@
-#[cfg(feature = "dev-context-only-utils")]
-use {
-    crate::program_cache_entry::ProgramCacheEntry,
-    qualifier_attr::qualifiers,
-    solana_account::{AccountSharedData, WritableAccount},
-    solana_epoch_schedule::EpochSchedule,
-    solana_instruction::AccountMeta,
-    solana_message::{LegacyMessage, Message, SanitizedMessage},
-    solana_sdk_ids::sysvar,
-    solana_transaction_context::transaction_accounts::KeyedAccountSharedData,
-    std::collections::{HashMap, HashSet},
-};
 use {
     crate::{
         callback::ProgramCacheCallback,
@@ -18,7 +6,7 @@ use {
             ProgramCacheForTxBatch, ProgramRuntimeEnvironment, ProgramRuntimeEnvironments,
         },
         memory_context::{MemoryContext, MemoryContexts},
-        program_cache_entry::ProgramCacheEntryType,
+        program_cache_entry::{ProgramCacheEntry, ProgramCacheEntryType},
         program_metrics::ProgramStatistics,
         stable_log,
         sysvar_cache::SysvarCache,
@@ -58,6 +46,17 @@ use {
         rc::Rc,
         time::Duration,
     },
+};
+#[cfg(feature = "dev-context-only-utils")]
+use {
+    qualifier_attr::qualifiers,
+    solana_account::{AccountSharedData, WritableAccount},
+    solana_epoch_schedule::EpochSchedule,
+    solana_instruction::AccountMeta,
+    solana_message::{LegacyMessage, Message, SanitizedMessage},
+    solana_sdk_ids::sysvar,
+    solana_transaction_context::transaction_accounts::KeyedAccountSharedData,
+    std::collections::{HashMap, HashSet},
 };
 
 pub type BuiltinFunctionRegisterer =
@@ -666,9 +665,11 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
         let instruction_context = self.transaction_context.get_current_instruction_context()?;
         let process_executable_chain_time = Measure::start("process_executable_chain_time");
 
+        let mut program_is_builtin = false;
         let builtin_id = {
             let owner_id = instruction_context.get_program_owner()?;
             if native_loader::check_id(&owner_id) {
+                program_is_builtin = true;
                 *instruction_context.get_program_key()?
             } else if bpf_loader_deprecated::check_id(&owner_id)
                 || bpf_loader::check_id(&owner_id)
@@ -687,6 +688,13 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
             .program_cache_for_tx_batch
             .find(&builtin_id)
             .ok_or(InstructionError::UnsupportedProgramId)?;
+        if program_is_builtin {
+            // Otherwise `builtin_id` is the loader dispatching a BPF program,
+            // which is not itself the program being invoked.
+            self.environment_config
+                .program_cache_callback
+                .record_program_use(&builtin_id, &entry);
+        }
         let function = match &entry.program {
             ProgramCacheEntryType::Builtin(program) => program
                 .get_function_registry()
@@ -833,6 +841,23 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
                 self.environment_config
                     .program_cache_callback
                     .get_program_stats(program_id)
+            })
+    }
+
+    /// Resolve a program entry, loading it from the global program cache on the
+    /// fly if the batch-local cache does not already hold it.
+    pub fn load_program(&mut self, program_id: &Pubkey) -> Option<Arc<ProgramCacheEntry>> {
+        let program_cache_callback = self.environment_config.program_cache_callback;
+        self.program_cache_for_tx_batch
+            .find(program_id)
+            .inspect(|entry| program_cache_callback.record_program_use(program_id, entry))
+            .or_else(|| {
+                program_cache_callback
+                    .load_program(program_id)
+                    .inspect(|entry| {
+                        self.program_cache_for_tx_batch
+                            .replenish(*program_id, Arc::clone(entry));
+                    })
             })
     }
 
