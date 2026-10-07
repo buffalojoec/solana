@@ -10,7 +10,6 @@ use {
         nonce_info::NonceInfo,
         program_loader::{
             ProgramLoader, filter_executable_program_accounts, load_program_with_pubkey,
-            replenish_program_cache,
         },
         rollback_accounts::RollbackAccounts,
         transaction_account_state_info::{
@@ -586,52 +585,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
                 // Transaction is able to be executed
                 TransactionLoadResult::Loaded(loaded_transaction) => {
-                    let (missing_programs, filter_executable_us) =
-                        measure_us!(filter_executable_program_accounts(
-                            &account_loader,
-                            &program_cache_for_tx_batch,
-                            tx.account_keys().iter(),
-                        ));
-                    execute_timings.saturating_add_in_place(
-                        ExecuteTimingType::FilterExecutableUs,
-                        filter_executable_us,
-                    );
-
-                    let ((), program_cache_us) = measure_us!({
-                        replenish_program_cache(
-                            &self.global_program_cache,
-                            &account_loader,
-                            self.slot,
-                            environment
-                                .program_runtime_environments
-                                .get_env_for_execution(),
-                            missing_programs,
-                            &mut program_cache_for_tx_batch,
-                            &mut execute_timings,
-                            config.limit_to_load_programs,
-                            true, // increment_usage_counter
-                        );
-                    });
-                    execute_timings.saturating_add_in_place(
-                        ExecuteTimingType::ProgramCacheUs,
-                        program_cache_us,
-                    );
-
-                    if program_cache_for_tx_batch.hit_max_limit {
-                        return LoadAndExecuteSanitizedTransactionsOutput {
-                            error_metrics,
-                            execute_timings,
-                            processing_results: (0..sanitized_txs.len())
-                                .map(|_| Err(TransactionError::ProgramCacheHitMaxLimit))
-                                .collect(),
-                            // If we abort the batch and balance recording is enabled, no balances should be
-                            // collected. If this is a leader thread, no batch will be committed.
-                            balance_collector: None,
-                        };
-                    }
-
-                    // Anything the batch-local cache is still missing gets loaded
-                    // through this, as it is invoked.
                     let program_loader = ProgramLoader::new(
                         &self.global_program_cache,
                         &account_loader,
@@ -1439,7 +1392,7 @@ mod tests {
                 ValidatedTransactionDetails,
             },
             nonce_info::NonceInfo,
-            program_loader::test_utils::*,
+            program_loader::{replenish_program_cache, test_utils::*},
             rent_calculator::RENT_EXEMPT_RENT_EPOCH,
             rollback_accounts::RollbackAccounts,
         },
