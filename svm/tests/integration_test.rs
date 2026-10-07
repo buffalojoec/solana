@@ -41,7 +41,7 @@ use {
             TransactionCheckResult,
         },
         nonce_info::NonceInfo,
-        program_loader::filter_executable_program_accounts,
+        program_loader::{filter_executable_program_accounts, replenish_program_cache},
         transaction_execution_result::TransactionExecutionDetails,
         transaction_processing_result::{ProcessedTransaction, TransactionProcessingResult},
         transaction_processor::{
@@ -354,12 +354,14 @@ impl SvmTestEnvironment<'_> {
         }
 
         let mut execute_timings = ExecuteTimings::default();
-        self.batch_processor.replenish_program_cache(
+        replenish_program_cache(
+            &self.batch_processor.global_program_cache,
             &account_loader,
-            missing_programs,
+            self.batch_processor.slot,
             self.processing_environment
                 .program_runtime_environments
                 .get_env_for_execution(),
+            missing_programs,
             &mut program_cache_for_tx_batch,
             &mut execute_timings,
             false, // limit_to_load_programs

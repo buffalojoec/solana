@@ -10,6 +10,7 @@ use {
         nonce_info::NonceInfo,
         program_loader::{
             ProgramLoader, filter_executable_program_accounts, load_program_with_pubkey,
+            replenish_program_cache,
         },
         rollback_accounts::RollbackAccounts,
         transaction_account_state_info::{
@@ -597,12 +598,14 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     );
 
                     let ((), program_cache_us) = measure_us!({
-                        self.replenish_program_cache(
+                        replenish_program_cache(
+                            &self.global_program_cache,
                             &account_loader,
-                            missing_programs,
+                            self.slot,
                             environment
                                 .program_runtime_environments
                                 .get_env_for_execution(),
+                            missing_programs,
                             &mut program_cache_for_tx_batch,
                             &mut execute_timings,
                             config.limit_to_load_programs,
@@ -964,85 +967,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         } else {
             error_counters.blockhash_not_found += 1;
             Err(TransactionError::BlockhashNotFound)
-        }
-    }
-
-    #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
-    fn replenish_program_cache<CB: TransactionProcessingCallback>(
-        &self,
-        account_loader: &AccountLoader<CB>,
-        mut missing_programs: Vec<ProgramToLoad>,
-        program_runtime_environment_for_execution: &ProgramRuntimeEnvironment,
-        program_cache_for_tx_batch: &mut ProgramCacheForTxBatch,
-        execute_timings: &mut ExecuteTimings,
-        limit_to_load_programs: bool,
-        increment_usage_counter: bool,
-    ) {
-        if missing_programs.is_empty() {
-            // Nothing to load, so skip the global cache and fork graph locks.
-            // Program-cache hit/miss counters are unchanged for empty work.
-            return;
-        }
-        let mut count_hits_and_misses = true;
-        loop {
-            // Lock the global cache.
-            let global_program_cache = self.global_program_cache.read().unwrap();
-            // Figure out which program needs to be loaded next.
-            let program_to_load = global_program_cache.extract(
-                &mut missing_programs,
-                program_cache_for_tx_batch,
-                program_runtime_environment_for_execution,
-                increment_usage_counter,
-                count_hits_and_misses,
-            );
-            count_hits_and_misses = false;
-            let task_waiter = Arc::clone(&global_program_cache.loading_task_waiter);
-            let task_cookie = task_waiter.cookie();
-            // Unlock the global cache again.
-            drop(global_program_cache);
-
-            let program_to_store = program_to_load.map(|key| {
-                // Load, verify and compile one program.
-                let program = load_program_with_pubkey(
-                    account_loader,
-                    program_runtime_environment_for_execution,
-                    &key,
-                    self.slot,
-                    execute_timings,
-                )
-                .expect("called load_program_with_pubkey() with nonexistent account");
-                (key, program)
-            });
-
-            if let Some((key, program)) = program_to_store {
-                program_cache_for_tx_batch.loaded_missing = true;
-                let mut global_program_cache = self.global_program_cache.write().unwrap();
-                // Submit our last completed loading task.
-                if global_program_cache.finish_cooperative_loading_task(
-                    program_runtime_environment_for_execution,
-                    self.slot,
-                    key,
-                    program,
-                ) && limit_to_load_programs
-                {
-                    // This branch is taken when there is an error in assigning a program to a
-                    // cache slot. It is not possible to mock this error for SVM unit
-                    // tests purposes.
-                    *program_cache_for_tx_batch = ProgramCacheForTxBatch::new(self.slot);
-                    program_cache_for_tx_batch.hit_max_limit = true;
-                    return;
-                }
-            } else if missing_programs.is_empty() {
-                break;
-            } else {
-                // Remember: there are multiple transaction processor threads running concurrently
-                // and those other threads may be loading this or other programs.
-                //
-                // So, sleep until some other thread submits a program with their
-                // `finish_cooperative_loading_task` call. We'll then wake up and try to load the
-                // missing programs inside the tx batch again.
-                let _new_cookie = task_waiter.wait(task_cookie);
-            }
         }
     }
 
@@ -3216,7 +3140,7 @@ mod tests {
         const DEPLOYMENT_SLOT: u64 = 10;
 
         let mock_bank = MockBankCallback::default();
-        let account_loader = (&mock_bank).into();
+        let account_loader: AccountLoader<_> = (&mock_bank).into();
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
         let batch_processor =
             TransactionBatchProcessor::new(BATCH_SLOT, 0, Arc::downgrade(&fork_graph), None);
@@ -3283,10 +3207,12 @@ mod tests {
         );
 
         // The load succeeds, leaving a `Loaded` entry in the batch cache.
-        batch_processor.replenish_program_cache(
+        replenish_program_cache(
+            &batch_processor.global_program_cache,
             &account_loader,
-            missing_programs,
+            batch_processor.slot,
             &environment,
+            missing_programs,
             &mut program_cache_for_tx_batch,
             &mut ExecuteTimings::default(),
             true,
@@ -3305,7 +3231,7 @@ mod tests {
     #[test_case(ProgramCacheEntryOwner::NativeLoader)]
     fn test_replenish_program_cache_program_account_not_found(loader: ProgramCacheEntryOwner) {
         let mock_bank = MockBankCallback::default();
-        let account_loader = (&mock_bank).into();
+        let account_loader: AccountLoader<_> = (&mock_bank).into();
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
         let batch_processor =
             TransactionBatchProcessor::new(0, 0, Arc::downgrade(&fork_graph), None);
@@ -3326,14 +3252,16 @@ mod tests {
         // But still, even if we did happen to try to extract this program, it
         // should panic.
         let panicked = catch_panic(|| {
-            batch_processor.replenish_program_cache(
+            replenish_program_cache(
+                &batch_processor.global_program_cache,
                 &account_loader,
+                batch_processor.slot,
+                &environment,
                 vec![ProgramToLoad {
                     program_id: &program_id,
                     loader,
                     deployment_slot: 0,
                 }],
-                &environment,
                 &mut program_cache_for_tx_batch,
                 &mut ExecuteTimings::default(),
                 true,
@@ -3355,7 +3283,7 @@ mod tests {
         const BATCH_SLOT: u64 = 200;
 
         let mock_bank = MockBankCallback::default();
-        let account_loader = (&mock_bank).into();
+        let account_loader: AccountLoader<_> = (&mock_bank).into();
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
         let batch_processor =
             TransactionBatchProcessor::new(BATCH_SLOT, 0, Arc::downgrade(&fork_graph), None);
@@ -3385,14 +3313,16 @@ mod tests {
 
         // Try to extract it anyway.
         let panicked = catch_panic(|| {
-            batch_processor.replenish_program_cache(
+            replenish_program_cache(
+                &batch_processor.global_program_cache,
                 &account_loader,
+                batch_processor.slot,
+                &environment,
                 vec![ProgramToLoad {
                     program_id: &program_id,
                     loader,
                     deployment_slot: 0,
                 }],
-                &environment,
                 &mut program_cache_for_tx_batch,
                 &mut ExecuteTimings::default(),
                 true,
@@ -3460,7 +3390,7 @@ mod tests {
         const DEPLOYMENT_SLOT: u64 = 10;
 
         let mock_bank = MockBankCallback::default();
-        let account_loader = (&mock_bank).into();
+        let account_loader: AccountLoader<_> = (&mock_bank).into();
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
         let batch_processor =
             TransactionBatchProcessor::new(BATCH_SLOT, 0, Arc::downgrade(&fork_graph), None);
@@ -3538,14 +3468,16 @@ mod tests {
         // the `debug_assert!` inside of `assign_program`, which traps on an
         // invalid `Closed`-`Closed` transition. We observe this below.
         let panicked = catch_panic(|| {
-            batch_processor.replenish_program_cache(
+            replenish_program_cache(
+                &batch_processor.global_program_cache,
                 &account_loader,
+                batch_processor.slot,
+                &environment,
                 vec![ProgramToLoad {
                     program_id: &program_id,
                     loader: ProgramCacheEntryOwner::LoaderV3,
                     deployment_slot: DEPLOYMENT_SLOT,
                 }],
-                &environment,
                 &mut program_cache_for_tx_batch,
                 &mut ExecuteTimings::default(),
                 true,
@@ -3564,7 +3496,7 @@ mod tests {
         const BATCH_SLOT: u64 = 200;
 
         let mock_bank = MockBankCallback::default();
-        let account_loader = (&mock_bank).into();
+        let account_loader: AccountLoader<_> = (&mock_bank).into();
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
         let batch_processor =
             TransactionBatchProcessor::new(BATCH_SLOT, 0, Arc::downgrade(&fork_graph), None);
@@ -3605,14 +3537,16 @@ mod tests {
         // program into the search list anyway walks into the continuous loop
         // described there, which debug mode traps on.
         let panicked = catch_panic(|| {
-            batch_processor.replenish_program_cache(
+            replenish_program_cache(
+                &batch_processor.global_program_cache,
                 &account_loader,
+                batch_processor.slot,
+                &environment,
                 vec![ProgramToLoad {
                     program_id: &program_id,
                     loader: ProgramCacheEntryOwner::LoaderV4,
                     deployment_slot: if just_zeroes { 0 } else { 9 },
                 }],
-                &environment,
                 &mut program_cache_for_tx_batch,
                 &mut ExecuteTimings::default(),
                 true,
@@ -3652,7 +3586,7 @@ mod tests {
         const BATCH_SLOT: u64 = 200;
 
         let mock_bank = MockBankCallback::default();
-        let account_loader = (&mock_bank).into();
+        let account_loader: AccountLoader<_> = (&mock_bank).into();
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
         let batch_processor =
             TransactionBatchProcessor::new(BATCH_SLOT, 0, Arc::downgrade(&fork_graph), None);
@@ -3687,14 +3621,16 @@ mod tests {
 
         let mut program_cache_for_tx_batch = ProgramCacheForTxBatch::new(batch_processor.slot);
         let keys = [program_id];
-        batch_processor.replenish_program_cache(
+        replenish_program_cache(
+            &batch_processor.global_program_cache,
             &account_loader,
+            batch_processor.slot,
+            &environment,
             filter_executable_program_accounts(
                 &mock_bank,
                 &program_cache_for_tx_batch,
                 keys.iter(),
             ),
-            &environment,
             &mut program_cache_for_tx_batch,
             &mut ExecuteTimings::default(),
             true,
@@ -3754,7 +3690,7 @@ mod tests {
         const DEPLOYMENT_SLOT: u64 = 10;
 
         let mock_bank = MockBankCallback::default();
-        let account_loader = (&mock_bank).into();
+        let account_loader: AccountLoader<_> = (&mock_bank).into();
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
         let batch_processor =
             TransactionBatchProcessor::new(BATCH_SLOT, 0, Arc::downgrade(&fork_graph), None);
@@ -3773,10 +3709,12 @@ mod tests {
         );
         assert_eq!(missing_programs.len(), 1);
 
-        batch_processor.replenish_program_cache(
+        replenish_program_cache(
+            &batch_processor.global_program_cache,
             &account_loader,
-            missing_programs,
+            batch_processor.slot,
             &environment,
+            missing_programs,
             &mut program_cache_for_tx_batch,
             &mut ExecuteTimings::default(),
             true,
