@@ -3097,7 +3097,6 @@ fn program_cache_loaderv3_buffer_swap(invoke_changed_program: bool) {
     assert!(env.is_program_blocked(&target));
 }
 
-#[ignore] // TODO: Ignored until later commit, now that both extractions are running.
 #[test]
 fn program_cache_stats() {
     let mut test_entry = SvmTestEntry::default();
@@ -3195,7 +3194,9 @@ fn program_cache_stats() {
         ]),
         ExecutionStatus::ExecutedFailed,
     );
-    noop_tx_usage += 1;
+    // The transfer fails at the first instruction, so the noop that follows is
+    // never reached. Programs are loaded as they are invoked, so an unreached
+    // instruction does not count as a use.
     system_tx_usage += 1;
 
     // load failure/fee-only does not touch the program cache
@@ -3273,8 +3274,9 @@ fn program_cache_stats() {
     // upgrade the program. this blocks execution but does not create a tombstone
     // the main thing we are testing is the tx counter is ported across upgrades
     //
-    // note the upgrade transaction actually counts as a usage, per the existing rules
-    // the program cache must load the program because it has no idea if it will be used for cpi
+    // note the upgrade transaction does not count as a usage. the program is never
+    // invoked, and carrying its stats across the upgrade only reads them, so the
+    // program cache never loads it
     test_entry.push_transaction(Transaction::new_signed_with_payer(
         &[loaderv3_instruction::upgrade(
             &noop_program,
@@ -3289,11 +3291,12 @@ fn program_cache_stats() {
 
     test_entry.drop_expected_account(buffer_address);
 
+    // nor does invoking it after the upgrade count toward the outgoing entry. that
+    // use lands on the batch-local entry for the upgraded program
     test_entry.push_transaction_with_status(
         make_transaction(slice::from_ref(&successful_noop_instruction)),
         ExecutionStatus::ExecutedFailed,
     );
-    noop_tx_usage += 1;
 
     test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE * 2);
 
