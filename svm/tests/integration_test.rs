@@ -3380,6 +3380,141 @@ fn program_cache_stats() {
     );
 }
 
+// Upgrading a program carries the outgoing program's usage statistics over to
+// the incoming one. Statistics are tracked separately from the binary, so an
+// evicted program still has the ones we need and does not have to be rebuilt to
+// read them.
+#[test]
+fn program_cache_stats_across_upgrade_of_unloaded_program() {
+    let mut test_entry = SvmTestEntry::default();
+
+    let program_name = "hello-solana";
+    let noop_program = program_address(program_name);
+
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+
+    let mut fee_payer_data = AccountSharedData::default();
+    fee_payer_data.set_lamports(LAMPORTS_PER_SOL * 100);
+    test_entry.add_initial_account(fee_payer, &fee_payer_data);
+
+    test_entry
+        .initial_programs
+        .push((program_name.to_string(), DEPLOYMENT_SLOT, Some(fee_payer)));
+
+    let buffer_address = Pubkey::new_unique();
+    {
+        let mut data = wincode::serialize(&UpgradeableLoaderState::Buffer {
+            authority_address: Some(fee_payer),
+        })
+        .unwrap();
+        let mut program_bytecode = load_program(program_name.to_string());
+        data.append(&mut program_bytecode);
+
+        let buffer_account = AccountSharedData::create_from_existing_shared_data(
+            LAMPORTS_PER_SOL,
+            Arc::new(data),
+            bpf_loader_upgradeable::id(),
+            true,
+            u64::MAX,
+        );
+
+        test_entry.add_initial_account(buffer_address, &buffer_account);
+    }
+
+    // First batch: give the program a usage record to carry across the upgrade.
+    test_entry.push_transaction(Transaction::new_signed_with_payer(
+        &[Instruction::new_with_bytes(noop_program, &[], vec![])],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        Hash::default(),
+    ));
+    test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE);
+
+    let mut env = SvmTestEnvironment::create(test_entry);
+    env.execute();
+
+    // Second batch: upgrade the program.
+    let mut test_entry = SvmTestEntry {
+        initial_accounts: env.test_entry.final_accounts.clone(),
+        final_accounts: env.test_entry.final_accounts.clone(),
+        ..SvmTestEntry::default()
+    };
+
+    test_entry.push_transaction(Transaction::new_signed_with_payer(
+        &[loaderv3_instruction::upgrade(
+            &noop_program,
+            &buffer_address,
+            &fee_payer,
+            &Pubkey::new_unique(),
+        )],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        Hash::default(),
+    ));
+
+    test_entry.drop_expected_account(buffer_address);
+    test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE);
+
+    // Before executing the upgrade, evict the program cache entry, keeping its
+    // statistics.
+    let (uses_before, misses_before, reloads_before) = {
+        let mut global_program_cache = env.batch_processor.global_program_cache.write().unwrap();
+        global_program_cache.sort_and_unload(0);
+
+        let (_, noop_entry) = global_program_cache
+            .get_flattened_entries_for_tests()
+            .into_iter()
+            .rev()
+            .find(|(pubkey, _)| *pubkey == noop_program)
+            .unwrap();
+        assert!(
+            noop_entry.is_unloaded(),
+            "noop program binary is evicted"
+        );
+
+        let uses = noop_entry.stats.uses.load(Ordering::Relaxed);
+        assert_eq!(uses, 1, "evicted program retains its usage statistics");
+
+        (
+            uses,
+            global_program_cache.stats.misses.load(Ordering::Relaxed),
+            global_program_cache.stats.reloads.load(Ordering::Relaxed),
+        )
+    };
+
+    env.test_entry = test_entry;
+    env.execute();
+
+    let global_program_cache = env.batch_processor.global_program_cache.read().unwrap();
+
+    // The upgrade reads the outgoing program's statistics straight out of the
+    // cache, so the evicted entry is never reloaded to obtain them.
+    assert_eq!(
+        global_program_cache.stats.misses.load(Ordering::Relaxed),
+        misses_before,
+        "upgrade did not miss the program cache"
+    );
+    assert_eq!(
+        global_program_cache.stats.reloads.load(Ordering::Relaxed),
+        reloads_before,
+        "upgrade did not reload the program"
+    );
+
+    let (_, noop_entry) = global_program_cache
+        .get_flattened_entries_for_tests()
+        .into_iter()
+        .rev()
+        .find(|(pubkey, _)| *pubkey == noop_program)
+        .unwrap();
+
+    assert_eq!(
+        noop_entry.stats.uses.load(Ordering::Relaxed),
+        uses_before,
+        "usage statistics carried across the upgrade"
+    );
+}
+
 #[derive(Clone, PartialEq, Eq)]
 enum Inspect<'a> {
     LiveRead(&'a AccountSharedData),
