@@ -8,7 +8,9 @@ use {
         },
         account_overrides::AccountOverrides,
         nonce_info::NonceInfo,
-        program_loader::{filter_executable_program_accounts, load_program_with_pubkey},
+        program_loader::{
+            ProgramLoader, filter_executable_program_accounts, load_program_with_pubkey,
+        },
         rollback_accounts::RollbackAccounts,
         transaction_account_state_info::{
             TransactionAccountStateInfo, get_uninitialized_accounts_size, verify_changes,
@@ -269,12 +271,6 @@ impl<FG: ForkGraph> Default for TransactionBatchProcessor<FG> {
         }
     }
 }
-
-/// TODO: Replaced in a later commit by a loader that reads from the global
-/// program cache. For now the batch-local cache is still provisioned up front,
-/// so nothing is read from the global cache during execution.
-struct PlaceholderProgramLoader;
-impl ProgramCacheCallback for PlaceholderProgramLoader {}
 
 impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     /// Create a new, uninitialized `TransactionBatchProcessor`.
@@ -631,8 +627,18 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         };
                     }
 
+                    let program_loader = ProgramLoader::new(
+                        &self.global_program_cache,
+                        &account_loader,
+                        self.slot,
+                        environment
+                            .program_runtime_environments
+                            .get_env_for_execution(),
+                    );
+
                     let executed_tx = self.execute_loaded_transaction(
                         callbacks,
+                        &program_loader,
                         tx,
                         &sysvar_cache,
                         loaded_transaction,
@@ -1104,6 +1110,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     fn execute_loaded_transaction<CB: InvokeContextCallback>(
         &self,
         callback: &CB,
+        program_cache_callback: &dyn ProgramCacheCallback,
         tx: &impl SVMTransaction,
         sysvar_cache: &SysvarCache,
         mut loaded_transaction: LoadedTransaction,
@@ -1176,7 +1183,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                 environment.blockhash_lamports_per_signature,
                 environment.alpenglow_migration_succeeded,
                 callback,
-                &PlaceholderProgramLoader,
+                program_cache_callback,
                 &environment.feature_set,
                 &environment.program_runtime_environments,
                 sysvar_cache,
@@ -1504,6 +1511,7 @@ mod tests {
         solana_message::{LegacyMessage, Message, MessageHeader, SanitizedMessage},
         solana_nonce as nonce,
         solana_program_runtime::{
+            callback::NoOpProgramCacheCallback,
             execution_budget::{
                 SVMTransactionExecutionAndFeeBudgetLimits, SVMTransactionExecutionBudget,
             },
@@ -1860,6 +1868,7 @@ mod tests {
 
         let executed_tx = batch_processor.execute_loaded_transaction(
             &mock_bank,
+            &NoOpProgramCacheCallback,
             &sanitized_transaction,
             &sysvar_cache,
             loaded_transaction.clone(),
@@ -1875,6 +1884,7 @@ mod tests {
 
         let executed_tx = batch_processor.execute_loaded_transaction(
             &mock_bank,
+            &NoOpProgramCacheCallback,
             &sanitized_transaction,
             &sysvar_cache,
             loaded_transaction.clone(),
@@ -1893,6 +1903,7 @@ mod tests {
 
         let executed_tx = batch_processor.execute_loaded_transaction(
             &mock_bank,
+            &NoOpProgramCacheCallback,
             &sanitized_transaction,
             &sysvar_cache,
             loaded_transaction,
@@ -1957,6 +1968,7 @@ mod tests {
 
         let _ = batch_processor.execute_loaded_transaction(
             &mock_bank,
+            &NoOpProgramCacheCallback,
             &sanitized_transaction,
             &sysvar_cache,
             loaded_transaction,

@@ -19,6 +19,7 @@ use {
         },
         memory_context::{MemoryContext, MemoryContexts},
         program_cache_entry::ProgramCacheEntryType,
+        program_metrics::ProgramStatistics,
         stable_log,
         sysvar_cache::SysvarCache,
     },
@@ -165,7 +166,6 @@ pub struct EnvironmentConfig<'a> {
     pub blockhash_lamports_per_signature: u64,
     alpenglow_migration_succeeded: bool,
     epoch_stake_callback: &'a dyn InvokeContextCallback,
-    #[allow(dead_code)]
     program_cache_callback: &'a dyn ProgramCacheCallback,
     feature_set: &'a SVMFeatureSet,
     program_runtime_environments: &'a ProgramRuntimeEnvironments,
@@ -821,6 +821,19 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
         self.environment_config
             .epoch_stake_callback
             .is_precompile(pubkey)
+    }
+
+    /// Obtain usage statistics recorded for `program_id`, preferring the
+    /// batch-local cache and falling back to the global one.
+    pub fn get_program_stats(&self, program_id: &Pubkey) -> Option<Arc<ProgramStatistics>> {
+        self.program_cache_for_tx_batch
+            .find(program_id)
+            .map(|entry| Arc::clone(&entry.stats))
+            .or_else(|| {
+                self.environment_config
+                    .program_cache_callback
+                    .get_program_stats(program_id)
+            })
     }
 
     // Should alignment be enforced during user pointer translation
