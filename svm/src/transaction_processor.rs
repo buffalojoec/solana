@@ -630,6 +630,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         };
                     }
 
+                    // Anything the batch-local cache is still missing gets loaded
+                    // through this, as it is invoked.
                     let program_loader = ProgramLoader::new(
                         &self.global_program_cache,
                         &account_loader,
@@ -637,6 +639,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         environment
                             .program_runtime_environments
                             .get_env_for_execution(),
+                        config.limit_to_load_programs,
                     );
 
                     let executed_tx = self.execute_loaded_transaction(
@@ -651,6 +654,22 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         environment,
                         config,
                     );
+
+                    execute_timings.accumulate(&program_loader.take_timings());
+                    program_cache_for_tx_batch.loaded_missing |= program_loader.loaded_missing();
+
+                    if program_loader.hit_max_limit() {
+                        return LoadAndExecuteSanitizedTransactionsOutput {
+                            error_metrics,
+                            execute_timings,
+                            processing_results: (0..sanitized_txs.len())
+                                .map(|_| Err(TransactionError::ProgramCacheHitMaxLimit))
+                                .collect(),
+                            // If we abort the batch and balance recording is enabled, no balances should be
+                            // collected. If this is a leader thread, no batch will be committed.
+                            balance_collector: None,
+                        };
+                    }
 
                     match (
                         &executed_tx.execution_details.status,
