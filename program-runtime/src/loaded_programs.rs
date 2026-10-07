@@ -5,7 +5,7 @@ use {
         program_cache_entry::{
             ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType, retention_score,
         },
-        program_metrics::{EMA_SCALE, ProgramCacheStats},
+        program_metrics::{EMA_SCALE, ProgramCacheStats, ProgramStatistics},
     },
     log::error,
     solana_clock::{Epoch, Slot},
@@ -614,12 +614,17 @@ impl<FG: ForkGraph> ProgramCache<FG> {
     }
 
     /// Finds the entry for `program_to_load` visible in `batch_slot`.
+    ///
+    /// `reject_unloaded` decides whether an entry whose binary has been evicted
+    /// still counts. Callers that only read metadata off the entry can accept
+    /// one; callers that need to run it cannot.
     fn find_visible_entry(
         &self,
         locked_fork_graph: &FG,
         program_to_load: &ProgramToLoad,
         batch_slot: Slot,
         program_runtime_environment_for_execution: &ProgramRuntimeEnvironment,
+        reject_unloaded: bool,
     ) -> Option<&Arc<ProgramCacheEntry>> {
         let IndexImplementation::V1 { entries, .. } = &self.index;
         if let Some(second_level) = entries.get(program_to_load.program_id) {
@@ -654,7 +659,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                             // sibling compiled against that environment may follow.
                             continue;
                         }
-                        if entry.is_unloaded() {
+                        if reject_unloaded && entry.is_unloaded() {
                             break;
                         }
                     } else if !entry.is_implicit_delay_visibility_tombstone(batch_slot) {
@@ -665,6 +670,26 @@ impl<FG: ForkGraph> ProgramCache<FG> {
             }
         }
         None
+    }
+
+    /// Usage statistics of the entry for `program_to_load` visible in `slot`,
+    /// or `None` if the cache holds no visible entry for it.
+    pub fn get_entry_stats(
+        &self,
+        program_to_load: &ProgramToLoad,
+        slot: Slot,
+        program_runtime_environment: &ProgramRuntimeEnvironment,
+    ) -> Option<Arc<ProgramStatistics>> {
+        let fork_graph = self.fork_graph.as_ref()?.upgrade()?;
+        let locked_fork_graph = fork_graph.read().unwrap();
+        self.find_visible_entry(
+            &locked_fork_graph,
+            program_to_load,
+            slot,
+            program_runtime_environment,
+            /* reject_unloaded */ false,
+        )
+        .map(|entry| Arc::clone(&entry.stats))
     }
 
     /// Extracts a subset of the programs relevant to a transaction batch
@@ -693,6 +718,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                         program_to_load,
                         batch_slot,
                         program_runtime_environment_for_execution,
+                        /* reject_unloaded */ true,
                     ) {
                         let entry_is_effective = batch_slot >= entry.effective_slot();
                         let entry_to_return = if entry_is_effective {
@@ -4446,5 +4472,94 @@ pub(crate) mod tests {
         let mut extracted = ProgramCacheForTxBatch::new(20);
         cache.extract(&mut missing, &mut extracted, &env, true, true);
         assert!(match_slot(&extracted, &program1, 0, 20));
+    }
+
+    #[test]
+    fn test_get_entry_stats() {
+        let (mut cache, _fork_graph) = new_test_cache_with_fork_graph(BlockRelation::Ancestor);
+        let env = get_mock_program_runtime_environment();
+        let loaded_program_id = Pubkey::new_unique();
+        let unloaded_program_id = Pubkey::new_unique();
+        let loaded_entry = new_test_entry_with_owner(
+            100,
+            ProgramCacheEntryOwner::LoaderV3,
+            new_loaded_entry(env.clone()),
+        );
+        let unloaded_entry = new_test_entry_with_owner(
+            100,
+            ProgramCacheEntryOwner::LoaderV3,
+            new_unloaded_entry(env.clone()),
+        );
+        cache.assign_program(&env, loaded_program_id, 100, Arc::clone(&loaded_entry));
+        cache.assign_program(&env, unloaded_program_id, 100, Arc::clone(&unloaded_entry));
+
+        // Both a loaded and an unloaded entry yield their statistics.
+        for (program_id, entry) in [
+            (loaded_program_id, &loaded_entry),
+            (unloaded_program_id, &unloaded_entry),
+        ] {
+            let program_to_load = ProgramToLoad {
+                program_id: &program_id,
+                loader: ProgramCacheEntryOwner::LoaderV3,
+                deployment_slot: 100,
+            };
+            let stats = cache.get_entry_stats(&program_to_load, 200, &env).unwrap();
+            assert!(Arc::ptr_eq(&stats, &entry.stats));
+            assert_eq!(stats.uses.load(Ordering::Relaxed), 0);
+        }
+
+        // Reading statistics neither counts toward the cache's hits and misses
+        // nor schedules the unloaded entry for loading.
+        assert_eq!(cache.stats.hits.load(Ordering::Relaxed), 0);
+        assert_eq!(cache.stats.misses.load(Ordering::Relaxed), 0);
+        let IndexImplementation::V1 {
+            loading_entries, ..
+        } = &cache.index;
+        assert!(loading_entries.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_get_entry_stats_not_visible() {
+        let (mut cache, _fork_graph) = new_test_cache_with_fork_graph(BlockRelation::Ancestor);
+        let env = get_mock_program_runtime_environment();
+        let program_id = Pubkey::new_unique();
+        let entry = new_test_entry_with_owner(
+            100,
+            ProgramCacheEntryOwner::LoaderV3,
+            new_unloaded_entry(env.clone()),
+        );
+        cache.assign_program(&env, program_id, 100, entry);
+
+        let other_program_id = Pubkey::new_unique();
+        for (program_id, loader, deployment_slot) in [
+            // Unknown program.
+            (&other_program_id, ProgramCacheEntryOwner::LoaderV3, 100),
+            // Different loader.
+            (&program_id, ProgramCacheEntryOwner::LoaderV4, 100),
+            // Different deployment slot.
+            (&program_id, ProgramCacheEntryOwner::LoaderV3, 150),
+        ] {
+            let program_to_load = ProgramToLoad {
+                program_id,
+                loader,
+                deployment_slot,
+            };
+            assert!(cache.get_entry_stats(&program_to_load, 200, &env).is_none());
+        }
+
+        // An entry on another fork is not visible either.
+        let (mut cache, _fork_graph) = new_test_cache_with_fork_graph(BlockRelation::Unrelated);
+        let entry = new_test_entry_with_owner(
+            100,
+            ProgramCacheEntryOwner::LoaderV3,
+            new_unloaded_entry(env.clone()),
+        );
+        cache.assign_program(&env, program_id, 100, entry);
+        let program_to_load = ProgramToLoad {
+            program_id: &program_id,
+            loader: ProgramCacheEntryOwner::LoaderV3,
+            deployment_slot: 100,
+        };
+        assert!(cache.get_entry_stats(&program_to_load, 200, &env).is_none());
     }
 }
