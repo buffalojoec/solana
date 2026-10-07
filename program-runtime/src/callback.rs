@@ -1,7 +1,8 @@
 //! Callbacks required for program runtime operations.
 
 use {
-    crate::program_metrics::ProgramStatistics, solana_pubkey::Pubkey,
+    crate::{program_cache_entry::ProgramCacheEntry, program_metrics::ProgramStatistics},
+    solana_pubkey::Pubkey,
     solana_svm_type_overrides::sync::Arc,
 };
 
@@ -11,6 +12,19 @@ use {
 /// [`InvokeContext`]: crate::invoke_context::InvokeContext
 /// [`ProgramCache`]: crate::loaded_programs::ProgramCache
 pub trait ProgramCacheCallback {
+    /// Load the program at `program_id`, extracting it from the global
+    /// [`ProgramCache`](crate::loaded_programs::ProgramCache) and compiling it
+    /// if necessary.
+    fn load_program(&self, _program_id: &Pubkey) -> Option<Arc<ProgramCacheEntry>> {
+        None
+    }
+
+    /// Record that `program_id` was invoked, for usage accounting.
+    ///
+    /// Called for programs already resident in the batch-local cache, which
+    /// [`ProgramCacheCallback::load_program`] never sees.
+    fn record_program_use(&self, _program_id: &Pubkey, _entry: &Arc<ProgramCacheEntry>) {}
+
     /// Obtain usage statistics recorded for `program_id`, if found, without
     /// loading or compiling its binary.
     fn get_program_stats(&self, _program_id: &Pubkey) -> Option<Arc<ProgramStatistics>> {
