@@ -12,6 +12,7 @@ use {
 };
 use {
     crate::{
+        callback::ProgramCacheCallback,
         execution_budget::{SVMTransactionExecutionBudget, SVMTransactionExecutionCost},
         loaded_programs::{
             ProgramCacheForTxBatch, ProgramRuntimeEnvironment, ProgramRuntimeEnvironments,
@@ -164,6 +165,8 @@ pub struct EnvironmentConfig<'a> {
     pub blockhash_lamports_per_signature: u64,
     alpenglow_migration_succeeded: bool,
     epoch_stake_callback: &'a dyn InvokeContextCallback,
+    #[allow(dead_code)]
+    program_cache_callback: &'a dyn ProgramCacheCallback,
     feature_set: &'a SVMFeatureSet,
     program_runtime_environments: &'a ProgramRuntimeEnvironments,
     sysvar_cache: &'a SysvarCache,
@@ -174,6 +177,7 @@ impl<'a> EnvironmentConfig<'a> {
         blockhash_lamports_per_signature: u64,
         alpenglow_migration_succeeded: bool,
         epoch_stake_callback: &'a dyn InvokeContextCallback,
+        program_cache_callback: &'a dyn ProgramCacheCallback,
         feature_set: &'a SVMFeatureSet,
         program_runtime_environments: &'a ProgramRuntimeEnvironments,
         sysvar_cache: &'a SysvarCache,
@@ -183,6 +187,7 @@ impl<'a> EnvironmentConfig<'a> {
             blockhash_lamports_per_signature,
             alpenglow_migration_succeeded,
             epoch_stake_callback,
+            program_cache_callback,
             feature_set,
             program_runtime_environments,
             sysvar_cache,
@@ -890,6 +895,7 @@ macro_rules! with_mock_invoke_context_with_feature_set {
             solana_svm_log_collector::LogCollector,
             $crate::{
                 __private::{DropOnBailOut, Hash, ReadableAccount, Rent, TransactionContext},
+                callback::NoOpProgramCacheCallback,
                 execution_budget::{SVMTransactionExecutionBudget, SVMTransactionExecutionCost},
                 invoke_context::{EnvironmentConfig, InvokeContext},
                 loaded_programs::{ProgramCacheForTxBatch, ProgramRuntimeEnvironments},
@@ -925,6 +931,7 @@ macro_rules! with_mock_invoke_context_with_feature_set {
             0,
             false,
             &MockInvokeContextCallback {},
+            &NoOpProgramCacheCallback,
             $feature_set,
             &program_runtime_environments,
             &sysvar_cache,
@@ -1162,9 +1169,12 @@ pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut Invo
 mod tests {
     use {
         super::*,
-        crate::execution_budget::{
-            DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT, MAX_INSTRUCTION_STACK_DEPTH,
-            MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268,
+        crate::{
+            callback::NoOpProgramCacheCallback,
+            execution_budget::{
+                DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT, MAX_INSTRUCTION_STACK_DEPTH,
+                MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268,
+            },
         },
         openssl::{
             ec::{EcGroup, EcKey},
@@ -2231,6 +2241,7 @@ mod tests {
             0,
             false,
             &MockCallback {},
+            &NoOpProgramCacheCallback,
             &feature_set,
             &program_runtime_environments,
             &sysvar_cache,
@@ -2283,6 +2294,7 @@ mod tests {
             0,
             false,
             &MockCallback {},
+            &NoOpProgramCacheCallback,
             &feature_set,
             &program_runtime_environments,
             &sysvar_cache,
@@ -2321,6 +2333,7 @@ mod tests {
             0,
             false,
             &MockCallback {},
+            &NoOpProgramCacheCallback,
             &feature_set,
             &program_runtime_environments,
             &sysvar_cache,
@@ -2447,6 +2460,7 @@ mod tests {
             0,
             false,
             &MockCallback {},
+            &NoOpProgramCacheCallback,
             &feature_set,
             &program_runtime_environments,
             &sysvar_cache,
@@ -2478,6 +2492,7 @@ mod tests {
             0,
             false,
             &MockCallback {},
+            &NoOpProgramCacheCallback,
             &feature_set,
             &program_runtime_environments,
             &sysvar_cache,
@@ -2514,6 +2529,7 @@ mod tests {
             0,
             false,
             &MockCallback {},
+            &NoOpProgramCacheCallback,
             &feature_set,
             &program_runtime_environments,
             &sysvar_cache,
@@ -2671,6 +2687,7 @@ mod tests {
             0,
             false,
             &MockCallback {},
+            &NoOpProgramCacheCallback,
             &feature_set,
             &program_runtime_environments,
             &sysvar_cache,
