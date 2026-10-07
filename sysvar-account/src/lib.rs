@@ -3,10 +3,13 @@
 #![cfg(feature = "dev-context-only-utils")]
 
 use {
-    solana_account::{AccountSharedData, WritableAccount},
+    solana_account::{
+        AccountSharedData, WINCODE_CONFIG, WincodeConfig, state_traits::StateMutWincode,
+    },
     solana_pubkey::Pubkey,
     solana_sdk_ids::sysvar,
     solana_sysvar_id::SysvarId,
+    wincode::{SchemaRead, SchemaWrite},
 };
 
 /// The canonical on-chain data length of the sysvar account at `sysvar_id`.
@@ -31,19 +34,21 @@ fn canonical_data_len(sysvar_id: &Pubkey) -> usize {
 /// data length, or to the serialized value when that is larger.
 pub fn create_sysvar_account<T>(value: &T) -> AccountSharedData
 where
-    T: wincode::Serialize<Src = T> + SysvarId,
+    T: SchemaWrite<WincodeConfig, Src = T>
+        + for<'de> SchemaRead<'de, WincodeConfig, Dst = T>
+        + SysvarId,
 {
-    let serialized_len = wincode::serialized_size(value).unwrap() as usize;
-    let data_len = canonical_data_len(&T::id()).max(serialized_len);
-    let mut account = AccountSharedData::new(1, data_len, &sysvar::id());
-    wincode::serialize_into(account.data_as_mut_slice(), value).unwrap();
-    account
+    let serialized_len = wincode::config::serialized_size(value, WINCODE_CONFIG).unwrap() as usize;
+    let space = canonical_data_len(&T::id()).max(serialized_len);
+    AccountSharedData::new_data_with_space(1, value, space, &sysvar::id()).unwrap()
 }
 
 /// [`create_sysvar_account`], keyed by the sysvar's address.
 pub fn keyed_sysvar_account<T>(value: &T) -> (Pubkey, AccountSharedData)
 where
-    T: wincode::Serialize<Src = T> + SysvarId,
+    T: SchemaWrite<WincodeConfig, Src = T>
+        + for<'de> SchemaRead<'de, WincodeConfig, Dst = T>
+        + SysvarId,
 {
     (T::id(), create_sysvar_account(value))
 }

@@ -782,7 +782,7 @@ mod tests {
             TransactionMessage as ProtoTransactionMessage, VoteAccountVersion,
             acct_state::DataRepr,
         },
-        solana_account::Account,
+        solana_account::{Account, WincodeConfig},
         solana_clock::Clock,
         solana_epoch_schedule::EpochSchedule,
         solana_hash::Hash,
@@ -798,6 +798,7 @@ mod tests {
         },
         solana_sysvar_account::keyed_sysvar_account,
         solana_sysvar_id::SysvarId,
+        wincode::{SchemaRead, SchemaWrite},
     };
 
     const PAYER: [u8; 32] = [0x11; 32];
@@ -837,7 +838,9 @@ mod tests {
 
     fn sysvar_account<T>(value: &T) -> AcctState
     where
-        T: wincode::Serialize<Src = T> + SysvarId,
+        T: SchemaWrite<WincodeConfig, Src = T>
+            + for<'de> SchemaRead<'de, WincodeConfig, Dst = T>
+            + SysvarId,
     {
         let (pubkey, account) = keyed_sysvar_account(value);
         input_account(pubkey, account.into())

@@ -13,7 +13,7 @@ edition = { workspace = true }
 dev-context-only-utils = []
 
 [dependencies]
-solana-account = { workspace = true }
+solana-account = { workspace = true, features = ["wincode"] }
 solana-pubkey = { workspace = true }
 solana-sdk-ids = { workspace = true }
 solana-sysvar = { workspace = true, features = ["wincode"] }
