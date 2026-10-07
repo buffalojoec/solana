@@ -546,7 +546,8 @@ pub(crate) mod tests {
         solana_sdk_ids::{bpf_loader, bpf_loader_upgradeable, native_loader, system_program},
         solana_signer::Signer,
         solana_svm::{
-            account_loader::AccountLoader, program_loader::filter_executable_program_accounts,
+            account_loader::AccountLoader,
+            program_loader::{filter_executable_program_accounts, replenish_program_cache},
         },
         solana_svm_timings::ExecuteTimings,
         solana_transaction::Transaction,
@@ -800,10 +801,12 @@ pub(crate) mod tests {
                 std::iter::once(&self.target_program_address),
             );
             let mut execute_timings = ExecuteTimings::default();
-            bank.transaction_processor.replenish_program_cache(
+            replenish_program_cache(
+                &bank.transaction_processor.global_program_cache,
                 &account_loader,
-                missing_programs,
+                bank.transaction_processor.slot,
                 &bank.transaction_processor.program_runtime_environment,
+                missing_programs,
                 &mut program_cache_for_tx_batch,
                 &mut execute_timings,
                 false, // limit_to_load_programs
