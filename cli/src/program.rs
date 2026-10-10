@@ -310,9 +310,9 @@ impl ProgramSubCommands for App<'_, '_> {
                                 .long("no-auto-extend")
                                 .takes_value(false)
                                 .help(
-                                    "Don't automatically extend the program's data account size. \
-                                     Has no effect once SIMD-0433 is active, as upgrades resize \
-                                     the account automatically",
+                                    "Don't automatically extend the program's data account size \
+                                     (Deprecated: has no effect once SIMD-0433 is active, as \
+                                     upgrades resize the account automatically)",
                                 ),
                         )
                         .arg(
@@ -752,6 +752,12 @@ pub fn parse_program_subcommand(
             let max_sign_attempts = value_of(matches, "max_sign_attempts").unwrap();
 
             let auto_extend = !matches.is_present("no_auto_extend");
+            if !auto_extend {
+                eprintln!(
+                    "Warning: --no-auto-extend is deprecated and has no effect once SIMD-0433 is \
+                     active, as upgrades resize the program data account automatically"
+                );
+            }
 
             let skip_feature_verify = matches.is_present("skip_feature_verify");
 
