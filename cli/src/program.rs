@@ -2992,6 +2992,14 @@ async fn extend_program_data_if_needed(
     program_id: &Pubkey,
     program_len: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let feature_set = fetch_feature_set(rpc_client).await?;
+    let feature_snapshot = feature_set.snapshot();
+
+    if feature_snapshot.loader_v3_set_program_data_to_elf_length {
+        // SIMD-0433: Upgrade resizes the program data account to the new ELF.
+        return Ok(());
+    }
+
     let program_data_address = get_program_data_address(program_id);
 
     let Some(program_data_account) = rpc_client
@@ -3029,14 +3037,6 @@ async fn extend_program_data_if_needed(
     let additional_bytes = required_len.saturating_sub(current_len);
     if additional_bytes == 0 {
         // Current allocation is sufficient.
-        return Ok(());
-    }
-
-    let feature_set = fetch_feature_set(rpc_client).await?;
-    let feature_snapshot = feature_set.snapshot();
-
-    if feature_snapshot.loader_v3_set_program_data_to_elf_length {
-        // SIMD-0433: Upgrade resizes the program data account to the new ELF.
         return Ok(());
     }
 
