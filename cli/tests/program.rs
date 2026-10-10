@@ -74,9 +74,13 @@ fn test_validator_genesis(
             lamports_per_byte: 1,
             ..Rent::default()
         })
-        .faucet_addr(Some(run_local_faucet_with_unique_port_for_tests(
-            mint_keypair.insecure_clone(),
-        )));
+        .rpc_config(JsonRpcConfig {
+            enable_rpc_transaction_history: true,
+            faucet_addr: Some(run_local_faucet_with_unique_port_for_tests(
+                mint_keypair.insecure_clone(),
+            )),
+            ..JsonRpcConfig::default_for_test()
+        });
 
     let LoaderV3Features {
         minimum_extend_program_size,
@@ -1413,10 +1417,15 @@ async fn test_cli_program_deploy_with_authority() {
     assert_eq!("none", authority_pubkey_str);
 }
 
-#[test_case(true; "Skip preflight")]
-#[test_case(false; "Dont skip preflight")]
+#[test_case(true, false; "Skip preflight")]
+#[test_case(false, false; "Dont skip preflight")]
+#[test_case(true, true; "Skip preflight with SIMD-0433")]
+#[test_case(false, true; "Dont skip preflight with SIMD-0433")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn test_cli_program_upgrade_auto_extend(skip_preflight: bool) {
+async fn test_cli_program_upgrade_auto_extend(
+    skip_preflight: bool,
+    set_programdata_to_elf_length: bool,
+) {
     agave_logger::setup();
 
     let mut noop_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -1436,7 +1445,7 @@ async fn test_cli_program_upgrade_auto_extend(skip_preflight: bool) {
         &mint_keypair,
         LoaderV3Features {
             minimum_extend_program_size: false,
-            set_programdata_to_elf_length: false,
+            set_programdata_to_elf_length,
         },
     )
     .start_async_with_mint_address(&mint_keypair, SocketAddrSpace::Unspecified)
@@ -1503,6 +1512,7 @@ async fn test_cli_program_upgrade_auto_extend(skip_preflight: bool) {
     config.output_format = OutputFormat::JsonCompact;
     config.send_transaction_config.skip_preflight = skip_preflight;
     process_command(&config).await.unwrap();
+    let programdata_pubkey = get_program_data_address(&program_keypair.pubkey());
 
     // Attempt to upgrade the program with a larger program, but with the
     // --no-auto-extend flag.
@@ -1515,7 +1525,7 @@ async fn test_cli_program_upgrade_auto_extend(skip_preflight: bool) {
         buffer_signer_index: None,
         buffer_pubkey: None,
         upgrade_authority_signer_index: 1,
-        is_final: true,
+        is_final: false,
         max_len: None,
         skip_fee_check: false,
         compute_unit_price: None,
@@ -1524,7 +1534,45 @@ async fn test_cli_program_upgrade_auto_extend(skip_preflight: bool) {
         use_rpc: false,
         skip_feature_verification: true,
     });
-    if skip_preflight {
+    if set_programdata_to_elf_length {
+        // SIMD-0433: The upgrade grows the program data account by itself.
+        process_command(&config).await.unwrap();
+        let programdata_account = rpc_client.get_account(&programdata_pubkey).await.unwrap();
+        assert_eq!(
+            programdata_account.data.len(),
+            UpgradeableLoaderState::size_of_programdata(program_data_large.len()),
+        );
+
+        // Wait one slot to avoid "Program was deployed in this block already" error
+        wait_n_slots(&rpc_client, 1).await;
+
+        // Shrink it back down, so the auto-extend upgrade below has to grow it.
+        config.command = CliCommand::Program(ProgramCliCommand::Deploy {
+            program_location: Some(noop_path.to_str().unwrap().to_string()),
+            fee_payer_signer_index: 0,
+            program_signer_index: None,
+            program_pubkey: Some(program_keypair.pubkey()),
+            buffer_signer_index: None,
+            buffer_pubkey: None,
+            upgrade_authority_signer_index: 1,
+            is_final: false,
+            max_len: None,
+            skip_fee_check: false,
+            compute_unit_price: None,
+            max_sign_attempts: 5,
+            auto_extend: false, // --no-auto-extend flag is present
+            use_rpc: false,
+            skip_feature_verification: true,
+        });
+        process_command(&config).await.unwrap();
+        let programdata_account = rpc_client.get_account(&programdata_pubkey).await.unwrap();
+        assert_eq!(
+            programdata_account.data.len(),
+            UpgradeableLoaderState::size_of_programdata(program_data.len()),
+        );
+
+        wait_n_slots(&rpc_client, 1).await;
+    } else if skip_preflight {
         expect_command_failure(
             &config,
             "Cannot upgrade a program when ELF does not fit into the allocated data account",
@@ -1574,16 +1622,13 @@ async fn test_cli_program_upgrade_auto_extend(skip_preflight: bool) {
     });
     let response = process_command(&config).await;
     let json: Value = serde_json::from_str(&response.unwrap()).unwrap();
-    let program_pubkey_str = json
+    let final_signature = json
         .as_object()
         .unwrap()
-        .get("programId")
-        .unwrap()
-        .as_str()
+        .get("signature")
+        .and_then(|s| s.as_str())
+        .map(|s| Signature::from_str(s).unwrap())
         .unwrap();
-    let program_pubkey = Pubkey::from_str(program_pubkey_str).unwrap();
-    let (programdata_pubkey, _) =
-        Pubkey::find_program_address(&[program_pubkey.as_ref()], &bpf_loader_upgradeable::id());
     let programdata_account = rpc_client.get_account(&programdata_pubkey).await.unwrap();
     if let UpgradeableLoaderState::ProgramData {
         slot: _,
@@ -1598,6 +1643,42 @@ async fn test_cli_program_upgrade_auto_extend(skip_preflight: bool) {
         programdata_account.data().len(),
         UpgradeableLoaderState::size_of_programdata(program_data_large.len()),
     );
+
+    // Only the pre-SIMD-0433 auto-extend upgrade sends an extend.
+    let signatures = loop {
+        let signatures: Vec<_> = rpc_client
+            .get_signatures_for_address_with_config(
+                &programdata_pubkey,
+                GetConfirmedSignaturesForAddress2Config {
+                    commitment: Some(CommitmentConfig::confirmed()),
+                    ..GetConfirmedSignaturesForAddress2Config::default()
+                },
+            )
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|status| Signature::from_str(&status.signature).unwrap())
+            .collect();
+        if signatures.contains(&final_signature) {
+            break signatures;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    };
+    let mut extends = 0;
+    for signature in &signatures {
+        let tx = fetch_and_decode_transaction(&rpc_client, signature).await;
+        for instruction in &tx.message.instructions {
+            if instruction.program_id(&tx.message.account_keys) == &bpf_loader_upgradeable::id()
+                && matches!(
+                    wincode::deserialize(&instruction.data),
+                    Ok(UpgradeableLoaderInstruction::ExtendProgram { .. })
+                )
+            {
+                extends += 1;
+            }
+        }
+    }
+    assert_eq!(extends, if set_programdata_to_elf_length { 0 } else { 1 });
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -3640,219 +3721,4 @@ async fn test_cli_program_deploy_with_args(compute_unit_price: Option<u64>, use_
             &system_program::id()
         );
     }
-}
-
-#[test_case(true; "auto extend")]
-#[test_case(false; "no auto extend")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn test_cli_program_upgrade_set_programdata_to_elf_length(auto_extend: bool) {
-    agave_logger::setup();
-
-    let mut noop_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    noop_path.push("tests");
-    noop_path.push("fixtures");
-    noop_path.push("noop");
-    noop_path.set_extension("so");
-
-    let mut noop_large_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    noop_large_path.push("tests");
-    noop_large_path.push("fixtures");
-    noop_large_path.push("noop_large");
-    noop_large_path.set_extension("so");
-
-    // SIMD-0433 is active by default; transaction history is needed to
-    // confirm no extend instruction was sent.
-    let mint_keypair = Keypair::new();
-    let faucet_addr = run_local_faucet_with_unique_port_for_tests(mint_keypair.insecure_clone());
-    let test_validator = TestValidatorGenesis::default_for_tests()
-        .fee_rate_governor(FeeRateGovernor::new(0, 0))
-        .rent(Rent {
-            lamports_per_byte: 1,
-            ..Rent::default()
-        })
-        .rpc_config(JsonRpcConfig {
-            enable_rpc_transaction_history: true,
-            faucet_addr: Some(faucet_addr),
-            ..JsonRpcConfig::default_for_test()
-        })
-        .start_async_with_mint_address(&mint_keypair, SocketAddrSpace::Unspecified)
-        .await
-        .expect("validator start failed");
-
-    let mut config = CliConfig::recent_for_tests();
-    config.json_rpc_url = test_validator.rpc_url();
-    let rpc_client = setup_rpc_client(&mut config);
-    config.output_format = OutputFormat::JsonCompact;
-
-    let mut file = File::open(noop_path.to_str().unwrap()).unwrap();
-    let mut program_data = Vec::new();
-    file.read_to_end(&mut program_data).unwrap();
-
-    let mut file = File::open(noop_large_path.to_str().unwrap()).unwrap();
-    let mut program_data_large = Vec::new();
-    file.read_to_end(&mut program_data_large).unwrap();
-
-    let programdata_len = UpgradeableLoaderState::size_of_programdata(program_data.len());
-    let programdata_len_large =
-        UpgradeableLoaderState::size_of_programdata(program_data_large.len());
-    let minimum_balance_for_programdata = rpc_client
-        .get_minimum_balance_for_rent_exemption(programdata_len)
-        .await
-        .unwrap();
-    let minimum_balance_for_programdata_large = rpc_client
-        .get_minimum_balance_for_rent_exemption(programdata_len_large)
-        .await
-        .unwrap();
-
-    let keypair = Keypair::new();
-    let upgrade_authority = Keypair::new();
-    config.signers = vec![&keypair];
-    config.command = CliCommand::Airdrop {
-        pubkey: None,
-        lamports: 100 * minimum_balance_for_programdata_large,
-    };
-    process_command(&config).await.unwrap();
-
-    // Deploy the smaller program.
-    let program_keypair = Keypair::new();
-    config.signers = vec![&keypair, &upgrade_authority, &program_keypair];
-    config.command = CliCommand::Program(ProgramCliCommand::Deploy {
-        program_location: Some(noop_path.to_str().unwrap().to_string()),
-        fee_payer_signer_index: 0,
-        program_signer_index: Some(2),
-        program_pubkey: Some(program_keypair.pubkey()),
-        buffer_signer_index: None,
-        buffer_pubkey: None,
-        upgrade_authority_signer_index: 1,
-        is_final: false,
-        max_len: None,
-        skip_fee_check: false,
-        compute_unit_price: None,
-        max_sign_attempts: 5,
-        auto_extend,
-        use_rpc: false,
-        skip_feature_verification: true,
-    });
-    process_command(&config).await.unwrap();
-
-    let programdata_pubkey = get_program_data_address(&program_keypair.pubkey());
-    let programdata_account = rpc_client.get_account(&programdata_pubkey).await.unwrap();
-    assert_eq!(programdata_len, programdata_account.data.len());
-    assert_eq!(
-        minimum_balance_for_programdata,
-        programdata_account.lamports
-    );
-
-    // Upgrade to the larger program. The program data account grows without
-    // an explicit extend.
-    config.signers = vec![&keypair, &upgrade_authority];
-    config.command = CliCommand::Program(ProgramCliCommand::Deploy {
-        program_location: Some(noop_large_path.to_str().unwrap().to_string()),
-        fee_payer_signer_index: 0,
-        program_signer_index: None,
-        program_pubkey: Some(program_keypair.pubkey()),
-        buffer_signer_index: None,
-        buffer_pubkey: None,
-        upgrade_authority_signer_index: 1,
-        is_final: false,
-        max_len: None,
-        skip_fee_check: false,
-        compute_unit_price: None,
-        max_sign_attempts: 5,
-        auto_extend,
-        use_rpc: false,
-        skip_feature_verification: true,
-    });
-    process_command(&config).await.unwrap();
-
-    let programdata_account = rpc_client.get_account(&programdata_pubkey).await.unwrap();
-    assert_eq!(programdata_len_large, programdata_account.data.len());
-    assert_eq!(
-        minimum_balance_for_programdata_large,
-        programdata_account.lamports
-    );
-    assert_eq!(
-        program_data_large,
-        programdata_account.data[UpgradeableLoaderState::size_of_programdata_metadata()..]
-    );
-
-    // Wait one slot to avoid "Program was deployed in this block already" error
-    wait_n_slots(&rpc_client, 1).await;
-
-    // Upgrade back to the smaller program. The program data account shrinks.
-    config.command = CliCommand::Program(ProgramCliCommand::Deploy {
-        program_location: Some(noop_path.to_str().unwrap().to_string()),
-        fee_payer_signer_index: 0,
-        program_signer_index: None,
-        program_pubkey: Some(program_keypair.pubkey()),
-        buffer_signer_index: None,
-        buffer_pubkey: None,
-        upgrade_authority_signer_index: 1,
-        is_final: false,
-        max_len: None,
-        skip_fee_check: false,
-        compute_unit_price: None,
-        max_sign_attempts: 5,
-        auto_extend,
-        use_rpc: false,
-        skip_feature_verification: true,
-    });
-    let response = process_command(&config).await.unwrap();
-    let json: Value = serde_json::from_str(&response).unwrap();
-    let final_signature = json
-        .as_object()
-        .unwrap()
-        .get("signature")
-        .and_then(|s| s.as_str())
-        .map(|s| Signature::from_str(s).unwrap())
-        .unwrap();
-
-    let programdata_account = rpc_client.get_account(&programdata_pubkey).await.unwrap();
-    assert_eq!(programdata_len, programdata_account.data.len());
-    assert_eq!(
-        minimum_balance_for_programdata,
-        programdata_account.lamports
-    );
-    assert_eq!(
-        program_data,
-        programdata_account.data[UpgradeableLoaderState::size_of_programdata_metadata()..]
-    );
-
-    // No transaction touching the program data account extended it.
-    let signatures = loop {
-        let signatures: Vec<_> = rpc_client
-            .get_signatures_for_address_with_config(
-                &programdata_pubkey,
-                GetConfirmedSignaturesForAddress2Config {
-                    commitment: Some(CommitmentConfig::confirmed()),
-                    ..GetConfirmedSignaturesForAddress2Config::default()
-                },
-            )
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|status| Signature::from_str(&status.signature).unwrap())
-            .collect();
-        if signatures.contains(&final_signature) {
-            break signatures;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    };
-    let mut upgrades = 0;
-    for signature in &signatures {
-        let tx = fetch_and_decode_transaction(&rpc_client, signature).await;
-        for instruction in &tx.message.instructions {
-            if instruction.program_id(&tx.message.account_keys) != &bpf_loader_upgradeable::id() {
-                continue;
-            }
-            match wincode::deserialize(&instruction.data).unwrap() {
-                UpgradeableLoaderInstruction::ExtendProgram { .. } => {
-                    panic!("unexpected extend instruction in {signature}")
-                }
-                UpgradeableLoaderInstruction::Upgrade => upgrades += 1,
-                _ => {}
-            }
-        }
-    }
-    assert_eq!(2, upgrades);
 }
