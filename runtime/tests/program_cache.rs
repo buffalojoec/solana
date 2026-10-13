@@ -4,6 +4,7 @@ use {
         Account, AccountSharedData, WritableAccount, state_traits::StateMutWincode as _,
     },
     solana_feature_gate_interface::{self as feature, Feature},
+    solana_hash::Hash,
     solana_instruction::Instruction,
     solana_instruction_error::InstructionError,
     solana_keypair::Keypair,
@@ -11,18 +12,49 @@ use {
     solana_loader_v3_interface::state::UpgradeableLoaderState,
     solana_message::Message,
     solana_native_token::LAMPORTS_PER_SOL,
+    solana_program_runtime::loaded_programs::ProgramRuntimeEnvironment,
+    solana_pubkey::Pubkey,
     solana_rent::Rent,
     solana_runtime::{
         bank::{Bank, test_utils::goto_end_of_slot},
+        bank_forks::BankForks,
+        genesis_utils::{GenesisConfigInfo, create_genesis_config},
         loader_utils::{create_buffer_with_elf, create_program_with_elf},
-        program_cache_utils::{EntryType, ExpectedEntry, assert_cache_contents, current_env},
+        program_cache_utils::{
+            EntryType, ExpectedEntry, assert_cache_contents, assert_no_loading_tasks, current_env,
+        },
     },
+    solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
     solana_sdk_ids::{bpf_loader, bpf_loader_upgradeable},
     solana_signer::Signer,
+    solana_svm::{
+        transaction_error_metrics::TransactionErrorMetrics,
+        transaction_processor::{ExecutionRecordingConfig, TransactionProcessingConfig},
+    },
+    solana_svm_timings::ExecuteTimings,
     solana_transaction::Transaction,
     solana_transaction_error::TransactionError,
-    std::{fs::File, io::Read, sync::Arc},
+    std::{
+        fs::File,
+        io::Read,
+        sync::{
+            Arc, RwLock,
+            atomic::{AtomicBool, Ordering::Relaxed},
+        },
+        time::Duration,
+    },
+    test_case::test_case,
 };
+
+fn invoke_all_txn(bank: &Bank, payer: &Keypair, programs: &[Pubkey]) -> Transaction {
+    let instructions = programs
+        .iter()
+        .map(|program| Instruction::new_with_bytes(*program, &[], Vec::new()))
+        .collect::<Vec<_>>();
+    let message = Message::new(&instructions, Some(&payer.pubkey()));
+    bank.register_recent_blockhash_for_test(&Hash::new_unique(), None);
+    Transaction::new(&[payer], message, bank.last_blockhash())
+}
 
 #[test]
 fn test_bank_load_program() {
@@ -916,4 +948,161 @@ fn test_sbpf_v0_deploy_in_last_slot_before_feature_activation() {
             InstructionError::InvalidAccountData
         ))
     );
+}
+
+fn setup_test_quiesce() -> (
+    Arc<Bank>,
+    Arc<RwLock<BankForks>>,
+    Keypair,
+    Vec<Pubkey>,
+    ProgramRuntimeEnvironment,
+) {
+    let GenesisConfigInfo {
+        genesis_config,
+        mint_keypair: payer,
+        ..
+    } = create_genesis_config(1_000_000_000_000);
+    let (bank, bank_forks) = Bank::new_with_bank_forks_for_tests(&genesis_config);
+
+    // Store three programs, which will not appear in the cache.
+    let elf = include_bytes!("../../programs/bpf_loader/test_elfs/out/sbpfv3_return_ok.so");
+    let programs = (0..3)
+        .map(|_| {
+            create_program_with_elf(&bank, &bpf_loader_upgradeable::id(), &payer.pubkey(), elf)
+        })
+        .collect();
+    let env = current_env(&bank);
+    goto_end_of_slot(bank.clone());
+
+    // Assert none of the three programs are cached.
+    for program in &programs {
+        assert_cache_contents(&bank, program, &[]);
+    }
+
+    let bank =
+        Bank::new_from_parent_with_bank_forks(bank_forks.as_ref(), bank, SlotLeader::default(), 1);
+    (bank, bank_forks, payer, programs, env)
+}
+
+#[test]
+fn test_quiesce_waits_for_in_flight_cooperative_loads() {
+    agave_logger::setup();
+
+    let (bank, _bank_forks, payer, programs, env) = setup_test_quiesce();
+    let transactions = vec![invoke_all_txn(&bank, &payer, &programs)];
+
+    // Set up some atomic tracers to test the locking.
+    let executing = Arc::new(AtomicBool::new(false));
+    let landed = Arc::new(AtomicBool::new(false));
+
+    let loading = {
+        // Simulate a batch processor on some thread sending this batch.
+        let bank = Arc::clone(&bank);
+        let executing = Arc::clone(&executing);
+        let landed = Arc::clone(&landed);
+        std::thread::spawn(move || {
+            // First acquire the guard.
+            let guard = bank
+                .try_enter_transaction_execution()
+                .expect("execution is admitted");
+            executing.store(true, Relaxed);
+
+            // Buffer some time, to simulate a larger batch that takes longer.
+            std::thread::sleep(Duration::from_millis(50));
+
+            // Submit the batch.
+            let batch = bank.prepare_batch_for_tests(transactions);
+            guard.load_and_execute_transactions(
+                &batch,
+                bank.max_processing_age(),
+                &mut ExecuteTimings::default(),
+                &mut TransactionErrorMetrics::default(),
+                TransactionProcessingConfig {
+                    limit_to_load_programs: true,
+                    recording_config: ExecutionRecordingConfig::new_single_setting(false),
+                    ..TransactionProcessingConfig::default()
+                },
+            );
+
+            // Release the guard.
+            landed.store(true, Relaxed);
+            drop(guard);
+        })
+    };
+
+    // Wait for the thread to take off.
+    while !executing.load(Relaxed) {
+        std::hint::spin_loop();
+    }
+
+    // Quiesce the bank, and ensure our `landed` tracer got the update after
+    // `load_and_execute_sanitized_transactions` finished.
+    bank.quiesce_transaction_execution();
+    assert!(
+        landed.load(Relaxed),
+        "quiesce returned while a cooperative load was still in flight",
+    );
+
+    assert_no_loading_tasks(&bank);
+
+    loading.join().unwrap();
+
+    // And the batch really did load each of them.
+    for program in &programs {
+        assert_cache_contents(
+            &bank,
+            program,
+            &[ExpectedEntry {
+                entry_type: EntryType::Loaded,
+                deployment_slot: 0,
+                environment: &env,
+            }],
+        );
+    }
+}
+
+#[test_case(false; "execute")]
+#[test_case(true; "simulate")]
+fn test_quiesce_turns_away_new_work(simulate: bool) {
+    agave_logger::setup();
+
+    let (bank, _bank_forks, payer, programs, _env) = setup_test_quiesce();
+    let transaction = invoke_all_txn(&bank, &payer, &programs);
+
+    // Initiate quiesce.
+    bank.quiesce_transaction_execution();
+
+    let refused = if simulate {
+        let transaction = RuntimeTransaction::from_transaction_for_tests(transaction);
+        bank.simulate_transaction_unchecked(&transaction, false)
+            .result
+    } else {
+        let batch = bank.prepare_batch_for_tests(vec![transaction]);
+        let mut output = bank.load_and_execute_transactions(
+            &batch,
+            bank.max_processing_age(),
+            &mut ExecuteTimings::default(),
+            &mut TransactionErrorMetrics::default(),
+            TransactionProcessingConfig {
+                limit_to_load_programs: true,
+                recording_config: ExecutionRecordingConfig::new_single_setting(false),
+                ..TransactionProcessingConfig::default()
+            },
+        );
+        assert_eq!(output.processing_results.len(), 1);
+        output.processing_results.pop().unwrap().map(|_| ())
+    };
+    assert_eq!(
+        refused,
+        Err(TransactionError::CommitCancelled),
+        "the work should have been turned away",
+    );
+
+    // Nothing was claimed on the way out.
+    assert_no_loading_tasks(&bank);
+
+    // And no program was loaded into the cache for the quiesced bank.
+    for program in &programs {
+        assert_cache_contents(&bank, program, &[]);
+    }
 }

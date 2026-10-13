@@ -87,3 +87,14 @@ pub fn assert_cache_contents(bank: &Bank, program_id: &Pubkey, expected_entries:
         );
     }
 }
+
+pub fn assert_no_loading_tasks(bank: &Bank) {
+    assert!(
+        bank.get_transaction_processor()
+            .global_program_cache
+            .read()
+            .unwrap()
+            .get_loading_entries_for_tests()
+            .is_empty()
+    );
+}
