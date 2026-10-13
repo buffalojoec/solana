@@ -45,7 +45,9 @@ use {
             EpochBoundaryPreparation, ForkGraph, Percent, ProgramCache, ProgramCacheForTxBatch,
             ProgramRuntimeEnvironment, ProgramRuntimeEnvironments, ProgramToLoad,
         },
-        program_cache_entry::{ProgramCacheEntry, ProgramCacheEntryOwner},
+        program_cache_entry::{
+            DELAY_VISIBILITY_SLOT_OFFSET, ProgramCacheEntry, ProgramCacheEntryOwner,
+        },
         program_metrics::ProgramStatistics,
         solana_sbpf::{program::BuiltinProgram, vm::Config as VmConfig},
         sysvar_cache::SysvarCache,
@@ -970,6 +972,27 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             // Program-cache hit/miss counters are unchanged for empty work.
             return;
         }
+
+        // Do a pass for any missing programs that are delayed visibility.
+        let batch_slot = program_cache_for_tx_batch.slot();
+        missing_programs.retain(|program| {
+            let effective_slot = program
+                .deployment_slot
+                .saturating_add(DELAY_VISIBILITY_SLOT_OFFSET);
+            if batch_slot >= effective_slot {
+                return true;
+            }
+            program_cache_for_tx_batch.replenish(
+                *program.program_id,
+                Arc::new(ProgramCacheEntry::new_delay_visibility_tombstone(
+                    program.deployment_slot,
+                    program.loader,
+                    Arc::default(),
+                )),
+            );
+            false
+        });
+
         let mut count_hits_and_misses = true;
         loop {
             // Lock the global cache.
@@ -3205,7 +3228,7 @@ mod tests {
         let account_loader = (&mock_bank).into();
         let fork_graph = Arc::new(RwLock::new(TestForkGraph {}));
         let batch_processor =
-            TransactionBatchProcessor::new(0, 0, Arc::downgrade(&fork_graph), None);
+            TransactionBatchProcessor::new(1, 0, Arc::downgrade(&fork_graph), None);
         let environment = batch_processor.program_runtime_environment_for_epoch(0);
         let program_id = Pubkey::new_unique();
 
@@ -3542,10 +3565,10 @@ mod tests {
     fn test_replenish_program_cache_delay_visibility(already_cached: bool) {
         // Tests delay visibility behavior in `replenish_program_cache`.
         //
-        // Deployments currently insert an unloaded entry into the cache, so we
-        // should always see an existing entry. If, for some reason, the
-        // program is not already cached as unloaded, we end up doing a
-        // cooperative load one slot too early.
+        // If a deployment occurred in our batch, we inserted an unloaded entry
+        // into the cache, so we should always see an existing entry. If it
+        // occurred on another batch, we avoid an unnecessary cooperative load
+        // by checking for delayed visibility in `replenish_program_cache`.
         const BATCH_SLOT: u64 = 200;
 
         let mock_bank = MockBankCallback::default();
@@ -3617,31 +3640,18 @@ mod tests {
         ));
         assert_eq!(entry.deployment_slot, BATCH_SLOT);
 
-        // The global cache should just have one entry for this program.
-        // What that entry looks like will differ, though.
+        // The global cache is never consulted, so nothing is loaded and no
+        // hit or miss is counted. An existing entry is left as-is.
+        assert!(!program_cache_for_tx_batch.loaded_missing);
         let global_program_cache = batch_processor.global_program_cache.read().unwrap();
+        assert_eq!(global_program_cache.stats.hits.load(Ordering::Relaxed), 0);
+        assert_eq!(global_program_cache.stats.misses.load(Ordering::Relaxed), 0);
         let slot_versions = global_program_cache.get_slot_versions_for_tests(&program_id);
-        assert_eq!(slot_versions.len(), 1);
-
         if already_cached {
-            // If the program was already cached as unloaded, we did not waste
-            // a load here, and it remains unloaded until effective.
+            assert_eq!(slot_versions.len(), 1);
             assert!(slot_versions[0].is_unloaded());
-            assert!(!program_cache_for_tx_batch.loaded_missing);
-            assert_eq!(global_program_cache.stats.hits.load(Ordering::Relaxed), 1);
-            assert_eq!(global_program_cache.stats.misses.load(Ordering::Relaxed), 0);
         } else {
-            // If the program was not cached, we actually loaded it, even
-            // though we couldn't use it.
-            //
-            // It's fine, since the batch cache still returns the tombstone.
-            assert!(matches!(
-                slot_versions[0].program,
-                ProgramCacheEntryType::Loaded(_)
-            ));
-            assert!(program_cache_for_tx_batch.loaded_missing);
-            assert_eq!(global_program_cache.stats.hits.load(Ordering::Relaxed), 0);
-            assert_eq!(global_program_cache.stats.misses.load(Ordering::Relaxed), 1);
+            assert!(slot_versions.is_empty());
         }
     }
 

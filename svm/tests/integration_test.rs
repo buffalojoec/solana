@@ -3312,8 +3312,8 @@ fn program_cache_stats() {
         "noop_tx_usage matches"
     );
 
-    // third batch, this creates a delayed visibility tombstone
-    let mut noop_tx_usage = 0;
+    // third batch, the upgraded program is delayed visibility. svm hands out a
+    // tombstone from account state, without loading the upgraded program
     let mut test_entry = SvmTestEntry {
         initial_accounts: env.test_entry.final_accounts.clone(),
         final_accounts: env.test_entry.final_accounts.clone(),
@@ -3324,7 +3324,6 @@ fn program_cache_stats() {
         make_transaction(slice::from_ref(&successful_noop_instruction)),
         ExecutionStatus::ExecutedFailed,
     );
-    noop_tx_usage += 1;
 
     test_entry.decrease_expected_lamports(&fee_payer, LAMPORTS_PER_SIGNATURE);
 
