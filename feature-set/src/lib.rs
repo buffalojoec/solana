@@ -81,6 +81,7 @@ pub struct FeatureSnapshot {
     pub loader_v3_set_program_data_to_elf_length: bool,
     pub early_instruction_trace_overflow_detection: bool,
     pub unbound_loader_v3_instruction_data: bool,
+    pub core_bpf_hash_validation: bool,
 }
 
 impl From<&AHashMap<Pubkey, u64>> for FeatureSnapshot {
@@ -183,6 +184,7 @@ impl From<&AHashMap<Pubkey, u64>> for FeatureSnapshot {
                 &early_instruction_trace_overflow_detection::ID,
             ),
             unbound_loader_v3_instruction_data: is_active(&unbound_loader_v3_instruction_data::ID),
+            core_bpf_hash_validation: is_active(&core_bpf_hash_validation::ID),
         }
     }
 }
@@ -1547,6 +1549,10 @@ pub mod unbound_loader_v3_instruction_data {
     solana_pubkey::declare_id!("UPbPFtaUVoKZuMEJsDxLfvCNuKavoVapghnzepr1e26");
 }
 
+pub mod core_bpf_hash_validation {
+    solana_pubkey::declare_id!("FCsQnd4V52NESBhVURWYSWBbmLFzgxEZVC2WngzHzp1u");
+}
+
 pub static FEATURE_NAMES: LazyLock<AHashMap<Pubkey, &'static str>> = LazyLock::new(|| {
     [
         (secp256k1_program_enabled::id(), "secp256k1 program"),
@@ -2648,6 +2654,11 @@ pub static FEATURE_NAMES: LazyLock<AHashMap<Pubkey, &'static str>> = LazyLock::n
         (
             unbound_loader_v3_instruction_data::id(),
             "SIMD-0648: Unbound LoaderV3 Instruction Data",
+        ),
+        (
+            core_bpf_hash_validation::id(),
+            "SIMD-0088, SIMD-0418, and SIMD-0495 Amendment: Hash validation in Core BPF \
+             migrations, upgrades",
         ),
         /*************** ADD NEW FEATURES HERE ***************/
         /***** ADD NEW FEATURE BOOL TO `FeatureSnapshot` *****/
