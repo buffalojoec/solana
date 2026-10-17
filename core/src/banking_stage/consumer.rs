@@ -30,7 +30,11 @@ use {
     },
     solana_transaction_error::{TransactionError, TransactionResult},
     solana_vote::vote_parser,
-    std::{num::Saturating, time::Duration},
+    std::{
+        num::Saturating,
+        sync::atomic::{AtomicU64, Ordering},
+        time::Duration,
+    },
 };
 
 /// Consumer will create chunks of transactions from buffer with up to this size.
@@ -40,9 +44,18 @@ pub(crate) const ENTRY_OVERHEAD_BYTES: u64 = 48;
 
 const SERIALIZED_ENTRIES_OVERHEAD: u64 = ENTRY_OVERHEAD_BYTES + 8; // Vec<Entry> length
 
-/// Wall-clock budget for a single transaction's program execution before it is dropped.
-// TODO: Make this a validator flag, so leaders can tune it themselves.
-const EXECUTION_TIME_LIMIT: ExecutionTimeLimit = ExecutionTimeLimit::new(Duration::from_millis(5));
+/// Wall-clock budget in milliseconds for a single transaction's program execution before it is
+/// dropped. Zero disables the limit.
+///
+/// Adjustable at runtime with the `set-execution-time-limit` admin RPC command.
+pub static EXECUTION_TIME_LIMIT_MS: AtomicU64 = AtomicU64::new(5);
+
+fn execution_time_limit() -> Option<ExecutionTimeLimit> {
+    match EXECUTION_TIME_LIMIT_MS.load(Ordering::Relaxed) {
+        0 => None,
+        limit_ms => Some(ExecutionTimeLimit::new(Duration::from_millis(limit_ms))),
+    }
+}
 
 #[derive(Debug)]
 pub struct ExecutionFlags {
@@ -374,7 +387,7 @@ impl Consumer {
                     strict_nonce_size_check: true,
                     drop_noop_transactions: true,
                     drop_bail_out_transactions: true,
-                    execution_time_limit: Some(EXECUTION_TIME_LIMIT),
+                    execution_time_limit: execution_time_limit(),
                 }
             ));
         execute_and_commit_timings.load_execute_us = load_execute_us;

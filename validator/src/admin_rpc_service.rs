@@ -15,7 +15,7 @@ use {
     solana_core::{
         admin_rpc_post_init::AdminRpcRequestMetadataPostInit,
         banking_stage::{
-            BankingControlMsg, BankingStage,
+            BankingControlMsg, BankingStage, EXECUTION_TIME_LIMIT_MS,
             transaction_scheduler::scheduler_controller::SchedulerConfig,
         },
         consensus::{Tower, tower_storage::TowerStorage},
@@ -216,6 +216,9 @@ pub trait AdminRpc {
 
     #[rpc(name = "setLogFilter")]
     fn set_log_filter(&self, filter: String) -> Result<()>;
+
+    #[rpc(name = "setExecutionTimeLimit")]
+    fn set_execution_time_limit(&self, limit_ms: u64) -> Result<()>;
 
     #[rpc(meta, name = "startTime")]
     fn start_time(&self, meta: Self::Metadata) -> Result<SystemTime>;
@@ -535,6 +538,12 @@ impl AdminRpc for AdminRpcImpl {
     fn set_log_filter(&self, filter: String) -> Result<()> {
         debug!("set_log_filter admin rpc request received");
         agave_logger::setup_with(&filter);
+        Ok(())
+    }
+
+    fn set_execution_time_limit(&self, limit_ms: u64) -> Result<()> {
+        debug!("set_execution_time_limit admin rpc request received");
+        EXECUTION_TIME_LIMIT_MS.store(limit_ms, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 
