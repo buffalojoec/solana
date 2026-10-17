@@ -550,8 +550,11 @@ pub fn program(ledger_path: &Path, matches: &ArgMatches<'_>) {
         ))
         .unwrap();
 
+    // Since we don't run through `InvokeContext::process_message` here, the
+    // watchdog, and therefore kill switch, is never armed.
+    let kill_switch = invoke_context.get_kill_switch();
     let (mut vm, _stack, _heap) = unsafe {
-        create_vm!(vm, &verified_executable, &mut invoke_context,);
+        create_vm!(vm, &verified_executable, &mut invoke_context, &kill_switch);
         vm.unwrap()
     };
     let start_time = Instant::now();

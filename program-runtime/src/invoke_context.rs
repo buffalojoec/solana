@@ -42,7 +42,7 @@ use {
     solana_svm_measure::{measure::Measure, measure_us},
     solana_svm_timings::{ExecuteDetailsTimings, ExecuteTimings},
     solana_svm_transaction::svm_message::SVMMessage,
-    solana_svm_type_overrides::sync::Arc,
+    solana_svm_type_overrides::{sync::Arc, thread},
     solana_transaction_context::{
         IndexOfAccount, MAX_ACCOUNTS_PER_TRANSACTION, instruction::InstructionContext,
         instruction_accounts::InstructionAccount, transaction::TransactionContext,
@@ -54,6 +54,7 @@ use {
         fmt::{self, Debug},
         ptr,
         rc::Rc,
+        sync::atomic::{AtomicBool, Ordering},
         time::Duration,
     },
 };
@@ -164,6 +165,7 @@ pub struct EnvironmentConfig<'a> {
     feature_set: &'a SVMFeatureSet,
     program_runtime_environments: &'a ProgramRuntimeEnvironments,
     sysvar_cache: &'a SysvarCache,
+    execution_time_limit: Option<Duration>,
 }
 impl<'a> EnvironmentConfig<'a> {
     pub fn new(
@@ -183,7 +185,13 @@ impl<'a> EnvironmentConfig<'a> {
             feature_set,
             program_runtime_environments,
             sysvar_cache,
+            execution_time_limit: None,
         }
+    }
+
+    pub fn with_execution_time_limit(mut self, execution_time_limit: Duration) -> Self {
+        self.execution_time_limit = Some(execution_time_limit);
+        self
     }
 
     /// Get cached sysvars
@@ -211,6 +219,10 @@ pub struct InvokeContext<'a, 'ix_data> {
     pub memory_contexts: MemoryContexts,
     /// Pairs of index in TX instruction trace and VM register trace
     register_traces: Vec<(usize, Vec<[u64; 12]>)>,
+    /// Kill switch to abort the VM's execution.
+    ///
+    /// Shared by all VMs in the transaction, including CPI.
+    kill_switch: Arc<AtomicBool>,
     /// Debug port to use for this executing transaction.
     #[cfg(feature = "sbpf-debugger")]
     pub debug_port: Option<u16>,
@@ -236,6 +248,7 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
             timings: ExecuteDetailsTimings::default(),
             memory_contexts: MemoryContexts::new(),
             register_traces: Vec::new(),
+            kill_switch: Arc::default(),
             #[cfg(feature = "sbpf-debugger")]
             debug_port: None,
         }
@@ -501,6 +514,7 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
         execute_timings: &mut ExecuteTimings,
         accumulated_consumed_units: &mut u64,
     ) -> Result<(), (u8, InstructionError)> {
+        self.dispatch_watchdog_thread();
         self.prepare_top_level_instructions(message)?;
 
         for (top_level_instruction_index, (program_id, instruction)) in
@@ -544,6 +558,22 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
         }
 
         Ok(())
+    }
+
+    fn dispatch_watchdog_thread(&self) {
+        let Some(execution_time_limit) = self.environment_config.execution_time_limit else {
+            return;
+        };
+        let kill_switch = Arc::clone(&self.kill_switch);
+        if let Err(err) = thread::Builder::new()
+            .name("solTxWatchdog".to_string())
+            .spawn(move || {
+                thread::sleep(execution_time_limit);
+                kill_switch.store(true, Ordering::Relaxed);
+            })
+        {
+            log::warn!("failed to spawn watchdog thread: {err}");
+        }
     }
 
     /// Prepare the instruction trace with all the top level instructions
@@ -683,6 +713,7 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
                         .unwrap()
                 },
             ))?;
+        let kill_switch = self.get_kill_switch();
         let mut vm = EbpfVm::new(
             Arc::clone(
                 &**self
@@ -693,6 +724,7 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
             SBPFVersion::V0,
             // Removes lifetime tracking
             unsafe { std::mem::transmute::<&mut InvokeContext, &mut InvokeContext>(self) },
+            &kill_switch,
             0,
         );
         vm.invoke_function(function);
@@ -747,6 +779,11 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
     /// Get this invocation's LogCollector
     pub fn get_log_collector(&self) -> Option<Rc<RefCell<LogCollector>>> {
         self.log_collector.clone()
+    }
+
+    /// Get this invocation's kill switch
+    pub fn get_kill_switch(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.kill_switch)
     }
 
     #[cfg(feature = "dev-context-only-utils")]

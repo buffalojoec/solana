@@ -173,10 +173,17 @@ pub fn execute_vm_syscall(input: ProtoSyscallContext) -> ProtoSyscallEffects {
         // Invoke the syscall with a `&'static` InvokeContext, then take the
         // result, dropping the VM. Avoids dangling memory.
         let loader = Arc::new(BuiltinProgram::new_loader(config));
+        let kill_switch = invoke_context.get_kill_switch();
         let invoke_context_static: &mut InvokeContext<'static, 'static> =
             unsafe { std::mem::transmute(&mut invoke_context) };
 
-        let mut vm = EbpfVm::new(loader, sbpf_version, invoke_context_static, STACK_SIZE);
+        let mut vm = EbpfVm::new(
+            loader,
+            sbpf_version,
+            invoke_context_static,
+            &kill_switch,
+            STACK_SIZE,
+        );
         vm.registers = registers;
 
         vm.invoke_function(syscall_function);

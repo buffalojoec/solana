@@ -68,6 +68,7 @@ use {
         collections::HashSet,
         fmt::{Debug, Formatter},
         rc::Rc,
+        time::Duration,
     },
 };
 #[cfg(feature = "dev-context-only-utils")]
@@ -152,6 +153,11 @@ pub struct TransactionProcessingConfig<'a> {
     ///
     /// This is a leader-side filtering policy. It must not be enabled for replay.
     pub drop_bail_out_transactions: bool,
+    /// Bails out of transactions whose program execution exceeds this
+    /// wall-clock duration.
+    ///
+    /// Only takes effect together with `drop_bail_out_transactions`.
+    pub execution_time_limit: Option<Duration>,
 }
 
 /// Runtime environment for transaction batch processing.
@@ -1163,18 +1169,25 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         let mut executed_units = 0u64;
 
+        let mut environment_config = EnvironmentConfig::new(
+            environment.blockhash,
+            environment.blockhash_lamports_per_signature,
+            environment.alpenglow_migration_succeeded,
+            callback,
+            &environment.feature_set,
+            &environment.program_runtime_environments,
+            sysvar_cache,
+        );
+        if config.drop_bail_out_transactions
+            && let Some(execution_time_limit) = config.execution_time_limit
+        {
+            environment_config = environment_config.with_execution_time_limit(execution_time_limit);
+        }
+
         let mut invoke_context = InvokeContext::new(
             &mut transaction_context,
             program_cache_for_tx_batch,
-            EnvironmentConfig::new(
-                environment.blockhash,
-                environment.blockhash_lamports_per_signature,
-                environment.alpenglow_migration_succeeded,
-                callback,
-                &environment.feature_set,
-                &environment.program_runtime_environments,
-                sysvar_cache,
-            ),
+            environment_config,
             log_collector.clone(),
             compute_budget,
             self.execution_cost,

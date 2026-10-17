@@ -24,7 +24,7 @@ use {
     solana_svm_log_collector::ic_logger_msg,
     solana_svm_measure::measure::Measure,
     solana_transaction_context::IndexOfAccount,
-    std::{cell::RefCell, mem, time::Duration},
+    std::{cell::RefCell, mem, sync::atomic::AtomicBool, time::Duration},
 };
 
 thread_local! {
@@ -54,6 +54,7 @@ pub fn calculate_heap_cost(heap_size: u32, heap_cost: u64) -> u64 {
 pub unsafe fn create_vm<'a, 'b>(
     program: &'a Executable<InvokeContext<'b, 'b>>,
     invoke_context: &'a mut InvokeContext<'b, 'b>,
+    kill_switch: &'a AtomicBool,
     stack: *mut [u8],
     heap: *mut [u8],
 ) -> Result<EbpfVm<'a, InvokeContext<'b, 'b>>, Box<dyn std::error::Error>> {
@@ -66,6 +67,7 @@ pub unsafe fn create_vm<'a, 'b>(
         program.get_loader().clone(),
         program.get_sbpf_version(),
         invoke_context,
+        kill_switch,
         stack_size,
     ))
 }
@@ -107,7 +109,7 @@ unsafe fn configure_program_regions<C: ContextObject>(
 /// Create the SBF virtual machine
 #[macro_export]
 macro_rules! create_vm {
-    ($vm:ident, $program:expr, $invoke_context:expr $(,)?) => {
+    ($vm:ident, $program:expr, $invoke_context:expr, $kill_switch:expr $(,)?) => {
         let invoke_context = &*$invoke_context;
         let stack_size = $program.get_config().stack_size();
         let heap_size = invoke_context.get_compute_budget().heap_size;
@@ -122,6 +124,7 @@ macro_rules! create_vm {
             let vm = $crate::__private::create_vm(
                 $program,
                 $invoke_context,
+                $kill_switch,
                 stack
                     .as_slice_mut()
                     .get_mut(..stack_size)
@@ -285,10 +288,11 @@ pub fn execute<'a, 'b: 'a>(
 
         let compute_meter_prev = invoke_context.get_remaining();
         let mapped_heap_len = invoke_context.get_compute_budget().heap_size as usize;
+        let kill_switch = invoke_context.get_kill_switch();
         let (mut vm, stack, heap) = unsafe {
             // SAFETY: The `stack`, `heap` and `executable` live past the lifetime of
             // `invoke_context`.
-            create_vm!(vm, executable, invoke_context);
+            create_vm!(vm, executable, invoke_context, &kill_switch);
             match vm {
                 Ok(info) => info,
                 Err(e) => {
@@ -359,6 +363,12 @@ pub fn execute<'a, 'b: 'a>(
             ProgramResult::Ok(status) if status != SUCCESS => {
                 let error: InstructionError = status.into();
                 Err(Box::new(error) as Box<dyn std::error::Error>)
+            }
+            // We should only ever see this error on timeout, and that's only
+            // if we've imposed a limit. If we have, that means we're the
+            // leader, so bail out.
+            ProgramResult::Err(EbpfError::Killed) => {
+                Err(Box::new(InstructionError::BailOut) as Box<dyn std::error::Error>)
             }
             ProgramResult::Err(mut error) => {
                 // Don't clean me up!!

@@ -273,6 +273,10 @@ pub const MAX_ALPENGLOW_VOTE_ACCOUNTS: usize = 2000;
 pub const DEFAULT_VAT_TO_BURN_PER_EPOCH: u64 =
     crate::slot_params::LEGACY_SLOT_PARAMS.vat_to_burn_per_epoch();
 
+/// Wall-clock budget for a simulated transaction's program execution before it bails out.
+// TODO: Make this a validator flag, so RPC operators can tune it themselves.
+const SIMULATION_EXECUTION_TIME_LIMIT: Duration = Duration::from_millis(5);
+
 /// The off-curve account where we store the Alpenglow clock. The clock sysvar has seconds
 /// resolution while the Alpenglow clock has nanosecond resolution.
 static NANOSECOND_CLOCK_ACCOUNT: LazyLock<Pubkey> = LazyLock::new(|| {
@@ -4063,6 +4067,7 @@ impl Bank {
                 strict_nonce_size_check: true,
                 drop_noop_transactions: true,
                 drop_bail_out_transactions: true,
+                execution_time_limit: Some(SIMULATION_EXECUTION_TIME_LIMIT),
             },
         );
 
@@ -4833,6 +4838,7 @@ impl Bank {
                     strict_nonce_size_check: false,
                     drop_noop_transactions: false,
                     drop_bail_out_transactions: false,
+                    execution_time_limit: None,
                 },
             )
         } else {
