@@ -63,6 +63,7 @@ mod alpenglow_timing;
 mod committer;
 mod consume_worker;
 mod consumer;
+pub use consumer::EXECUTION_TIME_LIMIT_MS;
 mod decision_maker;
 mod latest_validator_vote_packet;
 mod leader_slot_metrics;
