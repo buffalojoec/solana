@@ -18,14 +18,16 @@ use {
     solana_sbpf::program::BuiltinFunctionDefinition,
     solana_sdk_ids::{bpf_loader_upgradeable, native_loader, system_program, sysvar},
     solana_svm_type_overrides::sync::Arc,
-    solana_system_interface::MAX_PERMITTED_DATA_LENGTH,
+    solana_system_interface::{MAX_PERMITTED_DATA_LENGTH, error::SystemError},
     std::{fs::File, io::Read},
+    test_case::test_case,
 };
 
 mod common;
 
-#[test]
-fn test_bpf_loader_upgradeable_deploy_with_max_data_len() {
+#[test_case(false; "legacy")]
+#[test_case(true; "SIMD-0684")]
+fn test_bpf_loader_upgradeable_deploy_with_max_data_len(allow_prefunded_programdata: bool) {
     let mut file = File::open("test_elfs/out/sbpfv3_return_ok.so").expect("file open failed");
     let mut elf = Vec::new();
     file.read_to_end(&mut elf).unwrap();
@@ -139,12 +141,11 @@ fn test_bpf_loader_upgradeable_deploy_with_max_data_len() {
         (transaction_accounts, instruction_accounts)
     }
 
-    fn process_instruction(
-        max_data_len: usize,
-        transaction_accounts: Vec<(Pubkey, AccountSharedData)>,
-        instruction_accounts: Vec<AccountMeta>,
-        expected_result: Result<(), InstructionError>,
-    ) -> Vec<AccountSharedData> {
+    let process_instruction = |max_data_len: usize,
+                               transaction_accounts: Vec<(Pubkey, AccountSharedData)>,
+                               instruction_accounts: Vec<AccountMeta>,
+                               expected_result: Result<(), InstructionError>|
+     -> Vec<AccountSharedData> {
         let instruction_data =
             bincode::serialize(&UpgradeableLoaderInstruction::DeployWithMaxDataLen {
                 max_data_len,
@@ -155,7 +156,10 @@ fn test_bpf_loader_upgradeable_deploy_with_max_data_len() {
             &instruction_data,
             transaction_accounts,
             instruction_accounts,
-            LoaderV3Features::all_enabled(),
+            LoaderV3Features {
+                allow_prefunded_programdata,
+                ..LoaderV3Features::all_enabled()
+            },
             expected_result,
             |invoke_context| {
                 // Register the system program for CPI support.
@@ -167,7 +171,7 @@ fn test_bpf_loader_upgradeable_deploy_with_max_data_len() {
                 );
             },
         )
-    }
+    };
 
     // Case: Success
     let (transaction_accounts, instruction_accounts) = get_accounts(
@@ -585,6 +589,77 @@ fn test_bpf_loader_upgradeable_deploy_with_max_data_len() {
         instruction_accounts,
         Err(InstructionError::IncorrectAuthority),
     );
+
+    // Case: Prefunded ProgramData account
+    let required_lamports =
+        Rent::default().minimum_balance(UpgradeableLoaderState::size_of_programdata(elf.len()));
+    let already_in_use = Err(InstructionError::Custom(
+        SystemError::AccountAlreadyInUse as u32,
+    ));
+    for (programdata_lamports, payer_is_signer, simd_0684_result, legacy_result) in [
+        (required_lamports / 2, true, Ok(()), already_in_use.clone()),
+        (
+            required_lamports / 2,
+            false,
+            Err(InstructionError::PrivilegeEscalation),
+            Err(InstructionError::PrivilegeEscalation),
+        ),
+        // No top-up required, so the payer need not sign.
+        (
+            required_lamports,
+            false,
+            Ok(()),
+            Err(InstructionError::PrivilegeEscalation),
+        ),
+        (required_lamports, true, Ok(()), already_in_use.clone()),
+        (
+            required_lamports.saturating_add(1),
+            false,
+            Ok(()),
+            Err(InstructionError::PrivilegeEscalation),
+        ),
+    ] {
+        let (mut transaction_accounts, mut instruction_accounts) = get_accounts(
+            &payer_address,
+            &buffer_address,
+            &upgrade_authority_address,
+            &upgrade_authority_address,
+            &elf,
+        );
+        transaction_accounts
+            .get_mut(1)
+            .unwrap()
+            .1
+            .set_lamports(programdata_lamports);
+        instruction_accounts.get_mut(0).unwrap().is_signer = payer_is_signer;
+        let payer_lamports = transaction_accounts.first().unwrap().1.lamports();
+        let buffer_lamports = transaction_accounts.get(3).unwrap().1.lamports();
+        let expected_result = if allow_prefunded_programdata {
+            simd_0684_result
+        } else {
+            legacy_result
+        };
+        let success = expected_result.is_ok();
+        let accounts = process_instruction(
+            elf.len(),
+            transaction_accounts,
+            instruction_accounts,
+            expected_result,
+        );
+        if success {
+            assert_eq!(
+                accounts.get(1).unwrap().lamports(),
+                programdata_lamports.max(required_lamports),
+            );
+            assert_eq!(
+                accounts.first().unwrap().lamports(),
+                payer_lamports
+                    .saturating_add(buffer_lamports)
+                    .saturating_sub(required_lamports.saturating_sub(programdata_lamports)),
+            );
+            assert!(accounts.get(2).unwrap().executable());
+        }
+    }
 
     // Case: Deploy SBPFv0
     let mut file = File::open("test_elfs/out/sbpfv0_verifier_err.so").expect("file open failed");
