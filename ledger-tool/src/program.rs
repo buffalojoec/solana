@@ -15,7 +15,8 @@ use {
         loaded_programs::ProgramRuntimeEnvironment,
         memory_context::MemoryContext,
         program_cache_entry::{
-            DELAY_VISIBILITY_SLOT_OFFSET, ProgramCacheEntry, ProgramCacheEntryType,
+            DELAY_VISIBILITY_SLOT_OFFSET, ProgramCacheEntry, ProgramCacheEntryForTxBatch,
+            ProgramCacheEntryType,
         },
         program_metrics::LoadProgramMetrics,
         serialization::{SerializationResult, serialize_parameters},
@@ -296,7 +297,9 @@ fn load_program<'a>(
         );
         match result {
             Ok(loaded_program) => match loaded_program.program {
-                ProgramCacheEntryType::Loaded(program) => Ok(program),
+                ProgramCacheEntryType::Loaded(program) => {
+                    Ok(Arc::into_inner(program).expect("freshly loaded executable is unshared"))
+                }
                 _ => unreachable!(),
             },
             Err(err) => Err(format!("Loading executable failed: {err:?}")),
@@ -478,8 +481,11 @@ pub fn program(ledger_path: &Path, matches: &ArgMatches<'_>) {
     for key in cached_account_keys {
         program_cache_for_tx_batch.replenish(
             key,
-            bank.load_program(&key, bank.epoch())
-                .expect("Couldn't find program account"),
+            Arc::new(ProgramCacheEntryForTxBatch::from(
+                &*bank
+                    .load_program(&key, bank.epoch())
+                    .expect("Couldn't find program account"),
+            )),
         );
         debug!("Loaded program {key}");
     }

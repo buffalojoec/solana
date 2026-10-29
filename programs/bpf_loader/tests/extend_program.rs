@@ -10,7 +10,7 @@ use {
         instruction::{MINIMUM_EXTEND_PROGRAM_BYTES, extend_program},
         state::UpgradeableLoaderState,
     },
-    solana_program_runtime::program_cache_entry::ProgramCacheEntry,
+    solana_program_runtime::program_cache_entry::ProgramCacheEntryForTxBatch,
     solana_pubkey::Pubkey,
     solana_rent::Rent,
     solana_sbpf::program::BuiltinFunctionDefinition,
@@ -41,7 +41,7 @@ fn process_instruction(
         |invoke_context| {
             invoke_context.program_cache_for_tx_batch.replenish(
                 system_program::id(),
-                Arc::new(ProgramCacheEntry::new_builtin(
+                Arc::new(ProgramCacheEntryForTxBatch::new_builtin(
                     solana_system_program::system_processor::Entrypoint::register,
                 )),
             );

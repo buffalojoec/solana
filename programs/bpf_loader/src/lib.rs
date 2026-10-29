@@ -15,7 +15,9 @@ use {
     solana_program_runtime::{
         deploy_program,
         invoke_context::InvokeContext,
-        program_cache_entry::{ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType},
+        program_cache_entry::{
+            ProgramCacheEntryForTxBatch, ProgramCacheEntryOwner, ProgramCacheEntryTypeForTxBatch,
+        },
         sysvar_cache::get_sysvar_with_account_check,
         vm::execute,
     },
@@ -165,13 +167,15 @@ pub(crate) fn process_instruction_inner<'a>(
     invoke_context.timings.get_or_create_executor_us += get_or_create_executor_time.as_us();
 
     match &executor.program {
-        ProgramCacheEntryType::FailedVerification(_)
-        | ProgramCacheEntryType::Closed
-        | ProgramCacheEntryType::DelayVisibility => {
+        ProgramCacheEntryTypeForTxBatch::FailedVerification(_)
+        | ProgramCacheEntryTypeForTxBatch::Closed
+        | ProgramCacheEntryTypeForTxBatch::DelayVisibility => {
             ic_logger_msg!(log_collector, "Program is not deployed");
             Err(Box::new(InstructionError::UnsupportedProgramId) as Box<dyn std::error::Error>)
         }
-        ProgramCacheEntryType::Loaded(executable) => execute(executable, invoke_context, &executor),
+        ProgramCacheEntryTypeForTxBatch::Loaded(executable) => {
+            execute(executable, invoke_context, &executor)
+        }
         _ => Err(Box::new(InstructionError::UnsupportedProgramId) as Box<dyn std::error::Error>),
     }
     .map(|_| 0)
@@ -858,7 +862,7 @@ fn process_loader_upgradeable_instruction(
                                 .program_cache_for_tx_batch
                                 .store_modified_entry(
                                     program_key,
-                                    Arc::new(ProgramCacheEntry::new_closed_tombstone(
+                                    Arc::new(ProgramCacheEntryForTxBatch::new_closed_tombstone(
                                         clock.slot,
                                         ProgramCacheEntryOwner::LoaderV3,
                                     )),
@@ -1160,7 +1164,7 @@ mod test_utils {
                     .data()
                     .get(programdata_data_offset.min(account.data().len())..)
                     .unwrap();
-                let loaded_program = ProgramCacheEntry::load(
+                let loaded_program = ProgramCacheEntryForTxBatch::load(
                     owner,
                     ProgramRuntimeEnvironment::clone(&program_runtime_environment),
                     0,
@@ -1275,7 +1279,7 @@ mod tests {
         Ok(())
     }
 
-    // Concurrency rationale: these tests construct `ProgramCacheEntry` instances
+    // Concurrency rationale: these tests construct `ProgramCacheEntryForTxBatch` instances
     // directly. The struct's `latest_access_slot: AtomicU64` field is defined in
     // `solana-program-runtime`; under the `shuttle-test` feature
     // `solana-svm-type-overrides` swaps `std::sync::atomic::AtomicU64` for
@@ -1319,8 +1323,8 @@ mod tests {
             uses: 100.into(),
             ..Default::default()
         };
-        let program = ProgramCacheEntry {
-            program: ProgramCacheEntryType::Unloaded(env),
+        let program = ProgramCacheEntryForTxBatch {
+            program: ProgramCacheEntryTypeForTxBatch::Unloaded(env),
             account_owner: ProgramCacheEntryOwner::LoaderV2,
             deployment_slot: 0,
             stats: stats.into(),
@@ -1370,8 +1374,8 @@ mod tests {
             uses: 100.into(),
             ..Default::default()
         };
-        let program = ProgramCacheEntry {
-            program: ProgramCacheEntryType::Unloaded(env),
+        let program = ProgramCacheEntryForTxBatch {
+            program: ProgramCacheEntryTypeForTxBatch::Unloaded(env),
             account_owner: ProgramCacheEntryOwner::LoaderV2,
             deployment_slot: 0,
             stats: stats.into(),

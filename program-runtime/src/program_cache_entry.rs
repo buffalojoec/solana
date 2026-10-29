@@ -115,9 +115,9 @@ pub enum ProgramCacheEntryType {
     /// Verified program.
     ///
     /// It may or may not be JIT compiled.
-    Loaded(Executable<InvokeContext<'static, 'static>>),
+    Loaded(Arc<Executable<InvokeContext<'static, 'static>>>),
     /// A built-in program which is not stored on-chain but backed into and distributed with the validator
-    Builtin(BuiltinProgram<InvokeContext<'static, 'static>>),
+    Builtin(Arc<BuiltinProgram<InvokeContext<'static, 'static>>>),
 }
 
 impl std::fmt::Debug for ProgramCacheEntryType {
@@ -234,7 +234,7 @@ impl ProgramCacheEntry {
         Ok(Self {
             deployment_slot,
             account_owner: ProgramCacheEntryOwner::try_from(loader_key).unwrap(),
-            program: ProgramCacheEntryType::Loaded(executable),
+            program: ProgramCacheEntryType::Loaded(Arc::new(executable)),
             stats: entry_stats.into(),
             latest_access_slot: AtomicU64::new(0),
         })
@@ -287,7 +287,7 @@ impl ProgramCacheEntry {
         Self {
             deployment_slot: 0, // Deployment slot is always zero
             account_owner: ProgramCacheEntryOwner::NativeLoader,
-            program: ProgramCacheEntryType::Builtin(program),
+            program: ProgramCacheEntryType::Builtin(Arc::new(program)),
             stats: Arc::default(),
             latest_access_slot: AtomicU64::new(0),
         }
@@ -437,9 +437,9 @@ pub enum ProgramCacheEntryTypeForTxBatch {
     /// Verified program.
     ///
     /// It may or may not be JIT compiled.
-    Loaded(Executable<InvokeContext<'static, 'static>>),
+    Loaded(Arc<Executable<InvokeContext<'static, 'static>>>),
     /// A built-in program which is not stored on-chain but backed into and distributed with the validator
-    Builtin(BuiltinProgram<InvokeContext<'static, 'static>>),
+    Builtin(Arc<BuiltinProgram<InvokeContext<'static, 'static>>>),
 }
 
 impl std::fmt::Debug for ProgramCacheEntryTypeForTxBatch {
@@ -520,6 +520,36 @@ impl PartialEq for ProgramCacheEntryForTxBatch {
     }
 }
 
+impl From<&ProgramCacheEntry> for ProgramCacheEntryForTxBatch {
+    fn from(entry: &ProgramCacheEntry) -> Self {
+        let program = match &entry.program {
+            ProgramCacheEntryType::FailedVerification(env) => {
+                ProgramCacheEntryTypeForTxBatch::FailedVerification(env.clone())
+            }
+            ProgramCacheEntryType::Closed => ProgramCacheEntryTypeForTxBatch::Closed,
+            ProgramCacheEntryType::DelayVisibility => {
+                ProgramCacheEntryTypeForTxBatch::DelayVisibility
+            }
+            ProgramCacheEntryType::Unloaded(env) => {
+                ProgramCacheEntryTypeForTxBatch::Unloaded(env.clone())
+            }
+            ProgramCacheEntryType::Loaded(executable) => {
+                ProgramCacheEntryTypeForTxBatch::Loaded(Arc::clone(executable))
+            }
+            ProgramCacheEntryType::Builtin(program) => {
+                ProgramCacheEntryTypeForTxBatch::Builtin(Arc::clone(program))
+            }
+        };
+        Self {
+            program,
+            account_owner: entry.account_owner,
+            deployment_slot: entry.deployment_slot,
+            stats: Arc::clone(&entry.stats),
+            latest_access_slot: AtomicU64::new(entry.latest_access_slot.load(Ordering::Relaxed)),
+        }
+    }
+}
+
 impl ProgramCacheEntryForTxBatch {
     /// Creates a loaded user program
     pub fn load(
@@ -562,7 +592,7 @@ impl ProgramCacheEntryForTxBatch {
         Ok(Self {
             deployment_slot,
             account_owner: ProgramCacheEntryOwner::try_from(loader_key).unwrap(),
-            program: ProgramCacheEntryTypeForTxBatch::Loaded(executable),
+            program: ProgramCacheEntryTypeForTxBatch::Loaded(Arc::new(executable)),
             stats: entry_stats.into(),
             latest_access_slot: AtomicU64::new(0),
         })
@@ -615,7 +645,7 @@ impl ProgramCacheEntryForTxBatch {
         Self {
             deployment_slot: 0, // Deployment slot is always zero
             account_owner: ProgramCacheEntryOwner::NativeLoader,
-            program: ProgramCacheEntryTypeForTxBatch::Builtin(program),
+            program: ProgramCacheEntryTypeForTxBatch::Builtin(Arc::new(program)),
             stats: Arc::default(),
             latest_access_slot: AtomicU64::new(0),
         }
@@ -671,6 +701,10 @@ impl ProgramCacheEntryForTxBatch {
                 | ProgramCacheEntryTypeForTxBatch::Closed
                 | ProgramCacheEntryTypeForTxBatch::DelayVisibility
         )
+    }
+
+    pub(crate) fn is_implicit_delay_visibility_tombstone(&self, slot: Slot) -> bool {
+        slot >= self.deployment_slot && slot < self.effective_slot()
     }
 
     pub fn is_unloaded(&self) -> bool {

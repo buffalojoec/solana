@@ -387,7 +387,9 @@ mod tests {
                 BlockRelation, ForkGraph, ProgramRuntimeEnvironment,
                 get_mock_program_runtime_environment,
             },
-            program_cache_entry::ProgramCacheEntryType,
+            program_cache_entry::{
+                ProgramCacheEntryForTxBatch, ProgramCacheEntryType, ProgramCacheEntryTypeForTxBatch,
+            },
             solana_sbpf::program::BuiltinProgram,
         },
         solana_sdk_ids::{bpf_loader, bpf_loader_upgradeable, native_loader},
@@ -1231,8 +1233,10 @@ mod tests {
         for i in 0..3 {
             loaded_programs_for_tx_batch.replenish(
                 loader_ids[i],
-                Arc::new(ProgramCacheEntry {
-                    program: ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
+                Arc::new(ProgramCacheEntryForTxBatch {
+                    program: ProgramCacheEntryTypeForTxBatch::Builtin(Arc::new(
+                        BuiltinProgram::new_mock(),
+                    )),
                     account_owner: ProgramCacheEntryOwner::NativeLoader,
                     deployment_slot: 0,
                     stats: Arc::default(),
@@ -1328,7 +1332,7 @@ mod tests {
             .borrow_mut()
             .insert(key, account);
 
-        let entry = Arc::new(ProgramCacheEntry::new_closed_tombstone(
+        let entry = Arc::new(ProgramCacheEntryForTxBatch::new_closed_tombstone(
             0,
             ProgramCacheEntryOwner::LoaderV2,
         ));

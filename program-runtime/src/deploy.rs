@@ -6,7 +6,7 @@ use {
     crate::{
         invoke_context::InvokeContext,
         loaded_programs::{ProgramCacheForTxBatch, ProgramRuntimeEnvironment},
-        program_cache_entry::{ProgramCacheEntry, ProgramCacheEntryOwner},
+        program_cache_entry::{ProgramCacheEntryForTxBatch, ProgramCacheEntryOwner},
     },
     solana_clock::Slot,
     solana_instruction_error::InstructionError,
@@ -103,7 +103,7 @@ pub fn deploy_program(
         load_program_metrics.verify_code_us = verify_code_time.as_us();
     }
     // Insert but with program_runtime_environment
-    let program_cache_entry = ProgramCacheEntry::new_unloaded(
+    let program_cache_entry = ProgramCacheEntryForTxBatch::new_unloaded(
         deployment_slot,
         ProgramCacheEntryOwner::try_from(loader_key)
             .map_err(|_| InstructionError::InvalidAccountData)?,

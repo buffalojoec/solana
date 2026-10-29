@@ -3,7 +3,8 @@ use {
         invoke_context::InvokeContext,
         loading_task::LoadingTaskWaiter,
         program_cache_entry::{
-            ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType, retention_score,
+            ProgramCacheEntry, ProgramCacheEntryForTxBatch, ProgramCacheEntryOwner,
+            ProgramCacheEntryType, retention_score,
         },
         program_metrics::{EMA_SCALE, ProgramCacheStats},
     },
@@ -280,10 +281,10 @@ impl<FG: ForkGraph> std::fmt::Debug for ProgramCache<FG> {
 #[derive(Clone, Debug, Default)]
 pub struct ProgramCacheForTxBatch {
     /// Pubkey is the address of a program.
-    /// ProgramCacheEntry is the corresponding program entry valid for the slot in which a transaction is being executed.
-    entries: HashMap<Pubkey, Arc<ProgramCacheEntry>>,
+    /// ProgramCacheEntryForTxBatch is the corresponding program entry valid for the slot in which a transaction is being executed.
+    entries: HashMap<Pubkey, Arc<ProgramCacheEntryForTxBatch>>,
     /// Program entries modified during the transaction batch.
-    modified_entries: HashMap<Pubkey, Arc<ProgramCacheEntry>>,
+    modified_entries: HashMap<Pubkey, Arc<ProgramCacheEntryForTxBatch>>,
     slot: Slot,
     pub hit_max_limit: bool,
     pub loaded_missing: bool,
@@ -310,24 +311,24 @@ impl ProgramCacheForTxBatch {
     pub fn replenish(
         &mut self,
         key: Pubkey,
-        entry: Arc<ProgramCacheEntry>,
-    ) -> (bool, Arc<ProgramCacheEntry>) {
+        entry: Arc<ProgramCacheEntryForTxBatch>,
+    ) -> (bool, Arc<ProgramCacheEntryForTxBatch>) {
         (self.entries.insert(key, entry.clone()).is_some(), entry)
     }
 
     /// Store an entry in `modified_entries` for a program modified during the
     /// transaction batch.
-    pub fn store_modified_entry(&mut self, key: Pubkey, entry: Arc<ProgramCacheEntry>) {
+    pub fn store_modified_entry(&mut self, key: Pubkey, entry: Arc<ProgramCacheEntryForTxBatch>) {
         self.modified_entries.insert(key, entry);
     }
 
     /// Drain the program cache's modified entries, returning the owned
     /// collection.
-    pub fn drain_modified_entries(&mut self) -> HashMap<Pubkey, Arc<ProgramCacheEntry>> {
+    pub fn drain_modified_entries(&mut self) -> HashMap<Pubkey, Arc<ProgramCacheEntryForTxBatch>> {
         std::mem::take(&mut self.modified_entries)
     }
 
-    pub fn find(&self, key: &Pubkey) -> Option<Arc<ProgramCacheEntry>> {
+    pub fn find(&self, key: &Pubkey) -> Option<Arc<ProgramCacheEntryForTxBatch>> {
         // First lookup the cache of the programs modified by the current
         // transaction. If not found, lookup the cache of the cache of the
         // programs that are loaded for the transaction batch.
@@ -339,7 +340,7 @@ impl ProgramCacheForTxBatch {
                     // Found a program entry on the current fork, but it's not effective
                     // yet. It indicates that the program has delayed visibility. Return
                     // the tombstone to reflect that.
-                    Arc::new(ProgramCacheEntry::new_delay_visibility_tombstone(
+                    Arc::new(ProgramCacheEntryForTxBatch::new_delay_visibility_tombstone(
                         entry.deployment_slot,
                         entry.account_owner,
                         Arc::clone(&entry.stats),
@@ -356,7 +357,7 @@ impl ProgramCacheForTxBatch {
 
     /// Look up `entries` directly, without the delay visibility rewrite
     /// `find` performs, so a test can see the entry as it was stored.
-    pub fn get_entry_for_tests(&self, key: &Pubkey) -> Option<&Arc<ProgramCacheEntry>> {
+    pub fn get_entry_for_tests(&self, key: &Pubkey) -> Option<&Arc<ProgramCacheEntryForTxBatch>> {
         self.entries.get(key)
     }
 
@@ -364,7 +365,7 @@ impl ProgramCacheForTxBatch {
         self.slot = slot;
     }
 
-    pub fn merge(&mut self, modified_entries: &HashMap<Pubkey, Arc<ProgramCacheEntry>>) {
+    pub fn merge(&mut self, modified_entries: &HashMap<Pubkey, Arc<ProgramCacheEntryForTxBatch>>) {
         modified_entries.iter().for_each(|(key, entry)| {
             self.merged_modified = true;
             self.replenish(*key, entry.clone());
@@ -659,7 +660,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                                 );
                             if entry_in_same_branch {
                                 let entry_is_effective = batch_slot >= entry.effective_slot();
-                                let entry_to_return = if entry_is_effective {
+                                let entry_to_return: Arc<ProgramCacheEntryForTxBatch> = if entry_is_effective {
                                     if !Self::matches_environment(
                                         entry,
                                         program_runtime_environment_for_execution,
@@ -672,12 +673,12 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                                     if entry.is_unloaded() {
                                         break;
                                     }
-                                    entry.clone()
+                                    Arc::new(ProgramCacheEntryForTxBatch::from(&**entry))
                                 } else if entry.is_implicit_delay_visibility_tombstone(batch_slot) {
                                     // Found a program entry on the current fork, but it's not effective
                                     // yet. It indicates that the program has delayed visibility. Return
                                     // the tombstone to reflect that.
-                                    Arc::new(ProgramCacheEntry::new_delay_visibility_tombstone(
+                                    Arc::new(ProgramCacheEntryForTxBatch::new_delay_visibility_tombstone(
                                         entry.deployment_slot,
                                         entry.account_owner,
                                         Arc::clone(&entry.stats),
@@ -937,7 +938,8 @@ pub(crate) mod tests {
                 get_mock_program_runtime_environment,
             },
             program_cache_entry::{
-                ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType,
+                ProgramCacheEntry, ProgramCacheEntryForTxBatch, ProgramCacheEntryOwner,
+                ProgramCacheEntryType, ProgramCacheEntryTypeForTxBatch,
             },
             program_metrics::ProgramStatistics,
         },
@@ -965,7 +967,7 @@ pub(crate) mod tests {
     }
 
     fn new_builtin_entry(_env: ProgramRuntimeEnvironment) -> ProgramCacheEntryType {
-        ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock())
+        ProgramCacheEntryType::Builtin(Arc::new(BuiltinProgram::new_mock()))
     }
 
     fn new_failed_verification_entry(env: ProgramRuntimeEnvironment) -> ProgramCacheEntryType {
@@ -983,7 +985,7 @@ pub(crate) mod tests {
             .read_to_end(&mut elf)
             .unwrap();
         let executable = Executable::load(&elf, Arc::clone(&*env)).unwrap();
-        ProgramCacheEntryType::Loaded(executable)
+        ProgramCacheEntryType::Loaded(Arc::new(executable))
     }
 
     fn new_test_entry_with_owner(
@@ -1022,9 +1024,17 @@ pub(crate) mod tests {
         })
     }
 
+    /// Whether `extracted` was extracted from `entry`, i.e. shares its stats.
+    fn is_extracted_from(
+        extracted: &ProgramCacheEntryForTxBatch,
+        entry: &ProgramCacheEntry,
+    ) -> bool {
+        Arc::ptr_eq(&extracted.stats, &entry.stats)
+    }
+
     fn new_test_builtin_entry(deployment_slot: Slot) -> Arc<ProgramCacheEntry> {
         Arc::new(ProgramCacheEntry {
-            program: ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
+            program: ProgramCacheEntryType::Builtin(Arc::new(BuiltinProgram::new_mock())),
             account_owner: ProgramCacheEntryOwner::NativeLoader,
             deployment_slot,
             stats: Arc::default(),
@@ -1385,7 +1395,7 @@ pub(crate) mod tests {
             ProgramCacheEntryType::Closed,
             ProgramCacheEntryType::Unloaded(get_mock_program_runtime_environment()),
             new_loaded_entry(get_mock_program_runtime_environment()),
-            ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
+            ProgramCacheEntryType::Builtin(Arc::new(BuiltinProgram::new_mock())),
         ),
         (false, true)
     )]
@@ -1652,7 +1662,7 @@ pub(crate) mod tests {
             ProgramCacheEntryType::Closed,
             ProgramCacheEntryType::Unloaded(get_mock_program_runtime_environment()),
             new_loaded_entry(get_mock_program_runtime_environment()),
-            ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
+            ProgramCacheEntryType::Builtin(Arc::new(BuiltinProgram::new_mock())),
         )
     )]
     #[test_matrix(
@@ -1661,7 +1671,7 @@ pub(crate) mod tests {
             ProgramCacheEntryType::FailedVerification(get_mock_program_runtime_environment()),
             ProgramCacheEntryType::Closed,
             new_loaded_entry(get_mock_program_runtime_environment()),
-            ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
+            ProgramCacheEntryType::Builtin(Arc::new(BuiltinProgram::new_mock())),
         )
     )]
     #[test_matrix(
@@ -1669,11 +1679,11 @@ pub(crate) mod tests {
         (
             ProgramCacheEntryType::Closed,
             ProgramCacheEntryType::Unloaded(get_mock_program_runtime_environment()),
-            ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
+            ProgramCacheEntryType::Builtin(Arc::new(BuiltinProgram::new_mock())),
         )
     )]
     #[test_matrix(
-        (ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),),
+        (ProgramCacheEntryType::Builtin(Arc::new(BuiltinProgram::new_mock())),),
         (
             ProgramCacheEntryType::FailedVerification(get_mock_program_runtime_environment()),
             ProgramCacheEntryType::Closed,
@@ -1724,8 +1734,8 @@ pub(crate) mod tests {
         ProgramCacheEntryType::Unloaded(get_mock_program_runtime_environment())
     )]
     #[test_case(
-        ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
-        ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock())
+        ProgramCacheEntryType::Builtin(Arc::new(BuiltinProgram::new_mock())),
+        ProgramCacheEntryType::Builtin(Arc::new(BuiltinProgram::new_mock()))
     )]
     fn test_assign_program_success(old: ProgramCacheEntryType, new: ProgramCacheEntryType) {
         let mut cache = ProgramCache::<TestForkGraph>::new(0);
@@ -2603,7 +2613,7 @@ pub(crate) mod tests {
         let mut extracted = ProgramCacheForTxBatch::new(100);
         cache.extract(&mut search_for, &mut extracted, &new_env, true, true);
         assert!(search_for.is_empty());
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &closed
         ));
@@ -2619,7 +2629,7 @@ pub(crate) mod tests {
         let mut extracted = ProgramCacheForTxBatch::new(100);
         cache.extract(&mut search_for, &mut extracted, &env, true, true);
         assert!(search_for.is_empty());
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &closed
         ));
@@ -2811,7 +2821,10 @@ pub(crate) mod tests {
         let tombstone = extracted
             .find(&program4)
             .expect("Failed to find the tombstone");
-        assert_matches!(tombstone.program, ProgramCacheEntryType::DelayVisibility);
+        assert_matches!(
+            tombstone.program,
+            ProgramCacheEntryTypeForTxBatch::DelayVisibility
+        );
         assert_eq!(tombstone.deployment_slot, 15);
 
         // Testing the same fork above, but current slot is now 18 (equal to effective slot of program4).
@@ -2844,7 +2857,10 @@ pub(crate) mod tests {
         let tombstone = extracted
             .find(&program2)
             .expect("Failed to find the tombstone");
-        assert_matches!(tombstone.program, ProgramCacheEntryType::DelayVisibility);
+        assert_matches!(
+            tombstone.program,
+            ProgramCacheEntryTypeForTxBatch::DelayVisibility
+        );
         assert_eq!(tombstone.deployment_slot, 11);
         assert!(match_slot(&extracted, &program4, 5, 11));
 
@@ -3213,7 +3229,7 @@ pub(crate) mod tests {
         let mut extracted = ProgramCacheForTxBatch::new(200);
         cache.extract(&mut search_for, &mut extracted, &env, true, true);
         assert!(search_for.is_empty());
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &owned_by_v2
         ));
@@ -3228,7 +3244,7 @@ pub(crate) mod tests {
         let mut extracted = ProgramCacheForTxBatch::new(200);
         cache.extract(&mut search_for, &mut extracted, &env, true, true);
         assert!(search_for.is_empty());
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &owned_by_v3
         ));
@@ -3290,7 +3306,7 @@ pub(crate) mod tests {
         let mut extracted = ProgramCacheForTxBatch::new(200);
         cache.extract(&mut search_for, &mut extracted, &env, true, true);
         assert!(search_for.is_empty());
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &on_execution_env
         ));
@@ -3305,7 +3321,7 @@ pub(crate) mod tests {
         let mut extracted = ProgramCacheForTxBatch::new(200);
         cache.extract(&mut search_for, &mut extracted, &other_env, true, true);
         assert!(search_for.is_empty());
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &on_other_env
         ));
@@ -3356,7 +3372,7 @@ pub(crate) mod tests {
         let mut extracted = ProgramCacheForTxBatch::new(200);
         cache.extract(&mut search_for, &mut extracted, &env, true, true);
         assert!(search_for.is_empty());
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &loaded
         ));
@@ -3418,7 +3434,10 @@ pub(crate) mod tests {
             // it carries is copied across from the entry.
             assert!(search_for.is_empty());
             let tombstone = extracted.entries.get(&program_id).unwrap();
-            assert_matches!(tombstone.program, ProgramCacheEntryType::DelayVisibility);
+            assert_matches!(
+                tombstone.program,
+                ProgramCacheEntryTypeForTxBatch::DelayVisibility
+            );
             assert_eq!(tombstone.account_owner, ProgramCacheEntryOwner::LoaderV3);
             assert_eq!(tombstone.deployment_slot, 100);
             assert!(Arc::ptr_eq(&tombstone.stats, &entry.stats)); // <-- Shared, not copied.
@@ -3441,7 +3460,7 @@ pub(crate) mod tests {
             // The entry was effective, so it comes back itself, and the use
             // and access slot are recorded on it.
             assert!(search_for.is_empty());
-            assert!(Arc::ptr_eq(
+            assert!(is_extracted_from(
                 extracted.entries.get(&program_id).unwrap(),
                 &entry
             ));
@@ -3485,7 +3504,7 @@ pub(crate) mod tests {
         }];
         let mut extracted = ProgramCacheForTxBatch::new(100);
         cache.extract(&mut search_for, &mut extracted, &env, true, true);
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &closed
         ));
@@ -3499,7 +3518,7 @@ pub(crate) mod tests {
         }];
         let mut extracted = ProgramCacheForTxBatch::new(100);
         cache.extract(&mut search_for, &mut extracted, &other_env, true, true);
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &closed
         ));
@@ -3567,7 +3586,10 @@ pub(crate) mod tests {
 
         // As expected, we get a `DelayVisibility` tombstone.
         let tombstone = extracted.entries.get(&program_id).unwrap();
-        assert_matches!(tombstone.program, ProgramCacheEntryType::DelayVisibility);
+        assert_matches!(
+            tombstone.program,
+            ProgramCacheEntryTypeForTxBatch::DelayVisibility
+        );
 
         // TODO: Here's the stats bug, though. The entry the batch is actually
         // using (passed to `extract`) is present and reached second. The first
@@ -3590,7 +3612,7 @@ pub(crate) mod tests {
         let mut extracted = ProgramCacheForTxBatch::new(101);
         cache.extract(&mut search_for, &mut extracted, &env, true, true);
         assert!(search_for.is_empty());
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &on_execution_env
         ));
@@ -3648,7 +3670,7 @@ pub(crate) mod tests {
         }];
         let mut extracted = ProgramCacheForTxBatch::new(200);
         cache.extract(&mut search_for, &mut extracted, &env, true, true);
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &on_execution_env
         ));
@@ -3661,7 +3683,7 @@ pub(crate) mod tests {
         }];
         let mut extracted = ProgramCacheForTxBatch::new(200);
         cache.extract(&mut search_for, &mut extracted, &other_env, true, true);
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &on_other_env
         ));
@@ -3729,9 +3751,8 @@ pub(crate) mod tests {
         let tombstone = extracted.entries.get(&program_id).unwrap();
         assert!(matches!(
             tombstone.program,
-            ProgramCacheEntryType::DelayVisibility
+            ProgramCacheEntryTypeForTxBatch::DelayVisibility
         ));
-        assert!(!Arc::ptr_eq(tombstone, &entry));
 
         // The access slot lands on the entry the tombstone stands in for. The
         // tombstone's own is never touched, and is dropped with the batch.
@@ -3806,7 +3827,12 @@ pub(crate) mod tests {
         // Anything already in the batch, such as the builtins it is seeded
         // with.
         let mut extracted = ProgramCacheForTxBatch::new(200);
-        extracted.replenish(Pubkey::new_unique(), new_test_builtin_entry(0));
+        extracted.replenish(
+            Pubkey::new_unique(),
+            Arc::new(ProgramCacheEntryForTxBatch::from(&*new_test_builtin_entry(
+                0,
+            ))),
+        );
 
         // One entry is found, and only that one is counted. The entry seeded
         // above is still in the batch, but it was not found by this call.
@@ -3892,7 +3918,7 @@ pub(crate) mod tests {
         let task = cache.extract(&mut search_for, &mut extracted, &env, true, true);
         assert!(search_for.is_empty());
         assert_eq!(task, None);
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(program_ids.first().unwrap()).unwrap(),
             &loaded
         ));
@@ -4028,7 +4054,7 @@ pub(crate) mod tests {
         let mut extracted = ProgramCacheForTxBatch::new(200);
         cache.extract(&mut search_for, &mut extracted, &env, true, true);
         assert!(search_for.is_empty());
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &on_same_fork
         ));
@@ -4102,7 +4128,7 @@ pub(crate) mod tests {
         let mut extracted = ProgramCacheForTxBatch::new(200);
         cache.extract(&mut search_for, &mut extracted, &env, true, true);
         assert!(search_for.is_empty());
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &deployed_at_150
         ));
@@ -4148,7 +4174,7 @@ pub(crate) mod tests {
         }];
         let mut extracted = ProgramCacheForTxBatch::new(200);
         cache.extract(&mut search_for, &mut extracted, &env, true, true);
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &on_same_fork
         ));
@@ -4256,7 +4282,7 @@ pub(crate) mod tests {
         let mut extracted = ProgramCacheForTxBatch::new(300);
         cache.extract(&mut search_for, &mut extracted, &env, true, true);
         assert!(search_for.is_empty());
-        assert!(Arc::ptr_eq(
+        assert!(is_extracted_from(
             extracted.entries.get(&program_id).unwrap(),
             &entry
         ));
@@ -4297,7 +4323,7 @@ pub(crate) mod tests {
         let env = get_mock_program_runtime_environment();
         for program_cache_entry_type in [
             ProgramCacheEntryType::Closed,
-            ProgramCacheEntryType::Builtin(BuiltinProgram::new_mock()),
+            ProgramCacheEntryType::Builtin(Arc::new(BuiltinProgram::new_mock())),
         ] {
             let entry = Arc::new(ProgramCacheEntry {
                 program: program_cache_entry_type,

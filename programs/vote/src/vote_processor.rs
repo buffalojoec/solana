@@ -426,7 +426,7 @@ mod tests {
         solana_instruction::{AccountMeta, Instruction},
         solana_program_runtime::{
             invoke_context::mock_process_instruction_with_feature_set,
-            program_cache_entry::ProgramCacheEntry,
+            program_cache_entry::ProgramCacheEntryForTxBatch,
             solana_sbpf::{program::BuiltinFunctionDefinition, vm::ContextObject},
         },
         solana_pubkey::Pubkey,
@@ -562,7 +562,7 @@ mod tests {
                 // Register system program for CPI support.
                 invoke_context.program_cache_for_tx_batch.replenish(
                     solana_sdk_ids::system_program::id(),
-                    Arc::new(ProgramCacheEntry::new_builtin(
+                    Arc::new(ProgramCacheEntryForTxBatch::new_builtin(
                         solana_system_program::system_processor::Entrypoint::register,
                     )),
                 );
