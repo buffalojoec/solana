@@ -418,6 +418,300 @@ pub(crate) const fn retention_score(last_access: u64, recovery_cost: u64, freque
     last_access.saturating_add(weight_log as u64)
 }
 
+/// Actual payload of [ProgramCacheEntryForTxBatch].
+#[derive(Default)]
+pub enum ProgramCacheEntryTypeForTxBatch {
+    /// Tombstone for programs which currently do not pass the verifier but could if the feature set changed.
+    FailedVerification(ProgramRuntimeEnvironment),
+    /// Tombstone for programs that were either explicitly closed or never deployed.
+    ///
+    /// It's also used for accounts belonging to program loaders, that don't actually contain program code (e.g. buffer accounts for LoaderV3 programs).
+    #[default]
+    Closed,
+    /// Tombstone for programs which have recently been modified but the new version is not visible yet.
+    DelayVisibility,
+    /// Valid program account, but not relocated, verified or compiled.
+    ///
+    /// It continues to track usage statistics even when the executable of the program is evicted from memory.
+    Unloaded(ProgramRuntimeEnvironment),
+    /// Verified program.
+    ///
+    /// It may or may not be JIT compiled.
+    Loaded(Executable<InvokeContext<'static, 'static>>),
+    /// A built-in program which is not stored on-chain but backed into and distributed with the validator
+    Builtin(BuiltinProgram<InvokeContext<'static, 'static>>),
+}
+
+impl std::fmt::Debug for ProgramCacheEntryTypeForTxBatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(match self {
+            ProgramCacheEntryTypeForTxBatch::FailedVerification(_) => {
+                "ProgramCacheEntryTypeForTxBatch::FailedVerification"
+            }
+            ProgramCacheEntryTypeForTxBatch::Closed => "ProgramCacheEntryTypeForTxBatch::Closed",
+            ProgramCacheEntryTypeForTxBatch::DelayVisibility => {
+                "ProgramCacheEntryTypeForTxBatch::DelayVisibility"
+            }
+            ProgramCacheEntryTypeForTxBatch::Unloaded(_) => {
+                "ProgramCacheEntryTypeForTxBatch::Unloaded"
+            }
+            ProgramCacheEntryTypeForTxBatch::Loaded(_) => "ProgramCacheEntryTypeForTxBatch::Loaded",
+            ProgramCacheEntryTypeForTxBatch::Builtin(_) => {
+                "ProgramCacheEntryTypeForTxBatch::Builtin"
+            }
+        })
+        .finish()
+    }
+}
+
+impl ProgramCacheEntryTypeForTxBatch {
+    /// Returns a reference to its environment if it has one
+    pub fn get_environment(&self) -> Option<&ProgramRuntimeEnvironment> {
+        match self {
+            ProgramCacheEntryTypeForTxBatch::Loaded(program) => {
+                Some(ProgramRuntimeEnvironment::from_ref(program.get_loader()))
+            }
+            ProgramCacheEntryTypeForTxBatch::FailedVerification(env)
+            | ProgramCacheEntryTypeForTxBatch::Unloaded(env) => Some(env),
+            _ => None,
+        }
+    }
+}
+
+/// Holds a program version at a specific address and on a specific slot / fork.
+///
+/// It contains the actual program in [ProgramCacheEntryTypeForTxBatch] and a bunch of meta-data.
+#[derive(Default)]
+pub struct ProgramCacheEntryForTxBatch {
+    /// The program of this entry
+    pub program: ProgramCacheEntryTypeForTxBatch,
+    /// The loader of this entry
+    pub account_owner: ProgramCacheEntryOwner,
+    /// Slot in which the program was (re)deployed
+    pub deployment_slot: Slot,
+    /// How often this entry was used by a transaction
+    pub stats: Arc<ProgramStatistics>,
+    pub latest_access_slot: AtomicU64,
+}
+
+impl std::fmt::Debug for ProgramCacheEntryForTxBatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProgramCacheEntryForTxBatch")
+            .field("slot", &self.deployment_slot)
+            .field(
+                "env",
+                &self
+                    .program
+                    .get_environment()
+                    .map(|env| Arc::as_ptr(env))
+                    .unwrap_or(std::ptr::null()),
+            )
+            .field("type", &self.program)
+            .finish()
+    }
+}
+
+#[cfg(feature = "dev-context-only-utils")]
+impl PartialEq for ProgramCacheEntryForTxBatch {
+    fn eq(&self, other: &Self) -> bool {
+        self.deployment_slot == other.deployment_slot
+            && self.account_owner == other.account_owner
+            && std::mem::discriminant(&self.program) == std::mem::discriminant(&other.program)
+    }
+}
+
+impl ProgramCacheEntryForTxBatch {
+    /// Creates a loaded user program
+    pub fn load(
+        loader_key: &Pubkey,
+        program_runtime_environment: ProgramRuntimeEnvironment,
+        deployment_slot: Slot,
+        elf_bytes: &[u8],
+        #[cfg(feature = "metrics")] metrics: &mut LoadProgramMetrics,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let entry_stats = ProgramStatistics::default();
+        #[cfg(feature = "metrics")]
+        let load_elf_time = solana_svm_measure::measure::Measure::start("load_elf_time");
+        let executable = Executable::load(elf_bytes, Arc::clone(&*program_runtime_environment))?;
+
+        #[cfg(feature = "metrics")]
+        {
+            metrics.load_elf_us = load_elf_time.end_as_us();
+        }
+
+        #[cfg(feature = "metrics")]
+        let verify_code_time = solana_svm_measure::measure::Measure::start("verify_code_time");
+        executable.verify::<RequisiteVerifier>()?;
+        #[cfg(feature = "metrics")]
+        {
+            metrics.verify_code_us = verify_code_time.end_as_us();
+        }
+
+        #[cfg(all(not(target_os = "windows"), target_arch = "x86_64"))]
+        {
+            let jit_compile_time = solana_svm_measure::measure::Measure::start("jit_compile_time");
+            executable.jit_compile()?;
+            let jit_compile_time = jit_compile_time.end_as_us();
+            entry_stats.jit_compiled(jit_compile_time);
+            #[cfg(feature = "metrics")]
+            {
+                metrics.jit_compile_us = jit_compile_time;
+            }
+        }
+
+        Ok(Self {
+            deployment_slot,
+            account_owner: ProgramCacheEntryOwner::try_from(loader_key).unwrap(),
+            program: ProgramCacheEntryTypeForTxBatch::Loaded(executable),
+            stats: entry_stats.into(),
+            latest_access_slot: AtomicU64::new(0),
+        })
+    }
+
+    pub fn new_unloaded(
+        deployment_slot: Slot,
+        account_owner: ProgramCacheEntryOwner,
+        program_runtime_environment: ProgramRuntimeEnvironment,
+    ) -> Self {
+        Self {
+            program: ProgramCacheEntryTypeForTxBatch::Unloaded(program_runtime_environment),
+            account_owner,
+            deployment_slot,
+            stats: Arc::default(),
+            latest_access_slot: AtomicU64::new(deployment_slot),
+        }
+    }
+
+    pub fn to_unloaded_in_env(&self, environment: ProgramRuntimeEnvironment) -> Option<Self> {
+        match &self.program {
+            ProgramCacheEntryTypeForTxBatch::Loaded(_)
+            | ProgramCacheEntryTypeForTxBatch::FailedVerification(_)
+            | ProgramCacheEntryTypeForTxBatch::Unloaded(_) => {}
+            ProgramCacheEntryTypeForTxBatch::Closed
+            | ProgramCacheEntryTypeForTxBatch::DelayVisibility
+            | ProgramCacheEntryTypeForTxBatch::Builtin(_) => {
+                return None;
+            }
+        }
+        Some(Self {
+            program: ProgramCacheEntryTypeForTxBatch::Unloaded(environment),
+            account_owner: self.account_owner,
+            deployment_slot: self.deployment_slot,
+            stats: Arc::clone(&self.stats),
+            latest_access_slot: AtomicU64::new(self.latest_access_slot.load(Ordering::Relaxed)),
+        })
+    }
+
+    pub fn to_unloaded(&self) -> Option<Self> {
+        self.to_unloaded_in_env(ProgramRuntimeEnvironment::clone(
+            self.program.get_environment()?,
+        ))
+    }
+
+    /// Creates a new built-in program
+    pub fn new_builtin(register_fn: BuiltinFunctionRegisterer) -> Self {
+        let mut program = BuiltinProgram::new_builtin();
+        register_fn(&mut program, "entrypoint").unwrap();
+        Self {
+            deployment_slot: 0, // Deployment slot is always zero
+            account_owner: ProgramCacheEntryOwner::NativeLoader,
+            program: ProgramCacheEntryTypeForTxBatch::Builtin(program),
+            stats: Arc::default(),
+            latest_access_slot: AtomicU64::new(0),
+        }
+    }
+
+    pub fn new_failed_verification_tombstone(
+        deployment_slot: Slot,
+        account_owner: ProgramCacheEntryOwner,
+        program_runtime_environment: ProgramRuntimeEnvironment,
+    ) -> Self {
+        Self {
+            program: ProgramCacheEntryTypeForTxBatch::FailedVerification(
+                program_runtime_environment,
+            ),
+            account_owner,
+            deployment_slot,
+            stats: Arc::default(),
+            latest_access_slot: AtomicU64::new(0),
+        }
+    }
+
+    pub fn new_closed_tombstone(
+        deployment_slot: Slot,
+        account_owner: ProgramCacheEntryOwner,
+    ) -> Self {
+        Self {
+            program: ProgramCacheEntryTypeForTxBatch::Closed,
+            account_owner,
+            deployment_slot,
+            stats: Arc::default(),
+            latest_access_slot: AtomicU64::new(0),
+        }
+    }
+
+    pub fn new_delay_visibility_tombstone(
+        deployment_slot: Slot,
+        account_owner: ProgramCacheEntryOwner,
+        stats: Arc<ProgramStatistics>,
+    ) -> Self {
+        Self {
+            program: ProgramCacheEntryTypeForTxBatch::DelayVisibility,
+            account_owner,
+            deployment_slot,
+            stats,
+            latest_access_slot: AtomicU64::new(0),
+        }
+    }
+
+    pub fn is_tombstone(&self) -> bool {
+        matches!(
+            self.program,
+            ProgramCacheEntryTypeForTxBatch::FailedVerification(_)
+                | ProgramCacheEntryTypeForTxBatch::Closed
+                | ProgramCacheEntryTypeForTxBatch::DelayVisibility
+        )
+    }
+
+    pub fn is_unloaded(&self) -> bool {
+        matches!(self.program, ProgramCacheEntryTypeForTxBatch::Unloaded(_))
+    }
+
+    pub fn effective_slot(&self) -> Slot {
+        match self.program {
+            ProgramCacheEntryTypeForTxBatch::Closed
+            | ProgramCacheEntryTypeForTxBatch::DelayVisibility
+            | ProgramCacheEntryTypeForTxBatch::FailedVerification(_)
+            | ProgramCacheEntryTypeForTxBatch::Builtin(_) => self.deployment_slot,
+            ProgramCacheEntryTypeForTxBatch::Unloaded(_)
+            | ProgramCacheEntryTypeForTxBatch::Loaded(_) => self
+                .deployment_slot
+                .saturating_add(DELAY_VISIBILITY_SLOT_OFFSET),
+        }
+    }
+
+    pub fn update_access_slot(&self, slot: Slot) {
+        let _ = self.latest_access_slot.fetch_max(slot, Ordering::Relaxed);
+    }
+
+    /// Compute a retention score.
+    ///
+    /// Eviction uses an adapted GDSF scheme which incorporates frequency, recovery cost
+    /// (recompilation) and time-based decay.
+    ///
+    /// How hard should we try to retain this entry. Higher number -> retention more likely.
+    pub fn retention_score(&self) -> u64 {
+        let last_access = self.latest_access_slot.load(Ordering::Relaxed);
+        let recovery_cost = self.stats.compilation_time_ema.load(Ordering::Relaxed);
+        let frequency = self.stats.uses.load(Ordering::Relaxed);
+        retention_score(last_access, recovery_cost, frequency)
+    }
+
+    pub fn account_owner(&self) -> Pubkey {
+        self.account_owner.into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use {
