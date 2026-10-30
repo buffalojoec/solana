@@ -47,7 +47,6 @@ impl CostModel {
             programs_execution_cost,
             loaded_accounts_data_size_cost,
             data_bytes_cost,
-            feature_set,
         )
     }
 
@@ -72,7 +71,6 @@ impl CostModel {
             actual_programs_execution_cost,
             loaded_accounts_data_size_cost,
             instructions_data_cost,
-            feature_set,
         )
     }
 
@@ -96,7 +94,6 @@ impl CostModel {
             programs_execution_cost,
             loaded_accounts_data_size_cost,
             data_bytes_cost,
-            feature_set,
         )
     }
 
@@ -107,13 +104,12 @@ impl CostModel {
         programs_execution_cost: u64,
         loaded_accounts_data_size_cost: u64,
         data_bytes_cost: u16,
-        feature_set: &FeatureSet,
     ) -> TransactionCost {
         let signature_cost = Self::get_signature_cost(transaction);
         let write_lock_cost = Self::get_write_lock_cost(num_write_locks);
 
         let allocated_accounts_data_size =
-            Self::calculate_allocated_accounts_data_size(instructions, feature_set);
+            Self::calculate_allocated_accounts_data_size(instructions);
 
         TransactionCost {
             signature_cost,
@@ -201,7 +197,6 @@ impl CostModel {
 
     fn calculate_account_data_size_on_deserialized_system_instruction(
         instruction: SystemInstruction,
-        feature_set: &FeatureSet,
     ) -> SystemProgramAccountAllocation {
         let validate_space = |space: u64| {
             if space > MAX_PERMITTED_DATA_LENGTH {
@@ -215,13 +210,8 @@ impl CostModel {
             SystemInstruction::CreateAccount { space, .. }
             | SystemInstruction::CreateAccountWithSeed { space, .. }
             | SystemInstruction::Allocate { space }
-            | SystemInstruction::AllocateWithSeed { space, .. } => validate_space(space),
-            SystemInstruction::CreateAccountAllowPrefund { space, .. } => {
-                if !feature_set.snapshot().create_account_allow_prefund {
-                    return SystemProgramAccountAllocation::Failed;
-                }
-                validate_space(space)
-            }
+            | SystemInstruction::AllocateWithSeed { space, .. }
+            | SystemInstruction::CreateAccountAllowPrefund { space, .. } => validate_space(space),
             // DEVELOPER WARNING: New allocating instructions MUST return `Failed`
             // until activated by a feature gate
             SystemInstruction::Assign { .. }
@@ -241,16 +231,12 @@ impl CostModel {
     fn calculate_account_data_size_on_instruction(
         program_id: &Pubkey,
         instruction: SVMInstruction,
-        feature_set: &FeatureSet,
     ) -> SystemProgramAccountAllocation {
         if program_id == &system_program::id() {
             if let Ok(instruction) =
                 wincode::config::deserialize(instruction.data, PACKET_DATA_WINCODE_CONFIG)
             {
-                Self::calculate_account_data_size_on_deserialized_system_instruction(
-                    instruction,
-                    feature_set,
-                )
+                Self::calculate_account_data_size_on_deserialized_system_instruction(instruction)
             } else {
                 SystemProgramAccountAllocation::Failed
             }
@@ -263,15 +249,10 @@ impl CostModel {
     /// at the moment, calculate account data size of account creation
     fn calculate_allocated_accounts_data_size<'a>(
         instructions: impl Iterator<Item = (&'a Pubkey, SVMInstruction<'a>)>,
-        feature_set: &FeatureSet,
     ) -> u64 {
         let mut tx_attempted_allocation_size = Saturating(0u64);
         for (program_id, instruction) in instructions {
-            match Self::calculate_account_data_size_on_instruction(
-                program_id,
-                instruction,
-                feature_set,
-            ) {
+            match Self::calculate_account_data_size_on_instruction(program_id, instruction) {
                 SystemProgramAccountAllocation::Failed => {
                     // If any system program instructions can be statically
                     // determined to fail, no allocations will actually be
@@ -346,7 +327,6 @@ mod tests {
         assert_eq!(
             CostModel::calculate_allocated_accounts_data_size(
                 sanitized_tx.program_instructions_iter(),
-                &FeatureSet::all_enabled()
             ),
             0
         );
@@ -374,7 +354,6 @@ mod tests {
         assert_eq!(
             CostModel::calculate_allocated_accounts_data_size(
                 sanitized_tx.program_instructions_iter(),
-                &FeatureSet::all_enabled()
             ),
             space1 + space2
         );
@@ -418,7 +397,6 @@ mod tests {
         assert_eq!(
             CostModel::calculate_allocated_accounts_data_size(
                 sanitized_tx.program_instructions_iter(),
-                &FeatureSet::all_enabled()
             ),
             MAX_PERMITTED_ACCOUNTS_DATA_ALLOCATIONS_PER_TRANSACTION as u64,
         );
@@ -445,7 +423,6 @@ mod tests {
             0, // SystemProgramAccountAllocation::Failed,
             CostModel::calculate_allocated_accounts_data_size(
                 sanitized_tx.program_instructions_iter(),
-                &FeatureSet::all_enabled()
             ),
         );
     }
@@ -465,7 +442,6 @@ mod tests {
             0, // SystemProgramAccountAllocation::Failed,
             CostModel::calculate_allocated_accounts_data_size(
                 sanitized_tx.program_instructions_iter(),
-                &FeatureSet::all_enabled()
             ),
         );
     }
@@ -477,7 +453,6 @@ mod tests {
         let seed = String::default();
         let space = 100;
         let base = Pubkey::default();
-        let feature_set = FeatureSet::all_enabled();
 
         for instruction in [
             SystemInstruction::CreateAccount {
@@ -508,8 +483,7 @@ mod tests {
             assert_eq!(
                 SystemProgramAccountAllocation::Some(space),
                 CostModel::calculate_account_data_size_on_deserialized_system_instruction(
-                    instruction,
-                    &feature_set
+                    instruction
                 )
             );
         }
@@ -521,39 +495,6 @@ mod tests {
                     from_seed: String::default(),
                     from_owner: Pubkey::default(),
                 },
-                &feature_set
-            )
-        );
-    }
-
-    #[test]
-    fn test_cost_model_create_account_allow_prefund_feature_gate() {
-        let lamports = 0;
-        let owner = Pubkey::default();
-        let space = 100;
-        let instruction = SystemInstruction::CreateAccountAllowPrefund {
-            lamports,
-            space,
-            owner,
-        };
-
-        // Test with feature enabled
-        let feature_set_enabled = FeatureSet::all_enabled();
-        assert_eq!(
-            SystemProgramAccountAllocation::Some(space),
-            CostModel::calculate_account_data_size_on_deserialized_system_instruction(
-                instruction.clone(),
-                &feature_set_enabled
-            )
-        );
-
-        // Test with feature disabled
-        let feature_set_disabled = FeatureSet::default();
-        assert_eq!(
-            SystemProgramAccountAllocation::Failed,
-            CostModel::calculate_account_data_size_on_deserialized_system_instruction(
-                instruction,
-                &feature_set_disabled
             )
         );
     }

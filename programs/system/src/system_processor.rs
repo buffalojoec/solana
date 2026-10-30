@@ -533,12 +533,6 @@ declare_process_instruction!(Entrypoint, DEFAULT_COMPUTE_UNITS, |invoke_context|
             space,
             owner,
         } => {
-            if !invoke_context
-                .get_feature_set()
-                .create_account_allow_prefund
-            {
-                return Err(InstructionError::InvalidInstructionData);
-            }
             let from_and_lamports = if lamports > 0 {
                 instruction_context.check_number_of_instruction_accounts(2)?;
                 Some((1, lamports))
@@ -2173,28 +2167,6 @@ mod tests {
         assert_eq!(accounts[0].lamports(), 100);
         assert_eq!(accounts[0].owner(), &new_owner);
         assert_eq!(accounts[0].data(), &[0, 0]);
-
-        // Feature gate off - instruction rejected
-        use solana_program_runtime::invoke_context::mock_process_instruction_with_feature_set;
-        mock_process_instruction_with_feature_set(
-            &system_program::id(),
-            &wincode::serialize(&SystemInstruction::CreateAccountAllowPrefund {
-                lamports: 50,
-                space: 0,
-                owner: new_owner,
-            })
-            .unwrap(),
-            vec![
-                (to, AccountSharedData::new(0, 0, &Pubkey::default())),
-                (from, AccountSharedData::new(100, 0, &system_program::id())),
-            ],
-            vec![AccountMeta::new(to, true), AccountMeta::new(from, true)],
-            Err(InstructionError::InvalidInstructionData),
-            Entrypoint::register,
-            |_| {},
-            |_| {},
-            &solana_svm_feature_set::SVMFeatureSet::default(),
-        );
     }
 
     #[test]

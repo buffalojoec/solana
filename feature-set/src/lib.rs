@@ -51,7 +51,6 @@ pub struct FeatureSnapshot {
     pub raise_block_limits_to_100m: bool,
     pub raise_cpi_nesting_limit_to_8: bool,
     pub provide_instruction_data_offset_in_vm_r2: bool,
-    pub create_account_allow_prefund: bool,
     pub delay_commission_updates: bool,
     pub increase_cpi_account_info_limit: bool,
     pub poseidon_enforce_padding: bool,
@@ -143,7 +142,6 @@ impl From<&AHashMap<Pubkey, u64>> for FeatureSnapshot {
             provide_instruction_data_offset_in_vm_r2: is_active(
                 &provide_instruction_data_offset_in_vm_r2::ID,
             ),
-            create_account_allow_prefund: is_active(&create_account_allow_prefund::ID),
             delay_commission_updates: is_active(&delay_commission_updates::ID),
             increase_cpi_account_info_limit: is_active(&increase_cpi_account_info_limit::ID),
             poseidon_enforce_padding: is_active(&poseidon_enforce_padding::ID),
@@ -327,7 +325,6 @@ impl FeatureSet {
             poseidon_enforce_padding: snapshot.poseidon_enforce_padding,
             fix_alt_bn128_pairing_length_check: snapshot.fix_alt_bn128_pairing_length_check,
             alt_bn128_little_endian: snapshot.alt_bn128_little_endian,
-            create_account_allow_prefund: snapshot.create_account_allow_prefund,
             bls_pubkey_management_in_vote_account: snapshot.bls_pubkey_management_in_vote_account,
             enable_alt_bn128_g2_syscalls: snapshot.enable_alt_bn128_g2_syscalls,
             commission_rate_in_basis_points: snapshot.commission_rate_in_basis_points,
