@@ -11649,7 +11649,6 @@ dependencies = [
 name = "solana-vote-program"
 version = "4.5.0-alpha.4"
 dependencies = [
- "agave-feature-set",
  "agave-logger",
  "arbitrary",
  "assert_matches",
@@ -11672,7 +11671,6 @@ dependencies = [
  "solana-pubkey 4.4.0",
  "solana-rent",
  "solana-sdk-ids",
- "solana-sha256-hasher",
  "solana-slot-hashes",
  "solana-svm-feature-set",
  "solana-system-interface",

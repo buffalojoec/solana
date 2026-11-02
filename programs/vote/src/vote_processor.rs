@@ -75,11 +75,6 @@ fn is_vote_authorize_with_bls_enabled(invoke_context: &InvokeContext) -> bool {
         .bls_pubkey_management_in_vote_account
 }
 
-fn should_reject_legacy_vote_instructions(invoke_context: &InvokeContext) -> bool {
-    invoke_context.is_deprecate_legacy_vote_ixs_active()
-        || invoke_context.is_alpenglow_migration_succeeded()
-}
-
 // Citing `runtime/src/block_cost_limit.rs`, vote has statically defined 2100
 // units; can consume based on instructions in the future like `bpf_loader` does.
 pub const DEFAULT_COMPUTE_UNITS: u64 = 2_100;
@@ -204,77 +199,14 @@ declare_process_instruction!(Entrypoint, DEFAULT_COMPUTE_UNITS, |invoke_context|
                 disable_commission_update_rule,
             )
         }
-        VoteInstruction::Vote(vote) | VoteInstruction::VoteSwitch(vote, _) => {
-            if should_reject_legacy_vote_instructions(invoke_context) {
-                return Err(InstructionError::InvalidInstructionData);
-            }
-            let slot_hashes = get_sysvar_with_account_check::slot_hashes(
-                invoke_context,
-                &instruction_context,
-                1,
-            )?;
-            let clock =
-                get_sysvar_with_account_check::clock(invoke_context, &instruction_context, 2)?;
-            vote_state::process_vote_with_account(
-                &mut me,
-                target_version,
-                &slot_hashes,
-                &clock,
-                &vote,
-                &signers,
-            )
-        }
-        VoteInstruction::UpdateVoteState(vote_state_update)
-        | VoteInstruction::UpdateVoteStateSwitch(vote_state_update, _) => {
-            if should_reject_legacy_vote_instructions(invoke_context) {
-                return Err(InstructionError::InvalidInstructionData);
-            }
-            let sysvar_cache = invoke_context.environment_config.sysvar_cache();
-            let slot_hashes = sysvar_cache.get_slot_hashes()?;
-            let clock = sysvar_cache.get_clock()?;
-            vote_state::process_vote_state_update(
-                &mut me,
-                target_version,
-                slot_hashes.slot_hashes(),
-                &clock,
-                vote_state_update,
-                &signers,
-            )
-        }
-        VoteInstruction::CompactUpdateVoteState(vote_state_update)
-        | VoteInstruction::CompactUpdateVoteStateSwitch(vote_state_update, _) => {
-            if should_reject_legacy_vote_instructions(invoke_context) {
-                return Err(InstructionError::InvalidInstructionData);
-            }
-            let sysvar_cache = invoke_context.environment_config.sysvar_cache();
-            let slot_hashes = sysvar_cache.get_slot_hashes()?;
-            let clock = sysvar_cache.get_clock()?;
-            vote_state::process_vote_state_update(
-                &mut me,
-                target_version,
-                slot_hashes.slot_hashes(),
-                &clock,
-                vote_state_update,
-                &signers,
-            )
-        }
-        VoteInstruction::TowerSync(tower_sync)
-        | VoteInstruction::TowerSyncSwitch(tower_sync, _) => {
-            if invoke_context.is_alpenglow_migration_succeeded() {
-                return Err(InstructionError::InvalidInstructionData);
-            }
-            let sysvar_cache = invoke_context.environment_config.sysvar_cache();
-            let slot_hashes = sysvar_cache.get_slot_hashes()?;
-            let clock = sysvar_cache.get_clock()?;
-            vote_state::process_tower_sync(
-                &mut me,
-                target_version,
-                slot_hashes.slot_hashes(),
-                &clock,
-                tower_sync,
-                &signers,
-            )
-        }
+        VoteInstruction::Vote(..)
+        | VoteInstruction::VoteSwitch(..)
+        | VoteInstruction::UpdateVoteState(..)
+        | VoteInstruction::UpdateVoteStateSwitch(..)
+        | VoteInstruction::CompactUpdateVoteState(..)
+        | VoteInstruction::CompactUpdateVoteStateSwitch(..)
+        | VoteInstruction::TowerSync(..)
+        | VoteInstruction::TowerSyncSwitch(..) => Err(InstructionError::InvalidInstructionData),
         VoteInstruction::Withdraw(lamports) => {
             instruction_context.check_number_of_instruction_accounts(2)?;
             let rent_sysvar = invoke_context
@@ -410,7 +342,7 @@ mod tests {
                 update_vote_state, update_vote_state_switch, vote, vote_switch, withdraw,
             },
             vote_state::{
-                self, Lockout, TowerSync, Vote, VoteAuthorize, VoteAuthorizeCheckedWithSeedArgs,
+                self, TowerSync, Vote, VoteAuthorize, VoteAuthorizeCheckedWithSeedArgs,
                 VoteAuthorizeWithSeedArgs, VoteInit, VoteInitV2, VoteStateUpdate, VoteStateV3,
                 VoteStateV4, VoteStateVersions, create_bls_pubkey_and_proof_of_possession,
                 handler::VoteStateHandler,
@@ -499,7 +431,6 @@ mod tests {
         custom_commission_collector: bool,
         block_revenue_sharing: bool,
         vote_account_initialize_v2: bool,
-        alpenglow_migration_succeeded: bool,
     }
 
     impl VoteProgramFeatures {
@@ -510,7 +441,6 @@ mod tests {
                 custom_commission_collector: true,
                 block_revenue_sharing: true,
                 vote_account_initialize_v2: true,
-                alpenglow_migration_succeeded: false,
             }
         }
     }
@@ -546,7 +476,6 @@ mod tests {
             custom_commission_collector,
             block_revenue_sharing,
             vote_account_initialize_v2,
-            alpenglow_migration_succeeded,
         } = features;
         let cu_consumed = RefCell::new(0u64);
         let accounts = mock_process_instruction_with_feature_set(
@@ -557,8 +486,6 @@ mod tests {
             expected_result,
             Entrypoint::register,
             |invoke_context| {
-                invoke_context
-                    .set_alpenglow_migration_succeeded_for_tests(alpenglow_migration_succeeded);
                 // Register system program for CPI support.
                 invoke_context.program_cache_for_tx_batch.replenish(
                     solana_sdk_ids::system_program::id(),
@@ -863,39 +790,6 @@ mod tests {
         (vote_pubkey, account)
     }
 
-    /// Returns Vec of serialized VoteInstruction and flag indicating if it is a tower sync
-    /// variant, along with the original vote
-    fn create_serialized_votes() -> (Vote, Vec<(Vec<u8>, bool)>) {
-        let vote = Vote::new(vec![1], Hash::default());
-        let vote_state_update = VoteStateUpdate::from(vec![(1, 1)]);
-        let tower_sync = TowerSync::from(vec![(1, 1)]);
-        (
-            vote.clone(),
-            vec![
-                (
-                    wincode::serialize(&VoteInstruction::Vote(vote)).unwrap(),
-                    false,
-                ),
-                (
-                    wincode::serialize(&VoteInstruction::UpdateVoteState(
-                        vote_state_update.clone(),
-                    ))
-                    .unwrap(),
-                    false,
-                ),
-                (
-                    wincode::serialize(&VoteInstruction::CompactUpdateVoteState(vote_state_update))
-                        .unwrap(),
-                    false,
-                ),
-                (
-                    wincode::serialize(&VoteInstruction::TowerSync(tower_sync)).unwrap(),
-                    true,
-                ),
-            ],
-        )
-    }
-
     #[test]
     fn test_vote_process_instruction_decode_bail() {
         process_instruction(
@@ -964,7 +858,6 @@ mod tests {
             custom_commission_collector,
             block_revenue_sharing,
             vote_account_initialize_v2,
-            alpenglow_migration_succeeded: false,
         };
 
         let accounts = process_instruction(
@@ -1098,7 +991,6 @@ mod tests {
             custom_commission_collector,
             block_revenue_sharing,
             vote_account_initialize_v2,
-            alpenglow_migration_succeeded: false,
         };
 
         let all_v2_features_enabled = bls_pubkey_management_in_vote_account
@@ -2155,137 +2047,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_vote_signature() {
-        let (vote_pubkey, vote_account) = create_test_account();
-        let (vote, instruction_datas) = create_serialized_votes();
-        let slot_hashes = SlotHashes::new(&[SlotHash::new(*vote.slots.last().unwrap(), vote.hash)]);
-        let slot_hashes_account = create_sysvar_account(&slot_hashes);
-        let mut instruction_accounts = vec![
-            AccountMeta {
-                pubkey: vote_pubkey,
-                is_signer: true,
-                is_writable: true,
-            },
-            AccountMeta {
-                pubkey: sysvar::slot_hashes::id(),
-                is_signer: false,
-                is_writable: false,
-            },
-            AccountMeta {
-                pubkey: sysvar::clock::id(),
-                is_signer: false,
-                is_writable: false,
-            },
-        ];
-
-        let features = VoteProgramFeatures {
-            ..Default::default()
-        };
-
-        for (instruction_data, is_tower_sync) in instruction_datas {
-            let mut transaction_accounts = vec![
-                (vote_pubkey, vote_account.clone()),
-                (sysvar::slot_hashes::id(), slot_hashes_account.clone()),
-                (sysvar::clock::id(), create_default_clock_account()),
-            ];
-
-            let error = |err| {
-                if !is_tower_sync {
-                    Err(InstructionError::InvalidInstructionData)
-                } else {
-                    Err(err)
-                }
-            };
-
-            // should fail, unsigned
-            instruction_accounts[0].is_signer = false;
-            process_instruction(
-                features,
-                &instruction_data,
-                transaction_accounts.clone(),
-                instruction_accounts.clone(),
-                error(InstructionError::MissingRequiredSignature),
-            );
-            instruction_accounts[0].is_signer = true;
-
-            // should pass
-            let accounts = process_instruction(
-                features,
-                &instruction_data,
-                transaction_accounts.clone(),
-                instruction_accounts.clone(),
-                if is_tower_sync {
-                    Ok(())
-                } else {
-                    Err(InstructionError::InvalidInstructionData)
-                },
-            );
-            if is_tower_sync {
-                let vote_state = deserialize_vote_state_for_test(accounts[0].data(), &vote_pubkey);
-                let expected_lockout = Lockout::new(*vote.slots.last().unwrap());
-                assert_eq!(vote_state.votes().len(), 1);
-                assert_eq!(vote_state.votes()[0].lockout, expected_lockout);
-                assert_eq!(vote_state.credits(), 0);
-            }
-
-            // should fail, wrong hash
-            transaction_accounts[1] = (
-                sysvar::slot_hashes::id(),
-                create_sysvar_account(&SlotHashes::new(&[SlotHash::new(
-                    *vote.slots.last().unwrap(),
-                    solana_sha256_hasher::hash(&[0u8]),
-                )])),
-            );
-            process_instruction(
-                features,
-                &instruction_data,
-                transaction_accounts.clone(),
-                instruction_accounts.clone(),
-                error(VoteError::SlotHashMismatch.into()),
-            );
-
-            // should fail, wrong slot
-            transaction_accounts[1] = (
-                sysvar::slot_hashes::id(),
-                create_sysvar_account(&SlotHashes::new(&[SlotHash::new(0, vote.hash)])),
-            );
-            process_instruction(
-                features,
-                &instruction_data,
-                transaction_accounts.clone(),
-                instruction_accounts.clone(),
-                error(VoteError::SlotsMismatch.into()),
-            );
-
-            // should fail, empty slot_hashes
-            transaction_accounts[1] = (
-                sysvar::slot_hashes::id(),
-                create_sysvar_account(&SlotHashes::new(&[])),
-            );
-            process_instruction(
-                features,
-                &instruction_data,
-                transaction_accounts.clone(),
-                instruction_accounts.clone(),
-                error(VoteError::SlotsMismatch.into()),
-            );
-            transaction_accounts[1] = (sysvar::slot_hashes::id(), slot_hashes_account.clone());
-
-            // should fail, uninitialized
-            let vote_account =
-                AccountSharedData::new_with_data(100, vec![0; vote_state_size_of()], &id());
-            transaction_accounts[0] = (vote_pubkey, vote_account);
-            process_instruction(
-                features,
-                &instruction_data,
-                transaction_accounts.clone(),
-                instruction_accounts.clone(),
-                error(InstructionError::InvalidAccountData),
-            );
-        }
-    }
-
     #[test_matrix([false, true])]
     fn test_authorize_voter(bls_pubkey_management_in_vote_account: bool) {
         let (vote_pubkey, vote_account) = create_test_account();
@@ -2420,53 +2181,6 @@ mod tests {
         );
         instruction_accounts[0].is_signer = true;
         instruction_accounts.pop();
-
-        // should fail, not signed by authorized voter
-        let (vote, instruction_datas) = create_serialized_votes();
-        let slot_hashes = SlotHashes::new(&[SlotHash::new(*vote.slots.last().unwrap(), vote.hash)]);
-        let slot_hashes_account = create_sysvar_account(&slot_hashes);
-        transaction_accounts.push((sysvar::slot_hashes::id(), slot_hashes_account));
-        instruction_accounts.insert(
-            1,
-            AccountMeta {
-                pubkey: sysvar::slot_hashes::id(),
-                is_signer: false,
-                is_writable: false,
-            },
-        );
-        let mut authorized_instruction_accounts = instruction_accounts.clone();
-        authorized_instruction_accounts.push(AccountMeta {
-            pubkey: authorized_voter_pubkey,
-            is_signer: true,
-            is_writable: false,
-        });
-
-        for (instruction_data, is_tower_sync) in instruction_datas {
-            process_instruction(
-                features,
-                &instruction_data,
-                transaction_accounts.clone(),
-                instruction_accounts.clone(),
-                Err(if is_tower_sync {
-                    InstructionError::MissingRequiredSignature
-                } else {
-                    InstructionError::InvalidInstructionData
-                }),
-            );
-
-            // should pass, signed by authorized voter
-            process_instruction(
-                features,
-                &instruction_data,
-                transaction_accounts.clone(),
-                authorized_instruction_accounts.clone(),
-                if is_tower_sync {
-                    Ok(())
-                } else {
-                    Err(InstructionError::InvalidInstructionData)
-                },
-            );
-        }
     }
 
     #[test_matrix([false, true])]
@@ -2663,53 +2377,6 @@ mod tests {
         );
         instruction_accounts[0].is_signer = true;
         instruction_accounts.pop();
-
-        // should fail, not signed by authorized voter
-        let (vote, instruction_datas) = create_serialized_votes();
-        let slot_hashes = SlotHashes::new(&[SlotHash::new(*vote.slots.last().unwrap(), vote.hash)]);
-        let slot_hashes_account = create_sysvar_account(&slot_hashes);
-        transaction_accounts.push((sysvar::slot_hashes::id(), slot_hashes_account));
-        instruction_accounts.insert(
-            1,
-            AccountMeta {
-                pubkey: sysvar::slot_hashes::id(),
-                is_signer: false,
-                is_writable: false,
-            },
-        );
-        let mut authorized_instruction_accounts = instruction_accounts.clone();
-        authorized_instruction_accounts.push(AccountMeta {
-            pubkey: authorized_voter_pubkey,
-            is_signer: true,
-            is_writable: false,
-        });
-
-        for (instruction_data, is_tower_sync) in instruction_datas {
-            process_instruction(
-                features,
-                &instruction_data,
-                transaction_accounts.clone(),
-                instruction_accounts.clone(),
-                Err(if is_tower_sync {
-                    InstructionError::MissingRequiredSignature
-                } else {
-                    InstructionError::InvalidInstructionData
-                }),
-            );
-
-            // should pass, signed by authorized voter
-            process_instruction(
-                features,
-                &instruction_data,
-                transaction_accounts.clone(),
-                authorized_instruction_accounts.clone(),
-                if is_tower_sync {
-                    Ok(())
-                } else {
-                    Err(InstructionError::InvalidInstructionData)
-                },
-            );
-        }
     }
 
     #[test]
@@ -4303,7 +3970,7 @@ mod tests {
         process_instruction_as_one_arg(
             features,
             &tower_sync(&Pubkey::default(), &Pubkey::default(), TowerSync::default()),
-            Err(InstructionError::InvalidAccountData),
+            Err(InstructionError::InvalidInstructionData),
         );
         process_instruction_as_one_arg(
             features,
@@ -4313,7 +3980,7 @@ mod tests {
                 TowerSync::default(),
                 Hash::default(),
             ),
-            Err(InstructionError::InvalidAccountData),
+            Err(InstructionError::InvalidInstructionData),
         );
 
         process_instruction_as_one_arg(
@@ -4344,27 +4011,51 @@ mod tests {
     }
 
     #[test]
-    fn test_tower_sync_rejected_after_alpenglow_migration_succeeds() {
-        let features = VoteProgramFeatures {
-            alpenglow_migration_succeeded: true,
-            ..Default::default()
-        };
+    fn test_legacy_vote_instructions_rejected() {
+        let (vote_pubkey, authorized_voter, _, vote_account) =
+            create_test_account_with_authorized();
+        let slot_vote = Vote::new(vec![1], Hash::default());
+        let slot_hashes = SlotHashes::new(&[SlotHash::new(1, slot_vote.hash)]);
+        let vote_state_update = VoteStateUpdate::from(vec![(1, 1)]);
+        let tower = TowerSync::from(vec![(1, 1)]);
+        let transaction_accounts = vec![
+            (vote_pubkey, vote_account),
+            (authorized_voter, create_default_account()),
+            (
+                sysvar::slot_hashes::id(),
+                create_sysvar_account(&slot_hashes),
+            ),
+            (sysvar::clock::id(), create_default_clock_account()),
+        ];
 
-        process_instruction_as_one_arg(
-            features,
-            &tower_sync(&Pubkey::default(), &Pubkey::default(), TowerSync::default()),
-            Err(InstructionError::InvalidInstructionData),
-        );
-        process_instruction_as_one_arg(
-            features,
-            &tower_sync_switch(
-                &Pubkey::default(),
-                &Pubkey::default(),
-                TowerSync::default(),
+        for instruction in [
+            vote(&vote_pubkey, &authorized_voter, slot_vote.clone()),
+            vote_switch(&vote_pubkey, &authorized_voter, slot_vote, Hash::default()),
+            update_vote_state(&vote_pubkey, &authorized_voter, vote_state_update.clone()),
+            update_vote_state_switch(
+                &vote_pubkey,
+                &authorized_voter,
+                vote_state_update.clone(),
                 Hash::default(),
             ),
-            Err(InstructionError::InvalidInstructionData),
-        );
+            compact_update_vote_state(&vote_pubkey, &authorized_voter, vote_state_update.clone()),
+            compact_update_vote_state_switch(
+                &vote_pubkey,
+                &authorized_voter,
+                vote_state_update,
+                Hash::default(),
+            ),
+            tower_sync(&vote_pubkey, &authorized_voter, tower.clone()),
+            tower_sync_switch(&vote_pubkey, &authorized_voter, tower, Hash::default()),
+        ] {
+            process_instruction(
+                VoteProgramFeatures::default(),
+                &instruction.data,
+                transaction_accounts.clone(),
+                instruction.accounts,
+                Err(InstructionError::InvalidInstructionData),
+            );
+        }
     }
 
     #[test_matrix([false, true])]
@@ -4528,11 +4219,6 @@ mod tests {
     }
 
     // Explicitly covers uninitialized vote accounts for instructions.
-    // `test_vote_signature` above covered:
-    // * Vote
-    // * UpdateVoteState
-    // * CompactUpdateVoteState
-    // * TowerSync
     #[test]
     fn test_uninitialized_vote_account() {
         // Set up uninitialized vote account.
