@@ -2570,6 +2570,8 @@ pub fn fill_blockstore_slot_with_ticks(
 
 #[cfg(test)]
 pub mod tests {
+    #[expect(deprecated)]
+    use solana_vote_program::vote_state::TowerSync;
     use {
         super::*,
         crate::{
@@ -2630,7 +2632,7 @@ pub mod tests {
         solana_vote::{vote_account::VoteAccount, vote_transaction},
         solana_vote_program::{
             self,
-            vote_state::{MAX_LOCKOUT_HISTORY, TowerSync, VoteStateV4, VoteStateVersions},
+            vote_state::{MAX_LOCKOUT_HISTORY, VoteStateV4, VoteStateVersions},
         },
         std::{
             collections::BTreeSet,
@@ -4732,6 +4734,7 @@ pub mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_replay_vote_sender() {
         let validator_keypairs: Vec<_> =
             (0..10).map(|_| ValidatorVoteKeypairs::new_rand()).collect();
@@ -4852,6 +4855,7 @@ pub mod tests {
             .unwrap();
     }
 
+    #[expect(deprecated)]
     fn run_test_process_blockstore_with_supermajority_root(
         blockstore_root: Option<Slot>,
         blockstore_access_type: AccessType,

@@ -1,4 +1,6 @@
 #![cfg(feature = "dev-context-only-utils")]
+#[expect(deprecated)]
+use solana_vote_program::vote_state::TowerSync;
 use {
     crate::{
         cluster_info_vote_listener::VoteTracker,
@@ -34,7 +36,7 @@ use {
     },
     solana_signer::Signer,
     solana_vote::vote_transaction,
-    solana_vote_program::vote_state::{Lockout, TowerSync},
+    solana_vote_program::vote_state::Lockout,
     std::{
         collections::{HashMap, HashSet, VecDeque},
         sync::{Arc, RwLock},
@@ -83,6 +85,7 @@ impl VoteSimulator {
         }
     }
 
+    #[expect(deprecated)]
     pub fn fill_bank_forks(
         &mut self,
         forks: Tree<u64>,

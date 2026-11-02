@@ -2,6 +2,8 @@
 #[macro_use]
 extern crate log;
 
+#[expect(deprecated)]
+use solana_vote_program::vote_state::Vote;
 use {
     rayon::iter::*,
     solana_gossip::{
@@ -21,7 +23,7 @@ use {
     solana_streamer::sendmmsg::{SendPktsError, multi_target_send},
     solana_time_utils::timestamp,
     solana_transaction::Transaction,
-    solana_vote_program::{vote_instruction, vote_state::Vote},
+    solana_vote_program::vote_instruction,
     std::{
         net::UdpSocket,
         sync::{
@@ -281,6 +283,7 @@ pub fn cluster_info_retransmit() {
 
 #[test]
 #[ignore]
+#[expect(deprecated)]
 pub fn cluster_info_scale() {
     use {
         solana_measure::measure::Measure,

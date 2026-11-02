@@ -592,6 +592,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_vote_round_trip() {
         let mut rng = rand::rng();
         let vote = vote_state::Vote::new(

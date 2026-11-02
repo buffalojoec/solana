@@ -17,7 +17,7 @@ use solana_frozen_abi_macro::{StableAbi, StableAbiSample, frozen_abi};
 #[cfg(test)]
 use solana_vote_interface::authorized_voters::AuthorizedVoters;
 use {
-    solana_clock::{Clock, Epoch, Slot, UnixTimestamp},
+    solana_clock::{Clock, Epoch, Slot},
     solana_instruction_error::InstructionError,
     solana_pubkey::Pubkey,
     solana_transaction_context::instruction_accounts::BorrowedInstructionAccount,
@@ -279,15 +279,6 @@ impl VoteStateHandler {
         }
     }
 
-    pub(crate) fn contains_slot(&self, candidate_slot: Slot) -> bool {
-        match &self.target_state {
-            TargetVoteState::V4(v4) => v4
-                .votes
-                .binary_search_by(|vote| vote.slot().cmp(&candidate_slot))
-                .is_ok(),
-        }
-    }
-
     pub(crate) fn last_lockout(&self) -> Option<&Lockout> {
         match &self.target_state {
             TargetVoteState::V4(v4) => v4.votes.back().map(|vote| &vote.lockout),
@@ -504,23 +495,6 @@ impl VoteStateHandler {
             .unwrap()
             .1
             .saturating_add(credits);
-    }
-
-    pub(crate) fn process_timestamp(
-        &mut self,
-        slot: Slot,
-        timestamp: UnixTimestamp,
-    ) -> Result<(), VoteError> {
-        let last_timestamp = self.last_timestamp();
-        if (slot < last_timestamp.slot || timestamp < last_timestamp.timestamp)
-            || (slot == last_timestamp.slot
-                && &BlockTimestamp { slot, timestamp } != last_timestamp
-                && last_timestamp.slot != 0)
-        {
-            return Err(VoteError::TimestampTooOld);
-        }
-        self.set_last_timestamp(BlockTimestamp { slot, timestamp });
-        Ok(())
     }
 
     fn pop_expired_votes(&mut self, next_vote_slot: Slot) {
@@ -1216,57 +1190,6 @@ mod tests {
         }
         assert_eq!(vote_state.credits(), credits);
         assert!(vote_state.epoch_credits().len() <= MAX_EPOCH_CREDITS_HISTORY);
-    }
-
-    #[test_case(VoteStateHandler::new_v4(VoteStateV4::default()) ; "VoteStateV4")]
-    fn test_vote_process_timestamp(mut vote_state: VoteStateHandler) {
-        let (slot, timestamp) = (15, 1_575_412_285);
-        vote_state.set_last_timestamp(BlockTimestamp { slot, timestamp });
-
-        assert_eq!(
-            vote_state.process_timestamp(slot - 1, timestamp + 1),
-            Err(VoteError::TimestampTooOld)
-        );
-        assert_eq!(
-            vote_state.last_timestamp(),
-            &BlockTimestamp { slot, timestamp }
-        );
-        assert_eq!(
-            vote_state.process_timestamp(slot + 1, timestamp - 1),
-            Err(VoteError::TimestampTooOld)
-        );
-        assert_eq!(
-            vote_state.process_timestamp(slot, timestamp + 1),
-            Err(VoteError::TimestampTooOld)
-        );
-        assert_eq!(vote_state.process_timestamp(slot, timestamp), Ok(()));
-        assert_eq!(
-            vote_state.last_timestamp(),
-            &BlockTimestamp { slot, timestamp }
-        );
-        assert_eq!(vote_state.process_timestamp(slot + 1, timestamp), Ok(()));
-        assert_eq!(
-            vote_state.last_timestamp(),
-            &BlockTimestamp {
-                slot: slot + 1,
-                timestamp
-            }
-        );
-        assert_eq!(
-            vote_state.process_timestamp(slot + 2, timestamp + 1),
-            Ok(())
-        );
-        assert_eq!(
-            vote_state.last_timestamp(),
-            &BlockTimestamp {
-                slot: slot + 2,
-                timestamp: timestamp + 1
-            }
-        );
-
-        // Test initial vote
-        vote_state.set_last_timestamp(BlockTimestamp::default());
-        assert_eq!(vote_state.process_timestamp(0, timestamp), Ok(()));
     }
 
     fn init_vote_account_state_v4_and_assert(

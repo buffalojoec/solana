@@ -68,6 +68,8 @@ pub struct TrackedCost {
 
 #[cfg(test)]
 mod tests {
+    #[expect(deprecated)]
+    use solana_vote_program::vote_state::TowerSync;
     use {
         super::*,
         crate::{block_cost_limits, cost_model::CostModel},
@@ -81,9 +83,9 @@ mod tests {
         },
         solana_transaction::{sanitized::MessageHash, versioned::VersionedTransaction},
         solana_vote::vote_transaction,
-        solana_vote_program::vote_state::TowerSync,
     };
 
+    #[expect(deprecated)]
     fn get_example_transaction() -> VersionedTransaction {
         let node_keypair = Keypair::new();
         let vote_keypair = Keypair::new();

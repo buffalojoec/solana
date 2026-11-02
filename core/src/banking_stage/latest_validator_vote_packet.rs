@@ -30,6 +30,7 @@ pub struct LatestValidatorVote {
 }
 
 impl LatestValidatorVote {
+    #[expect(deprecated)]
     pub fn new_from_view(
         vote: SanitizedTransactionView<Bytes>,
         vote_source: VoteSource,
@@ -152,6 +153,8 @@ pub enum DeserializedPacketError {
 
 #[cfg(test)]
 mod tests {
+    #[expect(deprecated)]
+    use solana_vote_program::vote_state::TowerSync;
     use {
         super::*,
         itertools::Itertools,
@@ -160,7 +163,6 @@ mod tests {
         solana_signer::Signer,
         solana_system_transaction::transfer,
         solana_vote::vote_transaction::new_tower_sync_transaction,
-        solana_vote_program::vote_state::TowerSync,
     };
 
     fn deserialize_packets(
@@ -173,6 +175,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_deserialize_vote_packets() {
         let keypairs = ValidatorVoteKeypairs::new_rand();
         let blockhash = Hash::new_unique();

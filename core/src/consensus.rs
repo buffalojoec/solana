@@ -11,6 +11,8 @@ pub(crate) mod tower_vote_state;
 pub mod tree_diff;
 pub mod vote_stake_tracker;
 
+#[expect(deprecated)]
+use solana_vote_program::vote_state::{TowerSync, Vote, VoteStateUpdate};
 use {
     self::{
         heaviest_subtree_fork_choice::HeaviestSubtreeForkChoice,
@@ -41,7 +43,7 @@ use {
     solana_vote_program::{
         vote_error::VoteError,
         vote_instruction,
-        vote_state::{BlockTimestamp, Lockout, TowerSync, Vote, VoteState1_14_11, VoteStateUpdate},
+        vote_state::{BlockTimestamp, Lockout, VoteState1_14_11},
     },
     std::{
         cmp::Ordering,
@@ -78,6 +80,7 @@ pub enum SwitchForkDecision {
 }
 
 impl SwitchForkDecision {
+    #[expect(deprecated)]
     pub fn to_vote_instruction(
         &self,
         vote: VoteTransaction,
@@ -243,6 +246,7 @@ pub struct Tower {
 }
 
 impl Default for Tower {
+    #[expect(deprecated)]
     fn default() -> Self {
         let mut tower = Self {
             node_pubkey: Pubkey::default(),
@@ -340,6 +344,7 @@ impl Tower {
     }
 
     #[cfg(test)]
+    #[expect(deprecated)]
     pub fn new_random(node_pubkey: Pubkey) -> Self {
         use {
             rand::Rng,
@@ -689,6 +694,7 @@ impl Tower {
 
     /// If we've recently updated the vote state by applying a new vote
     /// or syncing from a bank, generate the proper last_vote.
+    #[expect(deprecated)]
     pub(crate) fn update_last_vote_from_vote_state(&mut self, vote_hash: Hash, block_id: Hash) {
         let mut new_vote = VoteTransaction::from(TowerSync::new(
             self.vote_state.votes.clone(),
@@ -701,6 +707,7 @@ impl Tower {
         self.last_vote = new_vote;
     }
 
+    #[expect(deprecated)]
     fn record_bank_vote_and_update_lockouts(
         &mut self,
         vote_slot: Slot,
@@ -1465,6 +1472,7 @@ impl Tower {
 
     // The tower root can be older/newer if the validator booted from a newer/older snapshot, so
     // tower lockouts may need adjustment
+    #[expect(deprecated)]
     pub fn adjust_lockouts_after_replay(
         mut self,
         replayed_root: Slot,
@@ -1549,6 +1557,7 @@ impl Tower {
         Ok(self)
     }
 
+    #[expect(deprecated)]
     fn adjust_lockouts_with_slot_history(&mut self, slot_history: &SlotHistory) -> Result<()> {
         let tower_root = self.root();
         // retained slots will be consisted only from divergent slots
@@ -1847,6 +1856,7 @@ pub fn reconcile_blockstore_roots_with_external_source(
 }
 
 #[cfg(test)]
+#[expect(deprecated)]
 pub mod test {
     use {
         super::*,

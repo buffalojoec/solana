@@ -2677,6 +2677,7 @@ fn make_gossip_packet(
 }
 
 #[cfg(test)]
+#[expect(deprecated)]
 mod tests {
     use {
         super::*,

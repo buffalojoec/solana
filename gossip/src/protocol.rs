@@ -320,6 +320,8 @@ pub(crate) fn split_gossip_messages<
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[expect(deprecated)]
+    use solana_vote_program::vote_state::Vote;
     use {
         super::*,
         crate::{
@@ -341,7 +343,7 @@ pub(crate) mod tests {
         solana_signer::Signer,
         solana_time_utils::timestamp,
         solana_transaction::Transaction,
-        solana_vote_program::{vote_instruction, vote_state::Vote},
+        solana_vote_program::vote_instruction,
         std::{
             iter::repeat_with,
             net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
@@ -760,6 +762,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_vote_size() {
         let slots = vec![1; 32];
         let vote = Vote::new(slots, Hash::default());

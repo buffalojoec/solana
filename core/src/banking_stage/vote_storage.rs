@@ -373,6 +373,8 @@ impl VoteStorage {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[expect(deprecated)]
+    use solana_vote_program::vote_state::TowerSync;
     use {
         super::*,
         solana_clock::UnixTimestamp,
@@ -385,7 +387,6 @@ pub(crate) mod tests {
         solana_runtime::genesis_utils::{self, ValidatorVoteKeypairs},
         solana_signer::Signer,
         solana_vote::vote_transaction::new_tower_sync_transaction,
-        solana_vote_program::vote_state::TowerSync,
     };
 
     /// Create a VoteAccount with a specific authorized voter for the given epoch
@@ -449,6 +450,7 @@ pub(crate) mod tests {
         )
     }
 
+    #[expect(deprecated)]
     pub(crate) fn packet_from_slots(
         slots: Vec<(u64, u32)>,
         keypairs: &ValidatorVoteKeypairs,
@@ -484,6 +486,7 @@ pub(crate) mod tests {
     }
 
     /// Create a vote packet with a custom authorized voter keypair
+    #[expect(deprecated)]
     fn packet_from_slots_with_authorized_voter(
         slots: Vec<(u64, u32)>,
         keypairs: &ValidatorVoteKeypairs,

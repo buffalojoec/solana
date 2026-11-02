@@ -71,6 +71,7 @@ pub fn parse_vote_transaction(tx: &Transaction) -> Option<ParsedVote> {
     Some((*key, vote, switch_proof_hash, signature))
 }
 
+#[expect(deprecated)]
 fn parse_vote_instruction_data(
     vote_instruction_data: &[u8],
 ) -> Option<(VoteTransaction, Option<Hash>)> {
@@ -109,6 +110,7 @@ fn parse_vote_instruction_data(
 }
 
 #[cfg(test)]
+#[expect(deprecated)]
 mod test {
     use {
         super::*,

@@ -224,6 +224,8 @@ impl TowerStorage for FileTowerStorage {
 
 #[cfg(test)]
 pub mod test {
+    #[expect(deprecated)]
+    use solana_vote_program::vote_state::Vote;
     use {
         super::*,
         crate::consensus::{
@@ -234,12 +236,13 @@ pub mod test {
         solana_keypair::Keypair,
         solana_vote::vote_transaction::VoteTransaction,
         solana_vote_program::vote_state::{
-            BlockTimestamp, Lockout, MAX_LOCKOUT_HISTORY, Vote, VoteState1_14_11,
+            BlockTimestamp, Lockout, MAX_LOCKOUT_HISTORY, VoteState1_14_11,
         },
         tempfile::TempDir,
     };
 
     #[test]
+    #[expect(deprecated)]
     fn test_tower_migration() {
         let tower_path = TempDir::new().unwrap();
         let identity_keypair = Keypair::new();

@@ -1,3 +1,6 @@
+// Tower vote items are deprecated in solana-vote-interface 7.4.0; removed by the Alpenglow cleanup.
+#![expect(deprecated)]
+
 #[cfg(feature = "stable-abi")]
 use solana_frozen_abi_macro::{StableAbi, StableAbiSample, frozen_abi};
 use {

@@ -448,6 +448,8 @@ impl Bank {
 
 #[cfg(test)]
 mod tests {
+    #[expect(deprecated)]
+    use solana_vote_program::vote_state::TowerSync;
     use {
         super::*,
         crate::{
@@ -491,7 +493,7 @@ mod tests {
         solana_sysvar::epoch_rewards::{self, EpochRewards},
         solana_vote::vote_transaction,
         solana_vote_interface::state::{MAX_LOCKOUT_HISTORY, VoteStateV4, VoteStateVersions},
-        solana_vote_program::vote_state::{self, TowerSync, handler::VoteStateHandler},
+        solana_vote_program::vote_state::{self, handler::VoteStateHandler},
         std::{
             collections::HashSet,
             sync::{Arc, RwLock},
@@ -1474,6 +1476,7 @@ mod tests {
 
     /// Test that lamports can be sent to stake accounts regardless of rewards period.
     #[test]
+    #[expect(deprecated)]
     fn test_rewards_period_system_transfer() {
         let validator_vote_keypairs = ValidatorVoteKeypairs::new_rand();
         let validator_keypairs = vec![&validator_vote_keypairs];

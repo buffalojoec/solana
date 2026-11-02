@@ -1,3 +1,5 @@
+#[expect(deprecated)]
+use solana_vote_program::vote_state::TowerSync;
 use {
     super::*,
     crate::{
@@ -82,7 +84,7 @@ use {
     solana_unified_scheduler_pool::DefaultSchedulerPool,
     solana_vote::vote_transaction,
     solana_vote_program::vote_state::{
-        self, TowerSync, VoteStateV4, VoteStateVersions, handler::VoteStateHandler,
+        self, VoteStateV4, VoteStateVersions, handler::VoteStateHandler,
     },
     std::{
         fs::remove_dir_all,
@@ -1917,6 +1919,7 @@ fn test_write_persist_transaction_status() {
 }
 
 #[test]
+#[expect(deprecated)]
 fn test_compute_bank_stats_confirmed() {
     let vote_keypairs = ValidatorVoteKeypairs::new_rand();
     let my_node_pubkey = vote_keypairs.node_keypair.pubkey();
@@ -3029,6 +3032,7 @@ fn test_switch_bank_purges_cleared_descendants() {
 }
 
 #[test]
+#[expect(deprecated)]
 fn test_purge_unconfirmed_duplicate_slot() {
     let (vote_simulator, blockstore) = setup_default_forks(2, None::<GenerateVotes>);
     let VoteSimulator {

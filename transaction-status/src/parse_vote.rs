@@ -8,6 +8,7 @@ use {
     solana_vote_interface::instruction::VoteInstruction,
 };
 
+#[expect(deprecated)]
 pub fn parse_vote(
     instruction: &CompiledInstruction,
     account_keys: &AccountKeys,
@@ -337,6 +338,7 @@ fn check_num_vote_accounts(accounts: &[u8], num: usize) -> Result<(), ParseInstr
 }
 
 #[cfg(test)]
+#[expect(deprecated)]
 mod test {
     use {
         super::*,

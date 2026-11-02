@@ -227,6 +227,8 @@ impl QosService {
 
 #[cfg(test)]
 mod tests {
+    #[expect(deprecated)]
+    use solana_vote_program::vote_state::TowerSync;
     use {
         super::*,
         solana_cost_model::cost_tracker::CostTrackerLimits,
@@ -237,11 +239,11 @@ mod tests {
         solana_signer::Signer,
         solana_system_transaction as system_transaction,
         solana_vote::vote_transaction,
-        solana_vote_program::vote_state::TowerSync,
         std::sync::Arc,
     };
 
     #[test]
+    #[expect(deprecated)]
     fn test_compute_transaction_costs() {
         agave_logger::setup();
 
@@ -279,6 +281,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_select_transactions_per_cost() {
         agave_logger::setup();
         let GenesisConfigInfo { genesis_config, .. } = create_genesis_config(10);

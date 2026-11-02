@@ -196,6 +196,7 @@ pub(crate) fn make_crds_filter_bytes() -> Vec<u8> {
 
 /// Build a Vote CrdsData (variant 1).
 /// The inner Transaction is complex; we construct and serialize via Rust objects.
+#[expect(deprecated)]
 pub(crate) fn make_vote_crds_data(index: u8, from: &[u8; 32], wallclock: u64) -> Vec<u8> {
     use {
         solana_gossip::crds_data::{CrdsData, Vote as CrdsVote},

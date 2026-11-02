@@ -325,6 +325,8 @@ impl AggregateCommitmentService {
 
 #[cfg(test)]
 mod tests {
+    #[expect(deprecated)]
+    use solana_vote_program::vote_state::TowerSync;
     use {
         super::*,
         solana_account::{Account, ReadableAccount, state_traits::StateMutWincode as _},
@@ -340,7 +342,7 @@ mod tests {
         solana_signer::Signer,
         solana_vote::vote_transaction,
         solana_vote_program::vote_state::{
-            self, BLS_PUBLIC_KEY_COMPRESSED_SIZE, MAX_LOCKOUT_HISTORY, TowerSync, VoteStateV4,
+            self, BLS_PUBLIC_KEY_COMPRESSED_SIZE, MAX_LOCKOUT_HISTORY, VoteStateV4,
             VoteStateVersions, handler::VoteStateHandler, process_slot_vote_unchecked,
         },
     };
@@ -633,6 +635,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_highest_super_majority_root_advance() {
         fn get_vote_state(vote_pubkey: Pubkey, bank: &Bank) -> TowerVoteState {
             let vote_account = bank.get_vote_account(&vote_pubkey).unwrap();

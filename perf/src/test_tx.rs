@@ -1,3 +1,5 @@
+#[expect(deprecated)]
+use solana_vote_program::vote_state::TowerSync;
 use {
     rand::{CryptoRng, Rng, RngCore},
     solana_clock::Slot,
@@ -12,7 +14,6 @@ use {
     solana_system_interface::instruction::SystemInstruction,
     solana_transaction::{Transaction, versioned::VersionedTransaction},
     solana_vote::vote_transaction,
-    solana_vote_program::vote_state::TowerSync,
 };
 
 pub fn test_tx() -> Transaction {
@@ -48,6 +49,7 @@ pub fn test_multisig_tx() -> Transaction {
     )
 }
 
+#[expect(deprecated)]
 pub fn new_test_vote_tx<R>(rng: &mut R) -> Transaction
 where
     R: CryptoRng + RngCore,

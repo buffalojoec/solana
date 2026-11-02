@@ -4811,6 +4811,8 @@ pub fn populate_blockstore_for_tests(
 
 #[cfg(test)]
 pub mod tests {
+    #[expect(deprecated)]
+    use solana_vote_program::vote_state::TowerSync;
     use {
         super::{
             rpc_accounts::*, rpc_accounts_scan::*, rpc_bank::*, rpc_full::*, rpc_minimal::*, *,
@@ -4894,7 +4896,7 @@ pub mod tests {
         solana_vote_interface::state::VoteStateV4,
         solana_vote_program::{
             vote_instruction,
-            vote_state::{MAX_LOCKOUT_HISTORY, TowerSync, VoteInit, VoteStateVersions},
+            vote_state::{MAX_LOCKOUT_HISTORY, VoteInit, VoteStateVersions},
         },
         spl_token_2022_interface::{
             extension::{
@@ -8853,6 +8855,7 @@ pub mod tests {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_get_vote_accounts() {
         let rpc = RpcHandler::start_tower();
         let mut bank = rpc.working_bank();

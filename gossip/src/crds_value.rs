@@ -296,6 +296,8 @@ unsafe impl<'de, C: Config> SchemaRead<'de, C> for CrdsValue {
 
 #[cfg(test)]
 mod test {
+    #[expect(deprecated)]
+    use solana_vote_interface::state::TowerSync;
     use {
         super::*,
         crate::crds_data::{LowestSlot, Vote},
@@ -306,7 +308,6 @@ mod test {
         solana_signer::Signer,
         solana_time_utils::timestamp,
         solana_vote::vote_transaction::new_tower_sync_transaction,
-        solana_vote_interface::state::TowerSync,
         solana_vote_program::vote_state::Lockout,
         std::str::FromStr,
     };
@@ -453,6 +454,7 @@ mod test {
     }
 
     #[test]
+    #[expect(deprecated)]
     fn test_serialize_round_trip() {
         let mut rng = ChaChaRng::from_seed(
             bs58::decode("4nHgVgCvVaHnsrg4dYggtvWYYgV3JbeyiRBWupPMt3EG")

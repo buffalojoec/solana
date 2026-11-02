@@ -3,6 +3,8 @@
 /// All tests must start from an entry point and a funding keypair and
 /// discover the rest of the network.
 use log::*;
+#[expect(deprecated)]
+use solana_vote_program::vote_state::TowerSync;
 use {
     crate::local_cluster::LocalCluster,
     agave_votor::voting_service::votor_rate_limit_pps,
@@ -56,7 +58,6 @@ use {
     solana_transaction_error::TransportError,
     solana_validator_exit::Exit,
     solana_vote::vote_transaction::{self, VoteTransaction},
-    solana_vote_program::vote_state::TowerSync,
     std::{
         collections::{HashMap, HashSet, VecDeque},
         net::{SocketAddr, TcpListener, UdpSocket},
@@ -1015,6 +1016,7 @@ fn verify_slot_ticks(
     entries.last().unwrap().hash
 }
 
+#[expect(deprecated)]
 pub fn submit_vote_to_cluster_gossip(
     node_keypair: &Keypair,
     vote_keypair: &Keypair,

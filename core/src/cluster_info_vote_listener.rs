@@ -921,6 +921,7 @@ impl ClusterInfoVoteListener {
 }
 
 #[cfg(test)]
+#[expect(deprecated)]
 mod tests {
     use {
         super::*,
