@@ -49,6 +49,7 @@ use {
     std::{
         alloc::Layout,
         mem::{MaybeUninit, align_of, size_of},
+        ptr::NonNull,
         str::{Utf8Error, from_utf8},
     },
     thiserror::Error as ThisError,
@@ -605,16 +606,26 @@ fn translate_slice_mut<T>(
     })
 }
 
-fn touch_type_mut<T>(invoke_context: &mut InvokeContext, vm_addr: u64) -> Result<(), Error> {
-    let memory_mapping = invoke_context.memory_contexts.memory_mapping_mut()?;
+fn touch_mut(invoke_context: &mut InvokeContext, vm_addr: u64, len: u64) -> Result<(), Error> {
+    let mut memory_mapping =
+        NonNull::from_mut(invoke_context.memory_contexts.memory_mapping_mut()?);
+    // SAFETY: Lichtso should look this one over, but generally the idea is
+    // that we `Box` the mapping and rely on the fact that
+    // `TransactionContext::access_violation_handler` doesn't mess with the
+    // memory context even though it can see the context object now.
+    let memory_mapping = unsafe { memory_mapping.as_mut() };
     translate_inner!(
         memory_mapping,
         map_with_access_violation_handler,
         AccessType::Store,
         vm_addr,
-        size_of::<T>() as u64,
+        len,
+        invoke_context,
     )
     .map(|_| ())
+}
+fn touch_type_mut<T>(invoke_context: &mut InvokeContext, vm_addr: u64) -> Result<(), Error> {
+    touch_mut(invoke_context, vm_addr, size_of::<T>() as u64)
 }
 fn touch_slice_mut<T>(
     invoke_context: &mut InvokeContext,
@@ -624,15 +635,11 @@ fn touch_slice_mut<T>(
     if element_count == 0 {
         return Ok(());
     }
-    let memory_mapping = invoke_context.memory_contexts.memory_mapping_mut()?;
-    translate_inner!(
-        memory_mapping,
-        map_with_access_violation_handler,
-        AccessType::Store,
+    touch_mut(
+        invoke_context,
         vm_addr,
         element_count.saturating_mul(size_of::<T>() as u64),
     )
-    .map(|_| ())
 }
 
 // No other translated references can be live when calling this.

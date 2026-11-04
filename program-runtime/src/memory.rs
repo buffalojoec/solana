@@ -14,10 +14,10 @@ pub enum MemoryTranslationError {
 // Do not use this directly
 #[macro_export]
 macro_rules! translate_inner {
-    ($memory_mapping:expr, $map:ident, $access_type:expr, $vm_addr:expr, $len:expr $(,)?) => {
+    ($memory_mapping:expr, $map:ident, $access_type:expr, $vm_addr:expr, $len:expr $(, $context_object:expr)? $(,)?) => {
         Result::<$crate::solana_sbpf::memory_region::HostBuffer, Box<dyn std::error::Error>>::from(
             $memory_mapping
-                .$map($access_type, $vm_addr, $len)
+                .$map($access_type, $vm_addr, $len $(, $context_object)?)
                 .map_err(|err| err.into()),
         )
     };

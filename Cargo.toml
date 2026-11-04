@@ -646,6 +646,7 @@ lto = "fat"
 codegen-units = 1
 
 [patch.crates-io]
+solana-sbpf = { path = "/home/dev/do-work/sbpf-avh" }
 blstrs = { git = "https://github.com/anza-xyz/blstrs", rev = "a1faffa3420bdaf4102425c43f00cdd815d4f145" }
 # for details, see https://github.com/anza-xyz/crossbeam/commit/5ee1c6ec671d94db14ed9238eb99e59a84555aad
 crossbeam-epoch = { git = "https://github.com/anza-xyz/crossbeam", rev = "5ee1c6ec671d94db14ed9238eb99e59a84555aad" }
