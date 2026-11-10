@@ -46,8 +46,9 @@ use {
     solana_svm_transaction::svm_message::SVMMessage,
     solana_svm_type_overrides::sync::Arc,
     solana_transaction_context::{
-        IndexOfAccount, MAX_ACCOUNTS_PER_TRANSACTION, instruction::InstructionContext,
-        instruction_accounts::InstructionAccount, transaction::TransactionContext,
+        DropOnBailOut, IndexOfAccount, MAX_ACCOUNTS_PER_TRANSACTION,
+        instruction::InstructionContext, instruction_accounts::InstructionAccount,
+        transaction::TransactionContext,
     },
     std::{
         alloc::Layout,
@@ -56,9 +57,15 @@ use {
         fmt::{self, Debug},
         ptr,
         rc::Rc,
-        time::Duration,
+        time::{Duration, Instant},
     },
 };
+
+/// Wall-clock budget for a transaction's execution before it bails out.
+///
+/// Only enforced when transactions which bail out are dropped (block
+/// production and simulation), never in replay.
+pub const EXECUTION_TIME_LIMIT: Duration = Duration::from_millis(5);
 
 pub type BuiltinFunctionRegisterer =
     fn(&mut BuiltinProgram<InvokeContext<'static, 'static>>, &str) -> Result<(), ElfError>;
@@ -210,6 +217,11 @@ pub struct InvokeContext<'a, 'ix_data> {
     pub memory_contexts: MemoryContexts,
     /// Pairs of index in TX instruction trace and VM register trace
     register_traces: Vec<(usize, Vec<[u64; 12]>)>,
+    /// Point in time after which the transaction bails out.
+    ///
+    /// Checked at instruction boundaries (top-level and CPI), on syscall
+    /// entry and before deserialization, not between VM instructions.
+    execution_deadline: Option<Instant>,
     /// Debug port to use for this executing transaction.
     #[cfg(feature = "sbpf-debugger")]
     pub debug_port: Option<u16>,
@@ -235,14 +247,29 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
             timings: ExecuteDetailsTimings::default(),
             memory_contexts: MemoryContexts::new(),
             register_traces: Vec::new(),
+            execution_deadline: None,
             #[cfg(feature = "sbpf-debugger")]
             debug_port: None,
         }
     }
 
+    /// Bails out if the transaction's execution deadline has passed.
+    pub fn check_execution_deadline(&self) -> Result<(), InstructionError> {
+        match self.execution_deadline {
+            Some(deadline) if Instant::now() >= deadline => Err(InstructionError::BailOut),
+            _ => Ok(()),
+        }
+    }
+
+    #[cfg(feature = "dev-context-only-utils")]
+    pub fn set_execution_deadline(&mut self, execution_deadline: Option<Instant>) {
+        self.execution_deadline = execution_deadline;
+    }
+
     /// Push a stack frame onto the invocation stack
     #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
     fn push(&mut self) -> Result<(), InstructionError> {
+        self.check_execution_deadline()?;
         let instruction_context = self.transaction_context.get_next_instruction_context()?;
         let program_id = instruction_context
             .get_program_key()
@@ -500,6 +527,12 @@ impl<'a, 'ix_data> InvokeContext<'a, 'ix_data> {
         execute_timings: &mut ExecuteTimings,
         accumulated_consumed_units: &mut u64,
     ) -> Result<(), (u8, InstructionError)> {
+        if matches!(
+            self.transaction_context.accounts().drop_on_bail_out(),
+            DropOnBailOut::Enabled
+        ) {
+            self.execution_deadline = Instant::now().checked_add(EXECUTION_TIME_LIMIT);
+        }
         self.prepare_top_level_instructions(message)?;
 
         for (top_level_instruction_index, (program_id, instruction)) in
@@ -1161,7 +1194,9 @@ mod tests {
         solana_signer::Signer,
         solana_svm_feature_set::SVMFeatureSet,
         solana_transaction::{Transaction, sanitized::SanitizedTransaction},
-        solana_transaction_context::{MAX_ACCOUNTS_PER_INSTRUCTION, MAX_ACCOUNTS_PER_TRANSACTION},
+        solana_transaction_context::{
+            MAX_ACCOUNTS_PER_INSTRUCTION, MAX_ACCOUNTS_PER_TRANSACTION, transaction::ComputeMeter,
+        },
         test_case::test_case,
     };
 
@@ -2731,5 +2766,117 @@ mod tests {
         // The callee returns.
         invoke_context.pop().unwrap();
         assert_eq!(invoke_context.abi(), ABI::V0);
+    }
+
+    #[test]
+    fn test_push_checks_execution_deadline() {
+        let transaction_accounts = vec![(
+            Pubkey::new_unique(),
+            AccountSharedData::empty(0, &bpf_loader_upgradeable::id()),
+        )];
+        with_mock_invoke_context!(invoke_context, transaction_context, transaction_accounts);
+        invoke_context
+            .transaction_context
+            .configure_top_level_instruction_for_tests(0, vec![], vec![])
+            .unwrap();
+
+        // Top-level instruction after the deadline.
+        invoke_context.set_execution_deadline(Some(Instant::now()));
+        assert_eq!(invoke_context.push(), Err(InstructionError::BailOut));
+        assert_eq!(
+            invoke_context
+                .transaction_context
+                .get_instruction_stack_height(),
+            0
+        );
+
+        // Top-level instruction before the deadline.
+        invoke_context
+            .set_execution_deadline(Instant::now().checked_add(Duration::from_secs(3600)));
+        invoke_context.push().unwrap();
+
+        // CPI after the deadline.
+        invoke_context.set_execution_deadline(Some(Instant::now()));
+        invoke_context
+            .transaction_context
+            .configure_next_cpi_for_tests(0, vec![], vec![])
+            .unwrap();
+        assert_eq!(invoke_context.push(), Err(InstructionError::BailOut));
+        assert_eq!(
+            invoke_context
+                .transaction_context
+                .get_instruction_stack_height(),
+            1
+        );
+    }
+
+    #[test_case(DropOnBailOut::Disabled, Ok(()); "replay")]
+    #[test_case(DropOnBailOut::Enabled, Err((1, InstructionError::BailOut)); "leader")]
+    fn test_process_message_execution_deadline(
+        drop_on_bail_out: DropOnBailOut,
+        expected_result: Result<(), (u8, InstructionError)>,
+    ) {
+        declare_process_instruction!(MockBuiltin, 1, |_invoke_context| {
+            std::thread::sleep(EXECUTION_TIME_LIMIT);
+            Ok(())
+        });
+
+        let fee_payer = Pubkey::new_unique();
+        let mock_program_id = Pubkey::new_unique();
+        let message = new_sanitized_message(Message::new(
+            &[
+                Instruction::new_with_bytes(mock_program_id, &[], vec![]),
+                Instruction::new_with_bytes(mock_program_id, &[], vec![]),
+            ],
+            Some(&fee_payer),
+        ));
+        let accounts = vec![
+            (
+                fee_payer,
+                AccountSharedData::empty(1, &system_program::id()),
+            ),
+            (
+                mock_program_id,
+                create_loadable_account_for_test("mock_program"),
+            ),
+        ];
+        let mut transaction_context = TransactionContext::new_with_feature_flags(
+            accounts,
+            Rent::default(),
+            1,
+            2,
+            2,
+            ComputeMeter::new(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT as u64),
+            drop_on_bail_out,
+        );
+        let mut program_cache_for_tx_batch = ProgramCacheForTxBatch::default();
+        program_cache_for_tx_batch.replenish(
+            mock_program_id,
+            Arc::new(ProgramCacheEntry::new_builtin(MockBuiltin::register)),
+        );
+        let sysvar_cache = SysvarCache::default();
+        let feature_set = SVMFeatureSet::all_enabled();
+        let program_runtime_environments = ProgramRuntimeEnvironments::mock();
+        let mut invoke_context = InvokeContext::new(
+            &mut transaction_context,
+            &mut program_cache_for_tx_batch,
+            EnvironmentConfig::new(
+                Hash::default(),
+                0,
+                &MockCallback {},
+                &feature_set,
+                &program_runtime_environments,
+                &sysvar_cache,
+            ),
+            None,
+            SVMTransactionExecutionBudget::default(),
+            SVMTransactionExecutionCost::default(),
+        );
+
+        // The first instruction outlasts the time limit, so the second one
+        // bails out only if the deadline was armed.
+        let result =
+            invoke_context.process_message(&message, &mut ExecuteTimings::default(), &mut 0);
+        assert_eq!(result, expected_result);
     }
 }

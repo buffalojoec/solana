@@ -1191,20 +1191,27 @@ mod test_utils {
 mod tests {
     use {
         super::*,
-        solana_account::{AccountSharedData, state_traits::StateMutWincode as _},
+        solana_account::{AccountSharedData, WritableAccount, state_traits::StateMutWincode as _},
         solana_epoch_schedule::EpochSchedule,
         solana_instruction_error::InstructionError,
         solana_program_runtime::{
+            execution_budget::SVMTransactionExecutionBudget,
+            invoke_context::mock_process_instruction,
             program_cache::{env::ProgramRuntimeEnvironment, metrics::ProgramStatistics},
             vm::calculate_heap_cost,
             with_mock_invoke_context,
         },
         solana_pubkey::Pubkey,
-        solana_sbpf::program::BuiltinProgram,
+        solana_sbpf::{
+            assembler::assemble,
+            program::{BuiltinFunctionDefinition, BuiltinProgram},
+        },
         solana_sdk_ids::sysvar,
+        solana_svm_feature_set::SVMFeatureSet,
         solana_svm_type_overrides::sync::atomic::{AtomicU64, Ordering},
+        solana_syscalls::create_program_runtime_environment,
         solana_sysvar_id::SysvarId,
-        std::{assert_matches, fs::File, io::Read},
+        std::{assert_matches, fs::File, io::Read, time::Instant},
         test_case::test_case,
     };
 
@@ -1405,5 +1412,80 @@ mod tests {
 
         assert_eq!(program2.deployment_slot, 2);
         assert_eq!(program2.stats.uses.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_execution_deadline_checked_after_vm_returns() {
+        #[cfg(feature = "shuttle-test")]
+        shuttle::check_random(
+            do_test_execution_deadline_checked_after_vm_returns,
+            PROGRAM_USAGE_COUNT_RANDOM_ITERATIONS,
+        );
+        #[cfg(not(feature = "shuttle-test"))]
+        do_test_execution_deadline_checked_after_vm_returns();
+    }
+
+    fn do_test_execution_deadline_checked_after_vm_returns() {
+        // Expires the deadline mid-execution, so `push` has already passed
+        // and only the check after the VM returns can bail out.
+        declare_builtin_function!(
+            SyscallExpireExecutionDeadline,
+            fn rust(
+                invoke_context: &mut InvokeContext<'static, 'static>,
+                _arg0: u64,
+                _arg1: u64,
+                _arg2: u64,
+                _arg3: u64,
+                _arg4: u64,
+            ) -> Result<u64, Box<dyn std::error::Error>> {
+                invoke_context.set_execution_deadline(Some(Instant::now()));
+                Ok(0)
+            }
+        );
+
+        let program_runtime_environment = create_program_runtime_environment(
+            &SVMFeatureSet::all_enabled(),
+            &SVMTransactionExecutionBudget::default(),
+            false, /* reject_deployment_of_broken_elfs */
+            false, /* debugging_features */
+        )
+        .unwrap();
+        let mut loader =
+            BuiltinProgram::new_loader(program_runtime_environment.get_config().clone());
+        SyscallExpireExecutionDeadline::register(&mut loader, "sol_expire_execution_deadline")
+            .unwrap();
+        let executable = assemble::<InvokeContext<'static, 'static>>(
+            "
+            syscall sol_expire_execution_deadline
+            mov64 r0, 0
+            exit",
+            std::sync::Arc::new(loader),
+        )
+        .unwrap();
+
+        let program_id = Pubkey::new_unique();
+        let mut program_account = AccountSharedData::empty(1, &bpf_loader::id());
+        program_account.set_executable(true);
+        let mut program = Some(ProgramCacheEntry {
+            program: ProgramCacheEntryType::Loaded(executable),
+            account_owner: ProgramCacheEntryOwner::LoaderV2,
+            deployment_slot: 0,
+            stats: Arc::default(),
+            latest_access_slot: AtomicU64::new(0),
+        });
+        mock_process_instruction(
+            &program_id,
+            &[],
+            vec![(program_id, program_account)],
+            vec![],
+            Err(InstructionError::BailOut),
+            Entrypoint::register,
+            |invoke_context| {
+                invoke_context
+                    .program_cache_for_tx_batch
+                    .replenish(program_id, Arc::new(program.take().unwrap()));
+            },
+            |_invoke_context| {},
+        );
     }
 }

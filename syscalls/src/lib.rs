@@ -49,6 +49,7 @@ use {
     solana_transaction_context::vm_slice::VmSlice,
     std::{
         alloc::Layout,
+        marker::PhantomData,
         mem::{MaybeUninit, size_of},
         str::{Utf8Error, from_utf8},
     },
@@ -297,13 +298,38 @@ impl HasherImpl for Sha512Hasher {
     }
 }
 
+/// Wraps a syscall to bail out on entry once the transaction's execution
+/// deadline has passed, before any host-side work is done.
+///
+/// Every syscall must be registered through this wrapper.
+struct DeadlineChecked<S>(PhantomData<S>);
+
+impl<'a, 'b, S> BuiltinFunctionDefinition<InvokeContext<'a, 'b>> for DeadlineChecked<S>
+where
+    S: BuiltinFunctionDefinition<InvokeContext<'a, 'b>>,
+{
+    type Error = Error;
+
+    fn rust(
+        invoke_context: &mut InvokeContext<'a, 'b>,
+        arg_a: u64,
+        arg_b: u64,
+        arg_c: u64,
+        arg_d: u64,
+        arg_e: u64,
+    ) -> Result<u64, Self::Error> {
+        invoke_context.check_execution_deadline()?;
+        S::rust(invoke_context, arg_a, arg_b, arg_c, arg_d, arg_e).map_err(Into::into)
+    }
+}
+
 // NOTE: This macro name is checked by gen-syscall-list to create the list of
 // syscalls. If this macro name is changed, or if a new one is added, then
 // gen-syscall-list/build.rs must also be updated.
 macro_rules! register_feature_gated_function {
     ($result:expr, $is_feature_active:expr, $name:expr, $call:ty $(,)?) => {
         if $is_feature_active {
-            <$call>::register(&mut $result, $name)
+            <DeadlineChecked<$call>>::register(&mut $result, $name)
         } else {
             Ok(())
         }
@@ -361,29 +387,35 @@ pub fn create_program_runtime_environment(
     let mut result = BuiltinProgram::new_loader(config);
 
     // Abort
-    SyscallAbort::register(&mut result, "abort")?;
+    DeadlineChecked::<SyscallAbort>::register(&mut result, "abort")?;
 
     // Panic
-    SyscallPanic::register(&mut result, "sol_panic_")?;
+    DeadlineChecked::<SyscallPanic>::register(&mut result, "sol_panic_")?;
 
     // Logging
-    SyscallLog::register(&mut result, "sol_log_")?;
-    SyscallLogU64::register(&mut result, "sol_log_64_")?;
-    SyscallLogPubkey::register(&mut result, "sol_log_pubkey")?;
-    SyscallLogBpfComputeUnits::register(&mut result, "sol_log_compute_units_")?;
+    DeadlineChecked::<SyscallLog>::register(&mut result, "sol_log_")?;
+    DeadlineChecked::<SyscallLogU64>::register(&mut result, "sol_log_64_")?;
+    DeadlineChecked::<SyscallLogPubkey>::register(&mut result, "sol_log_pubkey")?;
+    DeadlineChecked::<SyscallLogBpfComputeUnits>::register(&mut result, "sol_log_compute_units_")?;
 
     // Program defined addresses (PDA)
-    SyscallCreateProgramAddress::register(&mut result, "sol_create_program_address")?;
-    SyscallTryFindProgramAddress::register(&mut result, "sol_try_find_program_address")?;
+    DeadlineChecked::<SyscallCreateProgramAddress>::register(
+        &mut result,
+        "sol_create_program_address",
+    )?;
+    DeadlineChecked::<SyscallTryFindProgramAddress>::register(
+        &mut result,
+        "sol_try_find_program_address",
+    )?;
 
     // Sha256
-    SyscallHash::<Sha256Hasher>::register(&mut result, "sol_sha256")?;
+    DeadlineChecked::<SyscallHash<Sha256Hasher>>::register(&mut result, "sol_sha256")?;
 
     // Keccak256
-    SyscallHash::<Keccak256Hasher>::register(&mut result, "sol_keccak256")?;
+    DeadlineChecked::<SyscallHash<Keccak256Hasher>>::register(&mut result, "sol_keccak256")?;
 
     // Secp256k1 Recover
-    SyscallSecp256k1Recover::register(&mut result, "sol_secp256k1_recover")?;
+    DeadlineChecked::<SyscallSecp256k1Recover>::register(&mut result, "sol_secp256k1_recover")?;
 
     // Blake3
     register_feature_gated_function!(
@@ -402,22 +434,31 @@ pub fn create_program_runtime_environment(
     )?;
 
     // Elliptic Curve Operations
-    SyscallCurvePointValidation::register(&mut result, "sol_curve_validate_point")?;
-    SyscallCurveGroupOps::register(&mut result, "sol_curve_group_op")?;
-    SyscallCurveMultiscalarMultiplication::register(&mut result, "sol_curve_multiscalar_mul")?;
-    SyscallCurveDecompress::register(&mut result, "sol_curve_decompress")?;
-    SyscallCurvePairingMap::register(&mut result, "sol_curve_pairing_map")?;
+    DeadlineChecked::<SyscallCurvePointValidation>::register(
+        &mut result,
+        "sol_curve_validate_point",
+    )?;
+    DeadlineChecked::<SyscallCurveGroupOps>::register(&mut result, "sol_curve_group_op")?;
+    DeadlineChecked::<SyscallCurveMultiscalarMultiplication>::register(
+        &mut result,
+        "sol_curve_multiscalar_mul",
+    )?;
+    DeadlineChecked::<SyscallCurveDecompress>::register(&mut result, "sol_curve_decompress")?;
+    DeadlineChecked::<SyscallCurvePairingMap>::register(&mut result, "sol_curve_pairing_map")?;
 
     // Sysvars
-    SyscallGetClockSysvar::register(&mut result, "sol_get_clock_sysvar")?;
-    SyscallGetEpochScheduleSysvar::register(&mut result, "sol_get_epoch_schedule_sysvar")?;
+    DeadlineChecked::<SyscallGetClockSysvar>::register(&mut result, "sol_get_clock_sysvar")?;
+    DeadlineChecked::<SyscallGetEpochScheduleSysvar>::register(
+        &mut result,
+        "sol_get_epoch_schedule_sysvar",
+    )?;
     register_feature_gated_function!(
         result,
         !disable_fees_sysvar,
         "sol_get_fees_sysvar",
         SyscallGetFeesSysvar
     )?;
-    SyscallGetRentSysvar::register(&mut result, "sol_get_rent_sysvar")?;
+    DeadlineChecked::<SyscallGetRentSysvar>::register(&mut result, "sol_get_rent_sysvar")?;
 
     register_feature_gated_function!(
         result,
@@ -426,30 +467,33 @@ pub fn create_program_runtime_environment(
         SyscallGetLastRestartSlotSysvar
     )?;
 
-    SyscallGetEpochRewardsSysvar::register(&mut result, "sol_get_epoch_rewards_sysvar")?;
+    DeadlineChecked::<SyscallGetEpochRewardsSysvar>::register(
+        &mut result,
+        "sol_get_epoch_rewards_sysvar",
+    )?;
 
     // Memory ops
-    SyscallMemcpy::register(&mut result, "sol_memcpy_")?;
-    SyscallMemmove::register(&mut result, "sol_memmove_")?;
-    SyscallMemset::register(&mut result, "sol_memset_")?;
-    SyscallMemcmp::register(&mut result, "sol_memcmp_")?;
+    DeadlineChecked::<SyscallMemcpy>::register(&mut result, "sol_memcpy_")?;
+    DeadlineChecked::<SyscallMemmove>::register(&mut result, "sol_memmove_")?;
+    DeadlineChecked::<SyscallMemset>::register(&mut result, "sol_memset_")?;
+    DeadlineChecked::<SyscallMemcmp>::register(&mut result, "sol_memcmp_")?;
 
     // Processed sibling instructions
-    SyscallGetProcessedSiblingInstruction::register(
+    DeadlineChecked::<SyscallGetProcessedSiblingInstruction>::register(
         &mut result,
         "sol_get_processed_sibling_instruction",
     )?;
 
     // Stack height
-    SyscallGetStackHeight::register(&mut result, "sol_get_stack_height")?;
+    DeadlineChecked::<SyscallGetStackHeight>::register(&mut result, "sol_get_stack_height")?;
 
     // Return data
-    SyscallSetReturnData::register(&mut result, "sol_set_return_data")?;
-    SyscallGetReturnData::register(&mut result, "sol_get_return_data")?;
+    DeadlineChecked::<SyscallSetReturnData>::register(&mut result, "sol_set_return_data")?;
+    DeadlineChecked::<SyscallGetReturnData>::register(&mut result, "sol_get_return_data")?;
 
     // Cross-program invocation
-    SyscallInvokeSignedC::register(&mut result, "sol_invoke_signed_c")?;
-    SyscallInvokeSignedRust::register(&mut result, "sol_invoke_signed_rust")?;
+    DeadlineChecked::<SyscallInvokeSignedC>::register(&mut result, "sol_invoke_signed_c")?;
+    DeadlineChecked::<SyscallInvokeSignedRust>::register(&mut result, "sol_invoke_signed_rust")?;
 
     register_feature_gated_function!(
         result,
@@ -523,7 +567,7 @@ pub fn create_program_runtime_environment(
     )?;
 
     // Log data
-    SyscallLogData::register(&mut result, "sol_log_data")?;
+    DeadlineChecked::<SyscallLogData>::register(&mut result, "sol_log_data")?;
 
     Ok(ProgramRuntimeEnvironment::from(result))
 }
@@ -2852,10 +2896,10 @@ mod tests {
         solana_sbpf::{
             aligned_memory::AlignedMemory,
             ebpf::{self, HOST_ALIGN},
-            error::EbpfError,
+            error::{EbpfError, ProgramResult},
             memory_region::{MemoryMapping, MemoryRegion},
             program::SBPFVersion,
-            vm::Config,
+            vm::{Config, EbpfVm},
         },
         solana_sdk_ids::{
             bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, native_loader, sysvar,
@@ -2873,6 +2917,7 @@ mod tests {
             hash::{DefaultHasher, Hash, Hasher},
             mem,
             str::FromStr,
+            time::Instant,
         },
         test_case::test_case,
     };
@@ -8864,6 +8909,76 @@ mod tests {
                 env.get_function_registry()
                     .lookup_by_name(b"sol_alloc_free_")
                     .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn test_syscalls_check_execution_deadline() {
+        let env = create_program_runtime_environment(
+            &SVMFeatureSet::all_enabled(),
+            &SVMTransactionExecutionBudget::default(),
+            /* reject_deployment_of_broken_elfs */ false,
+            /* debugging_features */ false,
+        )
+        .unwrap();
+        let sbpf_version = *env.get_config().enabled_sbpf_versions.end();
+        let stack_size = env.get_config().stack_size();
+        prepare_mockup!(invoke_context, program_id, bpf_loader::id());
+        let mapping =
+            unsafe { MemoryMapping::new(Vec::new(), env.get_config(), sbpf_version).unwrap() };
+        invoke_context
+            .memory_contexts
+            .set_memory_context_abi_v1(MemoryContext::new(
+                BpfAllocator::new(solana_program_entrypoint::HEAP_LENGTH as u64),
+                Vec::new(),
+                mapping,
+            ))
+            .unwrap();
+
+        // Before the deadline, syscalls run as usual.
+        let (sol_get_stack_height, _) = env
+            .get_function_registry()
+            .lookup_by_name(b"sol_get_stack_height")
+            .unwrap()
+            .1;
+        let mut vm = EbpfVm::new(
+            Arc::clone(&*env),
+            sbpf_version,
+            // SAFETY: The VM is dropped before `invoke_context`.
+            unsafe {
+                std::mem::transmute::<&mut InvokeContext, &mut InvokeContext<'static, 'static>>(
+                    &mut invoke_context,
+                )
+            },
+            stack_size,
+        );
+        vm.invoke_function(sol_get_stack_height);
+        assert_matches!(vm.program_result, ProgramResult::Ok(1));
+        drop(vm);
+
+        // After the deadline, every syscall bails out before doing any work.
+        invoke_context.set_execution_deadline(Some(Instant::now()));
+        let mut vm = EbpfVm::new(
+            Arc::clone(&*env),
+            sbpf_version,
+            // SAFETY: The VM is dropped before `invoke_context`.
+            unsafe {
+                std::mem::transmute::<&mut InvokeContext, &mut InvokeContext<'static, 'static>>(
+                    &mut invoke_context,
+                )
+            },
+            stack_size,
+        );
+        for (_, (name, (function, _))) in env.get_function_registry().iter() {
+            vm.program_result = ProgramResult::Ok(0);
+            vm.invoke_function(function);
+            assert_matches!(
+                &vm.program_result,
+                ProgramResult::Err(EbpfError::SyscallError(error))
+                    if error.downcast_ref::<InstructionError>() == Some(&InstructionError::BailOut),
+                "{} did not check the execution deadline",
+                String::from_utf8_lossy(name),
             );
         }
     }

@@ -505,14 +505,18 @@ pub fn execute<'a, 'b: 'a>(
 
     let mut deserialize_time = Measure::start("deserialize");
     let execute_or_deserialize_result = execution_result.and_then(|_| {
-        deserialize_parameters(
-            invoke_context,
-            abi,
-            parameter_bytes.as_slice(),
-            virtual_address_space_adjustments,
-            account_data_direct_mapping,
-        )
-        .map_err(|error| Box::new(error) as Box<dyn std::error::Error>)
+        invoke_context
+            .check_execution_deadline()
+            .and_then(|_| {
+                deserialize_parameters(
+                    invoke_context,
+                    abi,
+                    parameter_bytes.as_slice(),
+                    virtual_address_space_adjustments,
+                    account_data_direct_mapping,
+                )
+            })
+            .map_err(|error| Box::new(error) as Box<dyn std::error::Error>)
     });
     deserialize_time.stop();
 

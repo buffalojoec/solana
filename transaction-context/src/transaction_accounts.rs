@@ -282,7 +282,7 @@ pub struct TransactionAccounts {
     borrow_counters: Box<[BorrowCounter]>,
     touched_flags: Box<[Cell<bool>]>,
     resize_delta: Cell<i64>,
-    _drop_on_bail_out: DropOnBailOut,
+    drop_on_bail_out: DropOnBailOut,
 }
 
 #[cfg(not(any(target_arch = "bpf", target_arch = "sbf")))]
@@ -326,7 +326,7 @@ impl TransactionAccounts {
             borrow_counters,
             touched_flags,
             resize_delta: Cell::new(0),
-            _drop_on_bail_out: drop_on_bail_out,
+            drop_on_bail_out,
         }
     }
 
@@ -494,6 +494,10 @@ impl TransactionAccounts {
 
     pub fn resize_delta(&self) -> i64 {
         self.resize_delta.get()
+    }
+
+    pub fn drop_on_bail_out(&self) -> DropOnBailOut {
+        self.drop_on_bail_out
     }
 
     pub(crate) fn account_key(&self, index: IndexOfAccount) -> Option<&Pubkey> {

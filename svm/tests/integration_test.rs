@@ -26,10 +26,16 @@ use {
     solana_nonce::{self as nonce, state::DurableNonce},
     solana_program_entrypoint::MAX_PERMITTED_DATA_INCREASE,
     solana_program_runtime::{
+        declare_process_instruction,
         execution_budget::{
             MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES, SVMTransactionExecutionAndFeeBudgetLimits,
         },
-        program_cache::{env::ProgramRuntimeEnvironments, tx_batch::ProgramCacheForTxBatch},
+        invoke_context::EXECUTION_TIME_LIMIT,
+        program_cache::{
+            entry::ProgramCacheEntry, env::ProgramRuntimeEnvironments,
+            tx_batch::ProgramCacheForTxBatch,
+        },
+        solana_sbpf::program::BuiltinFunctionDefinition as _,
     },
     solana_pubkey::Pubkey,
     solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, compute_budget},
@@ -61,7 +67,7 @@ use {
     solana_sysvar::rent::Rent,
     solana_transaction::{Transaction, sanitized::SanitizedTransaction},
     solana_transaction_context::transaction::TransactionReturnData,
-    solana_transaction_error::TransactionError,
+    solana_transaction_error::{TransactionError, TransactionResult},
     std::{collections::HashMap, num::NonZeroU32, slice, sync::atomic::Ordering},
     test_case::{test_case, test_matrix},
 };
@@ -3488,6 +3494,60 @@ fn svm_metrics_accumulation() {
             0
         );
     }
+}
+
+#[test_case(false, Ok(()); "replay")]
+#[test_case(true, Err(TransactionError::BailOut); "leader")]
+fn execution_deadline(drop_bail_out_transactions: bool, expected_status: TransactionResult<()>) {
+    declare_process_instruction!(MockBuiltin, 1, |_invoke_context| {
+        std::thread::sleep(EXECUTION_TIME_LIMIT);
+        Ok(())
+    });
+
+    let fee_payer_keypair = Keypair::new();
+    let fee_payer = fee_payer_keypair.pubkey();
+    let program_id = Pubkey::new_unique();
+
+    let mut test_entry = SvmTestEntry {
+        drop_bail_out_transactions,
+        ..Default::default()
+    };
+    let mut fee_payer_data = AccountSharedData::default();
+    fee_payer_data.set_lamports(LAMPORTS_PER_SOL);
+    test_entry.add_initial_account(fee_payer, &fee_payer_data);
+
+    // The first instruction outlasts the time limit, so the second one bails
+    // out only if the deadline was armed.
+    let instruction = Instruction::new_with_bytes(program_id, &[], vec![]);
+    test_entry.push_transaction(Transaction::new_signed_with_payer(
+        &[instruction.clone(), instruction],
+        Some(&fee_payer),
+        &[&fee_payer_keypair],
+        Hash::default(),
+    ));
+
+    let env = SvmTestEnvironment::create(test_entry);
+    env.mock_bank.add_builtin(
+        &env.batch_processor,
+        program_id,
+        "mock_program",
+        ProgramCacheEntry::new_builtin(MockBuiltin::register),
+    );
+
+    let (transactions, check_results) = env.test_entry.prepare_transactions();
+    let result = env.batch_processor.load_and_execute_sanitized_transactions(
+        &env.mock_bank,
+        &transactions,
+        check_results,
+        &env.processing_environment,
+        &env.processing_config,
+    );
+
+    let status = match &result.processing_results[0] {
+        Ok(processed_transaction) => processed_transaction.status(),
+        Err(err) => Err(err.clone()),
+    };
+    assert_eq!(status, expected_status);
 }
 
 // NOTE this could be moved to its own file in the future, but it requires a total refactor of the test runner
