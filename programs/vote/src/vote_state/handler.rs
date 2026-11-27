@@ -526,7 +526,7 @@ impl VoteStateHandler {
         Ok(data)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-context-only-utils"))]
     pub fn serialize(self) -> Vec<u8> {
         self.serialize_padded(VoteStateV4::size_of()).unwrap()
     }
