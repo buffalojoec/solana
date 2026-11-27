@@ -182,7 +182,8 @@ impl VoteStateHandler {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-context-only-utils"))]
+    #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
     pub(crate) fn commission(&self) -> u8 {
         match &self.target_state {
             TargetVoteState::V4(v4) => {
