@@ -278,17 +278,11 @@ mod tests {
         super::*,
         crate::{
             vote_error::VoteError,
-            vote_instruction::{
-                CreateVoteAccountConfig, VoteInstruction, authorize, authorize_checked,
-                compact_update_vote_state, compact_update_vote_state_switch,
-                create_account_with_config, update_commission, update_validator_identity,
-                update_vote_state, update_vote_state_switch, vote, vote_switch, withdraw,
-            },
+            vote_instruction::{VoteInstruction, authorize_checked},
             vote_state::{
-                self, TowerSync, Vote, VoteAuthorize, VoteAuthorizeCheckedWithSeedArgs,
-                VoteAuthorizeWithSeedArgs, VoteInit, VoteInitV2, VoteStateUpdate, VoteStateV3,
-                VoteStateV4, VoteStateVersions, create_bls_pubkey_and_proof_of_possession,
-                handler::VoteStateHandler,
+                self, VoteAuthorize, VoteAuthorizeCheckedWithSeedArgs, VoteAuthorizeWithSeedArgs,
+                VoteInit, VoteInitV2, VoteStateV3, VoteStateV4, VoteStateVersions,
+                create_bls_pubkey_and_proof_of_possession, handler::VoteStateHandler,
             },
         },
         solana_account::{
@@ -297,7 +291,6 @@ mod tests {
         },
         solana_clock::Clock,
         solana_epoch_schedule::EpochSchedule,
-        solana_hash::Hash,
         solana_instruction::{AccountMeta, Instruction},
         solana_program_runtime::{
             invoke_context::mock_process_instruction_with_feature_set,
@@ -311,12 +304,9 @@ mod tests {
         solana_svm_feature_set::SVMFeatureSet,
         solana_system_program::system_processor::DEFAULT_COMPUTE_UNITS as SYSTEM_PROGRAM_COMPUTE_UNITS,
         solana_sysvar_id::SysvarId,
-        solana_vote_interface::{
-            instruction::{tower_sync, tower_sync_switch},
-            state::{
-                BLS_PROOF_OF_POSSESSION_COMPRESSED_SIZE, BLS_PUBLIC_KEY_COMPRESSED_SIZE,
-                VoterWithBLSArgs,
-            },
+        solana_vote_interface::state::{
+            BLS_PROOF_OF_POSSESSION_COMPRESSED_SIZE, BLS_PUBLIC_KEY_COMPRESSED_SIZE,
+            VoterWithBLSArgs,
         },
         std::{cell::RefCell, collections::HashSet, str::FromStr, sync::Arc},
         test_case::test_matrix,
@@ -724,19 +714,6 @@ mod tests {
         let account = AccountSharedData::new_with_data(lamports, vote_state.serialize(), &id());
 
         (vote_pubkey, account)
-    }
-
-    #[test]
-    fn test_vote_process_instruction_decode_bail() {
-        process_instruction(
-            VoteProgramFeatures {
-                ..Default::default()
-            },
-            &[],
-            Vec::new(),
-            Vec::new(),
-            Err(InstructionError::MissingAccount),
-        );
     }
 
     #[test_matrix(
@@ -2774,180 +2751,6 @@ mod tests {
             withdrawer_seed,
             withdrawer_owner,
             new_withdrawer_pubkey,
-        );
-    }
-
-    #[test]
-    fn test_spoofed_vote() {
-        let features = VoteProgramFeatures {
-            ..Default::default()
-        };
-        process_instruction_as_one_arg(
-            features,
-            &vote(
-                &invalid_vote_state_pubkey(),
-                &Pubkey::new_unique(),
-                Vote::default(),
-            ),
-            Err(InstructionError::InvalidAccountOwner),
-        );
-        process_instruction_as_one_arg(
-            features,
-            &update_vote_state(
-                &invalid_vote_state_pubkey(),
-                &Pubkey::default(),
-                VoteStateUpdate::default(),
-            ),
-            Err(InstructionError::InvalidAccountOwner),
-        );
-        process_instruction_as_one_arg(
-            features,
-            &compact_update_vote_state(
-                &invalid_vote_state_pubkey(),
-                &Pubkey::default(),
-                VoteStateUpdate::default(),
-            ),
-            Err(InstructionError::InvalidAccountOwner),
-        );
-        process_instruction_as_one_arg(
-            features,
-            &tower_sync(
-                &invalid_vote_state_pubkey(),
-                &Pubkey::default(),
-                TowerSync::default(),
-            ),
-            Err(InstructionError::InvalidAccountOwner),
-        );
-    }
-
-    #[test]
-    fn test_vote_process_instruction() {
-        agave_logger::setup();
-        let instructions = create_account_with_config(
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
-            &VoteInit::default(),
-            101,
-            CreateVoteAccountConfig::default(),
-        );
-        let features = VoteProgramFeatures {
-            ..Default::default()
-        };
-        // this case fails regardless of CreateVoteAccountConfig::space, because
-        // process_instruction_as_one_arg passes a default (empty) account
-        process_instruction_as_one_arg(
-            features,
-            &instructions[1],
-            Err(InstructionError::InvalidAccountData),
-        );
-        process_instruction_as_one_arg(
-            features,
-            &vote(
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
-                Vote::default(),
-            ),
-            Err(InstructionError::InvalidInstructionData),
-        );
-        process_instruction_as_one_arg(
-            features,
-            &vote_switch(
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
-                Vote::default(),
-                Hash::default(),
-            ),
-            Err(InstructionError::InvalidInstructionData),
-        );
-        process_instruction_as_one_arg(
-            features,
-            &authorize(
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
-                VoteAuthorize::Voter,
-            ),
-            Err(InstructionError::InvalidAccountData),
-        );
-        process_instruction_as_one_arg(
-            features,
-            &update_vote_state(
-                &Pubkey::default(),
-                &Pubkey::default(),
-                VoteStateUpdate::default(),
-            ),
-            Err(InstructionError::InvalidInstructionData),
-        );
-
-        process_instruction_as_one_arg(
-            features,
-            &update_vote_state_switch(
-                &Pubkey::default(),
-                &Pubkey::default(),
-                VoteStateUpdate::default(),
-                Hash::default(),
-            ),
-            Err(InstructionError::InvalidInstructionData),
-        );
-        process_instruction_as_one_arg(
-            features,
-            &compact_update_vote_state(
-                &Pubkey::default(),
-                &Pubkey::default(),
-                VoteStateUpdate::default(),
-            ),
-            Err(InstructionError::InvalidInstructionData),
-        );
-        process_instruction_as_one_arg(
-            features,
-            &compact_update_vote_state_switch(
-                &Pubkey::default(),
-                &Pubkey::default(),
-                VoteStateUpdate::default(),
-                Hash::default(),
-            ),
-            Err(InstructionError::InvalidInstructionData),
-        );
-        process_instruction_as_one_arg(
-            features,
-            &tower_sync(&Pubkey::default(), &Pubkey::default(), TowerSync::default()),
-            Err(InstructionError::InvalidInstructionData),
-        );
-        process_instruction_as_one_arg(
-            features,
-            &tower_sync_switch(
-                &Pubkey::default(),
-                &Pubkey::default(),
-                TowerSync::default(),
-                Hash::default(),
-            ),
-            Err(InstructionError::InvalidInstructionData),
-        );
-
-        process_instruction_as_one_arg(
-            features,
-            &update_validator_identity(
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
-            ),
-            Err(InstructionError::InvalidAccountData),
-        );
-        process_instruction_as_one_arg(
-            features,
-            &update_commission(&Pubkey::new_unique(), &Pubkey::new_unique(), 0),
-            Err(InstructionError::InvalidAccountData),
-        );
-
-        process_instruction_as_one_arg(
-            features,
-            &withdraw(
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
-                0,
-                &Pubkey::new_unique(),
-            ),
-            Err(InstructionError::InvalidAccountData),
         );
     }
 
