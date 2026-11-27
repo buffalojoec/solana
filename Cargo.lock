@@ -11644,6 +11644,7 @@ dependencies = [
  "solana-rent",
  "solana-sdk-ids",
  "solana-slot-hashes",
+ "solana-svm",
  "solana-svm-feature-set",
  "solana-system-interface",
  "solana-system-program",
