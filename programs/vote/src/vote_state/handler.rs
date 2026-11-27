@@ -106,6 +106,7 @@ pub struct VoteStateHandler {
 }
 
 impl VoteStateHandler {
+    #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
     pub(crate) fn authorized_withdrawer(&self) -> &Pubkey {
         match &self.target_state {
             TargetVoteState::V4(v4) => &v4.authorized_withdrawer,
